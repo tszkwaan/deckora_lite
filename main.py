@@ -281,28 +281,35 @@ Your task:
         
         if passed:
             print(f"\n✅ Outline quality check passed on attempt {attempt}!")
+            # Ensure outline is preserved after break
+            if not outline:
+                print(f"   ⚠️  CRITICAL: Outline became None after passing critic!")
             break
         else:
             if attempt < OUTLINE_MAX_RETRY_LOOPS:
                 print(f"\n⚠️  Quality check failed. Retrying... ({attempt}/{OUTLINE_MAX_RETRY_LOOPS})")
                 for reason in details.get("failure_reasons", []):
                     print(f"   - {reason}")
+                # Don't reset outline - keep it for next attempt
             else:
                 print(f"\n⚠️  WARNING: Maximum retry attempts ({OUTLINE_MAX_RETRY_LOOPS}) reached.")
                 print(f"   Proceeding with outline despite quality issues.")
                 for reason in details.get("failure_reasons", []):
                     print(f"   - {reason}")
+                # Keep the outline from the last attempt
     
     print("=" * 60)
     print("✅ Outline generation complete\n")
     
-    # Debug: Check outline status
+    # Debug: Check outline status - this should ALWAYS be available if critic passed
     if outline:
         print(f"✅ Outline is available (type: {type(outline).__name__})")
         if isinstance(outline, dict):
             print(f"   Outline keys: {list(outline.keys())[:10]}")
+            print(f"   Number of slides in outline: {len(outline.get('slides', []))}")
     else:
         print(f"⚠️  WARNING: Outline is None or empty after generation loop!")
+        print(f"   This should NOT happen if critic passed - check for errors above.")
         print(f"   This will skip slide generation.")
     
     # Save outline and review
