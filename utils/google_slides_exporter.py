@@ -5,9 +5,10 @@ Exports slide deck and script to Google Slides using Google Slides API.
 
 import os
 import json
+import re
 import webbrowser
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Tuple
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -75,6 +76,172 @@ def get_credentials() -> Credentials:
         print("✅ Credentials saved for future use")
     
     return creds
+
+
+def parse_markdown_formatting(text: str) -> Tuple[str, List[Dict]]:
+    """
+    Parse markdown-style formatting and return plain text with style ranges.
+    
+    Handles:
+    - **text** for bold
+    - *text* for italic (but not **text**)
+    - Nested formatting like **bold *italic* bold**
+    
+    Args:
+        text: Text with markdown formatting (e.g., "**bold**", "*italic*")
+        
+    Returns:
+        Tuple of (plain_text, style_ranges)
+        style_ranges: List of dicts with format:
+            {
+                'start_index': int,
+                'end_index': int,
+                'bold': bool,
+                'italic': bool
+            }
+    """
+    if not text:
+        return "", []
+    
+    style_ranges = []
+    plain_text = ""
+    i = 0
+    
+    while i < len(text):
+        # Check for bold **text**
+        if i + 1 < len(text) and text[i:i+2] == '**':
+            # Find closing **
+            end = text.find('**', i + 2)
+            if end != -1:
+                # Extract bold text (without markers)
+                bold_text = text[i+2:end]
+                start_idx = len(plain_text)
+                
+                # Check if bold text contains italic and process it
+                italic_ranges = []
+                bold_plain = ""
+                j = 0
+                while j < len(bold_text):
+                    if j < len(bold_text) and bold_text[j] == '*' and (j == 0 or bold_text[j-1] != '*'):
+                        # Find closing * (but not **)
+                        italic_end = bold_text.find('*', j + 1)
+                        if italic_end != -1:
+                            # Check if it's not part of **
+                            if italic_end + 1 >= len(bold_text) or bold_text[italic_end + 1] != '*':
+                                italic_text = bold_text[j+1:italic_end]
+                                italic_start = len(bold_plain)
+                                bold_plain += italic_text
+                                italic_end_pos = len(bold_plain)
+                                italic_ranges.append({
+                                    'start': italic_start,
+                                    'end': italic_end_pos
+                                })
+                                j = italic_end + 1
+                                continue
+                    bold_plain += bold_text[j]
+                    j += 1
+                
+                # Use bold_plain (with italic markers removed) instead of bold_text
+                plain_text += bold_plain
+                end_idx = len(plain_text)
+                
+                # Add bold range for entire text
+                style_ranges.append({
+                    'start_index': start_idx,
+                    'end_index': end_idx,
+                    'bold': True,
+                    'italic': False
+                })
+                
+                # Add italic ranges within bold (adjusted for position in plain_text)
+                for italic_range in italic_ranges:
+                    style_ranges.append({
+                        'start_index': start_idx + italic_range['start'],
+                        'end_index': start_idx + italic_range['end'],
+                        'bold': True,
+                        'italic': True
+                    })
+                
+                i = end + 2
+                continue
+        
+        # Check for italic *text* (but not **text**)
+        if text[i] == '*' and (i == 0 or text[i-1] != '*') and (i + 1 >= len(text) or text[i+1] != '*'):
+            # Find closing *
+            end = text.find('*', i + 1)
+            if end != -1 and (end + 1 >= len(text) or text[end+1] != '*'):
+                # Extract italic text (without markers)
+                italic_text = text[i+1:end]
+                start_idx = len(plain_text)
+                plain_text += italic_text
+                end_idx = len(plain_text)
+                
+                style_ranges.append({
+                    'start_index': start_idx,
+                    'end_index': end_idx,
+                    'bold': False,
+                    'italic': True
+                })
+                
+                i = end + 1
+                continue
+        
+        # Regular character
+        plain_text += text[i]
+        i += 1
+    
+    return plain_text, style_ranges
+
+
+def limit_title_to_lines(title: str, max_lines: int = 2, max_chars_per_line: int = 60) -> str:
+    """
+    Limit title to max_lines by truncating or splitting.
+    
+    Args:
+        title: Original title text
+        max_lines: Maximum number of lines allowed
+        max_chars_per_line: Approximate characters per line
+        
+    Returns:
+        Truncated title (with ellipsis if truncated)
+    """
+    if not title:
+        return ""
+    
+    # If title is short enough, return as is
+    if len(title) <= max_lines * max_chars_per_line:
+        return title
+    
+    # Try to split at word boundaries
+    words = title.split()
+    lines = []
+    current_line = ""
+    
+    for word in words:
+        test_line = current_line + (" " if current_line else "") + word
+        if len(test_line) <= max_chars_per_line:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+                if len(lines) >= max_lines:
+                    # Truncate remaining
+                    remaining = " ".join([word] + words[words.index(word)+1:])
+                    if len(remaining) > max_chars_per_line - 3:
+                        remaining = remaining[:max_chars_per_line-3] + "..."
+                    lines.append(remaining)
+                    return "\n".join(lines)
+            current_line = word
+    
+    if current_line:
+        lines.append(current_line)
+    
+    # If still too long, truncate
+    result = "\n".join(lines[:max_lines])
+    if len(lines) > max_lines or len(result) > max_lines * max_chars_per_line:
+        result = result[:max_lines * max_chars_per_line - 3] + "..."
+    
+    return result
 
 
 def find_text_shape_id(slide: Dict, shape_type: str = "TITLE") -> Optional[str]:
@@ -258,10 +425,56 @@ def export_to_google_slides(
             
             # Add title text (always add if title exists and shape is found)
             if title_shape_id and slide_title:
+                # Limit title to max 2 lines
+                limited_title = limit_title_to_lines(slide_title, max_lines=2, max_chars_per_line=60)
+                
+                # Parse markdown formatting
+                plain_title, title_style_ranges = parse_markdown_formatting(limited_title)
+                
+                # Insert plain text first
                 content_requests.append({
                     'insertText': {
                         'objectId': title_shape_id,
-                        'text': slide_title
+                        'text': plain_title
+                    }
+                })
+                
+                # Apply formatting styles
+                for style_range in title_style_ranges:
+                    style_updates = {}
+                    if style_range.get('bold'):
+                        style_updates['bold'] = True
+                    if style_range.get('italic'):
+                        style_updates['italic'] = True
+                    
+                    if style_updates:
+                        content_requests.append({
+                            'updateTextStyle': {
+                                'objectId': title_shape_id,
+                                'textRange': {
+                                    'type': 'FIXED_RANGE',
+                                    'startIndex': style_range['start_index'],
+                                    'endIndex': style_range['end_index']
+                                },
+                                'style': style_updates,
+                                'fields': ','.join(style_updates.keys())
+                            }
+                        })
+                
+                # Adjust title font size to be smaller (default is usually 44pt, make it 32pt)
+                content_requests.append({
+                    'updateTextStyle': {
+                        'objectId': title_shape_id,
+                        'textRange': {
+                            'type': 'ALL'
+                        },
+                        'style': {
+                            'fontSize': {
+                                'magnitude': 32,
+                                'unit': 'PT'
+                            }
+                        },
+                        'fields': 'fontSize'
                     }
                 })
             elif slide_title:
@@ -279,12 +492,38 @@ def export_to_google_slides(
                     text_content = main_text
                 
                 if text_content:
+                    # Parse markdown formatting
+                    plain_text, style_ranges = parse_markdown_formatting(text_content)
+                    
+                    # Insert plain text first
                     content_requests.append({
                         'insertText': {
                             'objectId': content_shape_id,
-                            'text': text_content
+                            'text': plain_text
                         }
                     })
+                    
+                    # Apply formatting styles
+                    for style_range in style_ranges:
+                        style_updates = {}
+                        if style_range.get('bold'):
+                            style_updates['bold'] = True
+                        if style_range.get('italic'):
+                            style_updates['italic'] = True
+                        
+                        if style_updates:
+                            content_requests.append({
+                                'updateTextStyle': {
+                                    'objectId': content_shape_id,
+                                    'textRange': {
+                                        'type': 'FIXED_RANGE',
+                                        'startIndex': style_range['start_index'],
+                                        'endIndex': style_range['end_index']
+                                    },
+                                    'style': style_updates,
+                                    'fields': ','.join(style_updates.keys())
+                                }
+                            })
             elif bullet_points or main_text:
                 print(f"⚠️  Warning: Could not find content shape for slide {slide_number}")
             

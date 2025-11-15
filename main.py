@@ -26,12 +26,28 @@ from utils.quality_check import check_outline_quality, create_quality_log_entry
 from config import OUTLINE_MAX_RETRY_LOOPS
 
 
-def parse_duration_to_seconds(duration_str: str) -> int:
+def parse_duration_to_seconds(duration_input) -> int:
     """
-    Parse duration string to seconds.
-    Examples: "20 minutes" -> 1200, "10 minutes" -> 600, "1 hour" -> 3600
+    Parse duration to seconds.
+    Accepts either a string (e.g., "20 minutes") or an integer (assumed to be seconds).
+    Examples: "20 minutes" -> 1200, "10 minutes" -> 600, "1 hour" -> 3600, 1200 -> 1200
     """
-    duration_str = duration_str.lower().strip()
+    # If it's already an integer, assume it's already in seconds
+    if isinstance(duration_input, int):
+        return duration_input
+    
+    # If it's a float, convert to int (assume seconds)
+    if isinstance(duration_input, float):
+        return int(duration_input)
+    
+    # If it's not a string, try to convert
+    if not isinstance(duration_input, str):
+        try:
+            return int(duration_input)
+        except:
+            return 1200  # Default 20 minutes
+    
+    duration_str = duration_input.lower().strip()
     
     # Extract number and unit
     match = re.match(r'(\d+)\s*(minute|minutes|min|hour|hours|hr|second|seconds|sec)', duration_str)
