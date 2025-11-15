@@ -76,3 +76,5 @@ htmlcov/
 *.tmp
 *.temp
 .cache/
+
+COMPETITION_CHECKLIST.md

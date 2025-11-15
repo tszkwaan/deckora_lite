@@ -6,7 +6,7 @@ Exports slide deck and script to Google Slides using Google Slides API as an age
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
 from config import RETRY_CONFIG, DEFAULT_MODEL
-from utils.google_slides_exporter import export_to_google_slides
+from tools.google_slides_tool import export_slideshow_tool
 
 
 def create_slideshow_exporter_agent():
@@ -16,42 +16,6 @@ def create_slideshow_exporter_agent():
     This agent exports the slide deck and script to Google Slides format.
     It uses the Google Slides API as a tool to create the presentation.
     """
-    
-    # Define the tool function that the agent can use
-    def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: dict, title: str = "") -> dict:
-        """
-        Tool function to export slide deck and script to Google Slides.
-        
-        Args:
-            slide_deck: Slide deck JSON from slide generator
-            presentation_script: Script JSON from script generator
-            config: Presentation configuration dict
-            title: Presentation title (optional, defaults to generated title based on scenario)
-            
-        Returns:
-            Dict with status, presentation_id, and shareable_url
-        """
-        # Create a simple config object-like structure for compatibility
-        class SimpleConfig:
-            def __init__(self, config_dict):
-                self.scenario = config_dict.get('scenario', 'presentation')
-                self.duration = config_dict.get('duration', '20 minutes')
-                self.target_audience = config_dict.get('target_audience')
-                self.custom_instruction = config_dict.get('custom_instruction', '')
-        
-        simple_config = SimpleConfig(config)
-        # Use provided title or generate one from scenario
-        if title and title.strip():
-            presentation_title = title
-        else:
-            presentation_title = f"Presentation: {simple_config.scenario}"
-        
-        return export_to_google_slides(
-            slide_deck=slide_deck,
-            presentation_script=presentation_script,
-            config=simple_config,
-            title=presentation_title
-        )
     
     return LlmAgent(
         name="SlideshowExporterAgent",
