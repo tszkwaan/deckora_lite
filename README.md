@@ -67,20 +67,6 @@ Generated files in `output/` directory:
 - `presentation_outline.json` - Presentation outline
 - `complete_output.json` - All outputs combined
 
-## Troubleshooting
-
-**"GOOGLE_API_KEY not set"**
-→ Set it: `export GOOGLE_API_KEY='your-key'` or use `.env` file
-
-**"ModuleNotFoundError: google.adk"**
-→ Install: `python -m pip install -r requirements.txt`
-
-**"bad interpreter" error**
-→ Use `python -m pip` instead of `pip` (common in conda environments)
-
-**PDF loading fails**
-→ Check internet connection and verify PDF URL is accessible
-
 ## Notes
 
 - Uses `gemini-2.5-flash-lite` by default (configurable in `config.py`)
