@@ -1,0 +1,10 @@
+# Core dependencies
+google-adk
+google-genai
+pypdf
+requests
+python-dotenv  # For .env file support
+
+# Development dependencies (optional)
+ipython
+
