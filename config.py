@@ -14,7 +14,8 @@ RETRY_CONFIG = types.HttpRetryOptions(
 )
 
 # Model configuration
-DEFAULT_MODEL = "gemini-2.5-flash-lite"
+# DEFAULT_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_MODEL = "gemini-2.5-pro"
 
 # Confidence score thresholds for outline quality
 # Scores range from 0.0 to 1.0, where 1.0 is best

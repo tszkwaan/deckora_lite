@@ -3,8 +3,6 @@ Slideshow Exporter Agent.
 Exports slide deck and script to Google Slides using Google Slides API as an agent tool.
 """
 
-from typing import Optional
-
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
 from config import RETRY_CONFIG, DEFAULT_MODEL
@@ -20,7 +18,7 @@ def create_slideshow_exporter_agent():
     """
     
     # Define the tool function that the agent can use
-    def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: dict, title: Optional[str] = None) -> dict:
+    def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: dict, title: str = "") -> dict:
         """
         Tool function to export slide deck and script to Google Slides.
         
@@ -28,10 +26,10 @@ def create_slideshow_exporter_agent():
             slide_deck: Slide deck JSON from slide generator
             presentation_script: Script JSON from script generator
             config: Presentation configuration dict
-            title: Optional presentation title (defaults to "Generated Presentation")
+            title: Presentation title (optional, defaults to generated title based on scenario)
             
         Returns:
-            Dict with presentation_id and shareable_url
+            Dict with status, presentation_id, and shareable_url
         """
         # Create a simple config object-like structure for compatibility
         class SimpleConfig:
@@ -42,7 +40,11 @@ def create_slideshow_exporter_agent():
                 self.custom_instruction = config_dict.get('custom_instruction', '')
         
         simple_config = SimpleConfig(config)
-        presentation_title = title or f"Presentation: {simple_config.scenario}"
+        # Use provided title or generate one from scenario
+        if title and title.strip():
+            presentation_title = title
+        else:
+            presentation_title = f"Presentation: {simple_config.scenario}"
         
         return export_to_google_slides(
             slide_deck=slide_deck,
@@ -118,9 +120,15 @@ STYLE REQUIREMENTS
 ------------------------------------------------------------
 
 - Use the export_slideshow_tool to perform the actual export
-- Extract slide_deck and presentation_script from the message sections above
-- Build config dict from [CONFIG] section
-- Call the tool: export_slideshow_tool(slide_deck, presentation_script, config_dict)
+- Extract slide_deck and presentation_script from the [SLIDE_DECK] and [PRESENTATION_SCRIPT] sections above
+- Build config dict from [CONFIG] section (it's already JSON, just parse it)
+- **CRITICAL**: Call the tool with exactly these parameters:
+  export_slideshow_tool(
+    slide_deck=<the dict from [SLIDE_DECK] section>,
+    presentation_script=<the dict from [PRESENTATION_SCRIPT] section>,
+    config=<the dict from [CONFIG] section>,
+    title=""  # Leave empty string to use default title
+  )
 - The tool will return a dict with status, presentation_id, and shareable_url
 - **CRITICAL**: After the tool returns successfully, you MUST:
   1. Take the tool's return value (it's already a dict with status, presentation_id, shareable_url)

@@ -170,33 +170,41 @@ def export_to_google_slides(
         slides = slide_deck.get('slides', [])
         print(f"📝 Processing {len(slides)} slides...")
         
+        # Get the presentation to access the default title slide
+        presentation = service.presentations().get(
+            presentationId=presentation_id
+        ).execute()
+        slides_list = presentation.get('slides', [])
+        
         # Build all requests for creating slides and adding content
         all_requests = []
         slide_object_ids = []  # Will store slide object IDs from response
         
-        # First, create all slides and collect their object IDs
+        # For the first slide, we'll update the default title slide (index 0) instead of creating a new one
+        # For remaining slides, create new ones starting at index 1
         for idx, slide_data in enumerate(slides):
             slide_number = slide_data.get('slide_number', idx + 1)
             
-            # Determine layout
             if idx == 0:
-                layout = 'TITLE'
-            else:
-                layout = 'TITLE_AND_BODY'
+                # Skip creating the first slide - we'll update the default title slide instead
+                continue
             
-            # Create slide request
+            # Determine layout for remaining slides
+            layout = 'TITLE_AND_BODY'
+            
+            # Create slide request (insert at index idx, since we're skipping the first one)
             all_requests.append({
                 'createSlide': {
                     'slideLayoutReference': {
                         'predefinedLayout': layout
                     },
-                    'insertionIndex': idx + 1
+                    'insertionIndex': idx  # Insert at idx (which becomes 1, 2, 3, etc. after the default slide)
                 }
             })
         
-        # Execute slide creation
+        # Execute slide creation (only for slides 2+)
         if all_requests:
-            print("📊 Creating slides...")
+            print("📊 Creating additional slides...")
             response = service.presentations().batchUpdate(
                 presentationId=presentation_id,
                 body={'requests': all_requests}
@@ -213,16 +221,16 @@ def export_to_google_slides(
         ).execute()
         slides_list = presentation.get('slides', [])
         
-        print(f"📊 Found {len(slides_list)} slides in presentation (including default title slide)")
+        print(f"📊 Found {len(slides_list)} slides in presentation")
         
         # Now add content to each slide
         content_requests = []
         
-        # Note: slides_list[0] is the default title slide that comes with new presentations
-        # Our created slides start at index 1
+        # Process all slides - first slide uses the default slide at index 0
         for idx, slide_data in enumerate(slide_deck.get('slides', [])):
-            # Our slides are at index idx + 1 (skip the default title slide at index 0)
-            slide_index = idx + 1
+            # First slide uses index 0 (the default title slide)
+            # Remaining slides use index idx (1, 2, 3, etc.)
+            slide_index = idx
             if slide_index >= len(slides_list):
                 print(f"⚠️  Warning: Slide index {slide_index} out of range (max: {len(slides_list) - 1})")
                 continue
@@ -237,8 +245,10 @@ def export_to_google_slides(
             # Find title and content shapes
             # For first slide (title slide), use CENTERED_TITLE and SUBTITLE
             if idx == 0:
+                # Try CENTERED_TITLE first (most common for title slides)
                 title_shape_id = find_text_shape_id(slide, 'CENTERED_TITLE')
                 if not title_shape_id:
+                    # Fall back to TITLE if CENTERED_TITLE not found
                     title_shape_id = find_text_shape_id(slide, 'TITLE')
                 # Title slides use SUBTITLE for content, not BODY
                 content_shape_id = find_text_shape_id(slide, 'SUBTITLE')
@@ -254,9 +264,8 @@ def export_to_google_slides(
                         'text': slide_title
                     }
                 })
-                print(f"   ✅ Added title text request")
             elif slide_title:
-                print(f"   ⚠️  Warning: Could not find title shape for slide {slide_number}: {slide_title}")
+                print(f"⚠️  Warning: Could not find title shape for slide {slide_number}: {slide_title}")
             
             # Add body content
             if content_shape_id:
@@ -276,11 +285,8 @@ def export_to_google_slides(
                             'text': text_content
                         }
                     })
-                    print(f"   ✅ Added body content request ({len(text_content)} chars)")
-                else:
-                    print(f"   ⚠️  No body content to add (bullet_points={len(bullet_points)}, main_text={bool(main_text)})")
             elif bullet_points or main_text:
-                print(f"   ⚠️  Warning: Could not find content shape for slide {slide_number}")
+                print(f"⚠️  Warning: Could not find content shape for slide {slide_number}")
             
             # Add speaker notes from script
             script_section = script_map.get(slide_number)

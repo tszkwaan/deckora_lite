@@ -296,6 +296,15 @@ Your task:
     print("=" * 60)
     print("✅ Outline generation complete\n")
     
+    # Debug: Check outline status
+    if outline:
+        print(f"✅ Outline is available (type: {type(outline).__name__})")
+        if isinstance(outline, dict):
+            print(f"   Outline keys: {list(outline.keys())[:10]}")
+    else:
+        print(f"⚠️  WARNING: Outline is None or empty after generation loop!")
+        print(f"   This will skip slide generation.")
+    
     # Save outline and review
     if outline:
         outputs["presentation_outline"] = outline
@@ -304,6 +313,8 @@ Your task:
             save_json_output(outline, output_file)
             print(f"📄 Presentation outline saved to: {output_file}")
             print(f"\nPreview:\n{preview_json(outline)}\n")
+    else:
+        print("⚠️  WARNING: Cannot save outline - outline is None or empty")
     
     if outline_review:
         outputs["outline_review"] = outline_review
@@ -379,8 +390,14 @@ Your task:
                 save_json_output(slide_deck, output_file)
                 print(f"📄 Slide deck saved to: {output_file}")
                 print(f"\nPreview:\n{preview_json(slide_deck)}\n")
+            print(f"✅ Slide deck generated successfully ({len(slide_deck.get('slides', []))} slides)")
         else:
             print("⚠️  Warning: No slide_deck found in pipeline output")
+            print("   Slide generation may have failed - check agent output above")
+    else:
+        print("⚠️  WARNING: Slide generation SKIPPED because outline is None or empty!")
+        print("   Check outline generation step above for errors.")
+        slide_deck = None
     
     print("=" * 60)
     print("✅ Slide generation complete\n")
