@@ -40,6 +40,14 @@ ENV/
 .env.local
 .env.*.local
 
+# Google API credentials
+credentials/
+credentials.json
+token.json
+*.json
+!package.json
+!package-lock.json
+
 # Output files
 output/
 *.json

@@ -19,6 +19,7 @@ from agents.outline_generator import create_outline_generator_agent
 from agents.critic import create_outline_critic
 from agents.slide_generator import create_slide_generator_agent
 from agents.script_generator import create_script_generator_agent
+from agents.slideshow_exporter import create_slideshow_exporter_agent
 from utils.pdf_loader import load_pdf
 from utils.helpers import extract_output_from_events, save_json_output, preview_json
 from utils.quality_check import check_outline_quality, create_quality_log_entry
@@ -490,6 +491,125 @@ Your task:
     
     print("=" * 60)
     print("✅ Script generation complete\n")
+    
+    # Step 5: Export to Google Slides using agent
+    if slide_deck and script:
+        try:
+            print("\n" + "=" * 60)
+            print("📊 Exporting to Google Slides...")
+            print("=" * 60)
+            
+            # Create slideshow exporter agent
+            exporter_agent = create_slideshow_exporter_agent()
+            exporter_runner = InMemoryRunner(agent=exporter_agent)
+            
+            # Build message for exporter agent
+            slide_deck_json = json.dumps(slide_deck, indent=2, ensure_ascii=False)
+            script_json = json.dumps(script, indent=2, ensure_ascii=False)
+            config_dict = config.to_dict()
+            config_json = json.dumps(config_dict, indent=2, ensure_ascii=False)
+            
+            exporter_message = f"""
+[SLIDE_DECK]
+{slide_deck_json}
+[END_SLIDE_DECK]
+
+[PRESENTATION_SCRIPT]
+{script_json}
+[END_PRESENTATION_SCRIPT]
+
+[CONFIG]
+{config_json}
+[END_CONFIG]
+
+Your task:
+- Use the export_slideshow_tool to export the slide deck and script to Google Slides
+- Extract slide_deck and presentation_script from the sections above
+- Build config dict from [CONFIG] section
+- Call the tool with appropriate parameters
+- Return the result with presentation_id and shareable_url
+"""
+            
+            print("📝 Running slideshow exporter agent...")
+            exporter_events = await exporter_runner.run_debug(exporter_message, session_id=session.id)
+            
+            # Debug: Check what's in the events
+            export_result = None
+            if exporter_events:
+                print(f"📊 Debug: Found {len(exporter_events)} events")
+                for i, event in enumerate(exporter_events):
+                    if hasattr(event, 'actions'):
+                        # Check for tool results
+                        if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
+                            print(f"📊 Debug: Event {i} has {len(event.actions.tool_results)} tool results")
+                            for j, tool_result in enumerate(event.actions.tool_results):
+                                if hasattr(tool_result, 'result'):
+                                    result = tool_result.result
+                                    print(f"📊 Debug: Tool result {j} type: {type(result)}")
+                                    if isinstance(result, dict):
+                                        print(f"📊 Debug: Tool result {j} keys: {list(result.keys())}")
+                                        if 'presentation_id' in result or result.get('status') == 'success':
+                                            print(f"✅ Found export result in tool response!")
+                                            export_result = result
+                                            break
+                        # Check state_delta
+                        if hasattr(event.actions, 'state_delta'):
+                            state_delta = event.actions.state_delta
+                            print(f"📊 Debug: Event {i} - State delta keys: {list(state_delta.keys())}")
+                            if "slideshow_export_result" in state_delta:
+                                print(f"✅ Found slideshow_export_result in state_delta!")
+                                export_result = state_delta["slideshow_export_result"]
+            
+            # Try to extract from state first
+            if not export_result:
+                export_result = extract_output_from_events(exporter_events, "slideshow_export_result")
+            
+            # Handle nested result structure
+            if isinstance(export_result, dict) and "slideshow_export_result" in export_result:
+                export_result = export_result["slideshow_export_result"]
+            
+            # If still not found, try to extract from tool results
+            if not export_result:
+                for event in exporter_events:
+                    if hasattr(event, 'actions') and hasattr(event.actions, 'tool_results'):
+                        for tool_result in event.actions.tool_results:
+                            if hasattr(tool_result, 'result'):
+                                result = tool_result.result
+                                if isinstance(result, dict) and ('presentation_id' in result or result.get('status') == 'success'):
+                                    export_result = result
+                                    break
+            
+            if export_result and export_result.get("status") == "success":
+                presentation_id = export_result.get("presentation_id")
+                shareable_url = export_result.get("shareable_url")
+                
+                # Save IDs to files
+                id_file = f"{output_dir}/presentation_slides_id.txt"
+                url_file = f"{output_dir}/presentation_slides_url.txt"
+                
+                with open(id_file, 'w') as f:
+                    f.write(presentation_id)
+                with open(url_file, 'w') as f:
+                    f.write(shareable_url)
+                
+                print(f"\n✅ Google Slides export successful!")
+                print(f"   Presentation ID: {presentation_id}")
+                print(f"   Shareable URL: {shareable_url}")
+                print(f"\n📄 Presentation ID saved to: {id_file}")
+                print(f"📄 Shareable URL saved to: {url_file}")
+                
+                outputs["slideshow_export_result"] = export_result
+            else:
+                error_msg = export_result.get("error", "Unknown error") if export_result else "No result returned"
+                print(f"\n⚠️  Google Slides export failed: {error_msg}")
+                print("   Continuing without Google Slides export...")
+            
+        except FileNotFoundError as e:
+            print(f"\n⚠️  Google Slides export skipped: {e}")
+            print("   See GOOGLE_SLIDES_SETUP.md for setup instructions.")
+        except Exception as e:
+            print(f"\n⚠️  Google Slides export failed: {e}")
+            print("   Continuing without Google Slides export...")
     
     # Save complete output only if there are multiple outputs
     # When there's only one output, it's redundant with the individual file

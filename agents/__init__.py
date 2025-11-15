@@ -13,6 +13,7 @@ from agents.critic import (
     create_slides_critic,
     create_script_critic,
 )
+from agents.slideshow_exporter import create_slideshow_exporter_agent
 from agents.orchestrator import (
     create_presentation_pipeline,
     create_simple_pipeline,
@@ -28,6 +29,7 @@ __all__ = [
     "create_outline_critic",
     "create_slides_critic",
     "create_script_critic",
+    "create_slideshow_exporter_agent",
     "create_presentation_pipeline",
     "create_simple_pipeline",
 ]
