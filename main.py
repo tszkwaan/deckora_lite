@@ -130,15 +130,13 @@ Your task:
     print("=" * 60)
     
     outline_generator = create_outline_generator_agent()
-    # TODO: Uncomment when ready to use critic agent
-    # outline_critic = create_outline_critic()
+    outline_critic = create_outline_critic()
     outline_runner = InMemoryRunner(agent=outline_generator)
-    # critic_runner = InMemoryRunner(agent=outline_critic)
+    critic_runner = InMemoryRunner(agent=outline_critic)
     
-    # TODO: Uncomment when ready to use critic agent
-    # quality_logs = []
+    quality_logs = []
     outline = None
-    # outline_review = None
+    outline_review = None
     
     for attempt in range(1, OUTLINE_MAX_RETRY_LOOPS + 1):
         print(f"\n📝 Attempt {attempt}/{OUTLINE_MAX_RETRY_LOOPS}: Generating outline...")
@@ -181,90 +179,85 @@ Your task:
         # Update session state with outline (for other agents that might need it)
         session.state["presentation_outline"] = outline
         
-        # TODO: Uncomment when ready to use critic agent
-        # # Run critic - pass outline and report_knowledge directly in message
-        # print(f"🔍 Running quality check (attempt {attempt})...")
-        # 
-        # # Build critic message with explicit data
-        # outline_json = json.dumps(outline, indent=2, ensure_ascii=False)
-        # report_knowledge_json = json.dumps(report_knowledge, indent=2, ensure_ascii=False)
-        # 
-        # target_audience_section = f"[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n" if config.target_audience else "[TARGET_AUDIENCE]\nN/A\n"
-        # 
-        # critic_message = f"""
-        # [PRESENTATION_OUTLINE]
-        # {outline_json}
-        # [END_PRESENTATION_OUTLINE]
-        # 
-        # [REPORT_KNOWLEDGE]
-        # {report_knowledge_json}
-        # [END_REPORT_KNOWLEDGE]
-        # 
-        # [SCENARIO]
-        # {config.scenario}
-        # 
-        # [DURATION]
-        # {config.duration}
-        # 
-        # {target_audience_section}[CUSTOM_INSTRUCTION]
-        # {config.custom_instruction}
-        # 
-        # Your task:
-        # - Review the presentation outline using the provided data above.
-        # - Perform hallucination check by comparing outline against report_knowledge.
-        # - Perform safety check for violations.
-        # - Output the review as JSON in the required format.
-        # - Do NOT ask any questions - all data is provided above.
-        # """
-        # 
-        # critic_events = await critic_runner.run_debug(critic_message, session_id=session.id)
-        # outline_review = extract_output_from_events(critic_events, "critic_review_outline")
-        # 
-        # if not outline_review:
-        #     print(f"⚠️  Warning: No critic review generated in attempt {attempt}")
-        #     # Continue to next attempt
-        #     continue
-        # 
-        # # Debug: print the type of outline_review to help diagnose
-        # if isinstance(outline_review, str):
-        #     print(f"   ⚠️  Note: Critic review is a string, will attempt to parse as JSON")
-        #     print(f"   First 200 chars: {outline_review[:200]}...")
-        # 
-        # # Check quality
-        # passed, details = check_outline_quality(outline_review)
-        # 
-        # # Print more details if quality check failed
-        # if not passed and details.get("error"):
-        #     print(f"   ⚠️  Quality check error: {details.get('error')}")
-        #     print(f"   Review type: {type(outline_review).__name__}")
-        #     if isinstance(outline_review, dict):
-        #         print(f"   Available keys: {list(outline_review.keys())[:10]}")
-        # log_entry = create_quality_log_entry(attempt, passed, details, OUTLINE_MAX_RETRY_LOOPS)
-        # log_entry["timestamp"] = datetime.datetime.now().isoformat()
-        # quality_logs.append(log_entry)
-        # 
-        # print(f"\n📊 Quality Check Results (Attempt {attempt}):")
-        # print(f"   Hallucination Score: {details.get('hallucination_score', 'N/A')} (threshold: {details.get('hallucination_threshold', 'N/A')})")
-        # print(f"   Safety Score: {details.get('safety_score', 'N/A')} (threshold: {details.get('safety_threshold', 'N/A')})")
-        # print(f"   Status: {'✅ PASSED' if passed else '❌ FAILED'}")
-        # 
-        # if passed:
-        #     print(f"\n✅ Outline quality check passed on attempt {attempt}!")
-        #     break
-        # else:
-        #     if attempt < OUTLINE_MAX_RETRY_LOOPS:
-        #         print(f"\n⚠️  Quality check failed. Retrying... ({attempt}/{OUTLINE_MAX_RETRY_LOOPS})")
-        #         for reason in details.get("failure_reasons", []):
-        #             print(f"   - {reason}")
-        #     else:
-        #         print(f"\n⚠️  WARNING: Maximum retry attempts ({OUTLINE_MAX_RETRY_LOOPS}) reached.")
-        #         print(f"   Proceeding with outline despite quality issues.")
-        #         for reason in details.get("failure_reasons", []):
-        #             print(f"   - {reason}")
+        # Run critic - pass outline and report_knowledge directly in message
+        print(f"🔍 Running quality check (attempt {attempt})...")
         
-        # Skip quality check for now - just use the first outline generated
-        print(f"✅ Outline generated on attempt {attempt} (quality check disabled)")
-        break
+        # Build critic message with explicit data
+        outline_json = json.dumps(outline, indent=2, ensure_ascii=False)
+        report_knowledge_json = json.dumps(report_knowledge, indent=2, ensure_ascii=False)
+        
+        target_audience_section = f"[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n" if config.target_audience else "[TARGET_AUDIENCE]\nN/A\n"
+        
+        critic_message = f"""
+[PRESENTATION_OUTLINE]
+{outline_json}
+[END_PRESENTATION_OUTLINE]
+
+[REPORT_KNOWLEDGE]
+{report_knowledge_json}
+[END_REPORT_KNOWLEDGE]
+
+[SCENARIO]
+{config.scenario}
+
+[DURATION]
+{config.duration}
+
+{target_audience_section}[CUSTOM_INSTRUCTION]
+{config.custom_instruction}
+
+Your task:
+- Review the presentation outline using the provided data above.
+- Perform hallucination check by comparing outline against report_knowledge.
+- Perform safety check for violations.
+- Output the review as JSON in the required format.
+- Do NOT ask any questions - all data is provided above.
+"""
+        
+        critic_events = await critic_runner.run_debug(critic_message, session_id=session.id)
+        outline_review = extract_output_from_events(critic_events, "critic_review_outline")
+        
+        if not outline_review:
+            print(f"⚠️  Warning: No critic review generated in attempt {attempt}")
+            # Continue to next attempt
+            continue
+        
+        # Debug: print the type of outline_review to help diagnose
+        if isinstance(outline_review, str):
+            print(f"   ⚠️  Note: Critic review is a string, will attempt to parse as JSON")
+            print(f"   First 200 chars: {outline_review[:200]}...")
+        
+        # Check quality
+        passed, details = check_outline_quality(outline_review)
+        
+        # Print more details if quality check failed
+        if not passed and details.get("error"):
+            print(f"   ⚠️  Quality check error: {details.get('error')}")
+            print(f"   Review type: {type(outline_review).__name__}")
+            if isinstance(outline_review, dict):
+                print(f"   Available keys: {list(outline_review.keys())[:10]}")
+        log_entry = create_quality_log_entry(attempt, passed, details, OUTLINE_MAX_RETRY_LOOPS)
+        log_entry["timestamp"] = datetime.datetime.now().isoformat()
+        quality_logs.append(log_entry)
+        
+        print(f"\n📊 Quality Check Results (Attempt {attempt}):")
+        print(f"   Hallucination Score: {details.get('hallucination_score', 'N/A')} (threshold: {details.get('hallucination_threshold', 'N/A')})")
+        print(f"   Safety Score: {details.get('safety_score', 'N/A')} (threshold: {details.get('safety_threshold', 'N/A')})")
+        print(f"   Status: {'✅ PASSED' if passed else '❌ FAILED'}")
+        
+        if passed:
+            print(f"\n✅ Outline quality check passed on attempt {attempt}!")
+            break
+        else:
+            if attempt < OUTLINE_MAX_RETRY_LOOPS:
+                print(f"\n⚠️  Quality check failed. Retrying... ({attempt}/{OUTLINE_MAX_RETRY_LOOPS})")
+                for reason in details.get("failure_reasons", []):
+                    print(f"   - {reason}")
+            else:
+                print(f"\n⚠️  WARNING: Maximum retry attempts ({OUTLINE_MAX_RETRY_LOOPS}) reached.")
+                print(f"   Proceeding with outline despite quality issues.")
+                for reason in details.get("failure_reasons", []):
+                    print(f"   - {reason}")
     
     print("=" * 60)
     print("✅ Outline generation complete\n")
@@ -278,27 +271,26 @@ Your task:
             print(f"📄 Presentation outline saved to: {output_file}")
             print(f"\nPreview:\n{preview_json(outline)}\n")
     
-    # TODO: Uncomment when ready to use critic agent
-    # if outline_review:
-    #     outputs["outline_review"] = outline_review
-    #     if save_intermediate:
-    #         output_file = f"{output_dir}/outline_review.json"
-    #         save_json_output(outline_review, output_file)
-    #         print(f"📄 Outline review saved to: {output_file}")
-    #         print(f"\nPreview:\n{preview_json(outline_review)}\n")
-    # 
-    # # Save quality logs
-    # if quality_logs:
-    #     outputs["quality_logs"] = quality_logs
-    #     if save_intermediate:
-    #         log_file = f"{output_dir}/quality_logs.json"
-    #         save_json_output(quality_logs, log_file)
-    #         print(f"📊 Quality logs saved to: {log_file}")
-    #         
-    #         # Print summary
-    #         final_log = quality_logs[-1]
-    #         if final_log.get("status") == "max_loops_reached":
-    #             print(f"\n⚠️  WARNING: {final_log.get('warning', '')}")
+    if outline_review:
+        outputs["outline_review"] = outline_review
+        if save_intermediate:
+            output_file = f"{output_dir}/outline_review.json"
+            save_json_output(outline_review, output_file)
+            print(f"📄 Outline review saved to: {output_file}")
+            print(f"\nPreview:\n{preview_json(outline_review)}\n")
+    
+    # Save quality logs
+    if quality_logs:
+        outputs["quality_logs"] = quality_logs
+        if save_intermediate:
+            log_file = f"{output_dir}/quality_logs.json"
+            save_json_output(quality_logs, log_file)
+            print(f"📊 Quality logs saved to: {log_file}")
+            
+            # Print summary
+            final_log = quality_logs[-1]
+            if final_log.get("status") == "max_loops_reached":
+                print(f"\n⚠️  WARNING: {final_log.get('warning', '')}")
     
     # TODO: Uncomment when other agents are added
     # # Extract design_style_config
