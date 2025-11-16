@@ -20,10 +20,11 @@ from agents.critic import create_outline_critic
 from agents.slide_generator import create_slide_generator_agent
 from agents.script_generator import create_script_generator_agent
 from agents.slideshow_exporter import create_slideshow_exporter_agent
+from agents.layout_critic import create_layout_critic_agent
 from utils.pdf_loader import load_pdf
 from utils.helpers import extract_output_from_events, save_json_output, preview_json
 from utils.quality_check import check_outline_quality, create_quality_log_entry
-from config import OUTLINE_MAX_RETRY_LOOPS
+from config import OUTLINE_MAX_RETRY_LOOPS, LAYOUT_MAX_RETRY_LOOPS
 
 
 def parse_duration_to_seconds(duration_input) -> int:
@@ -313,6 +314,7 @@ Your task:
                 for reason in details.get("failure_reasons", []):
                     print(f"   - {reason}")
                 # Keep the outline from the last attempt
+        break
     
     print("=" * 60)
     print("✅ Outline generation complete\n")
@@ -360,21 +362,62 @@ Your task:
             if final_log.get("status") == "max_loops_reached":
                 print(f"\n⚠️  WARNING: {final_log.get('warning', '')}")
     
-    # Step 3: Generate slide deck
+    # Step 3 & 4: Generate slide deck, script, export, and layout review with retry loop
     if outline:
-        print("\n" + "=" * 60)
-        print("🎨 Starting slide generation...")
-        print("=" * 60)
+        slide_deck = None
+        script = None
+        layout_review = None
+        previous_layout_feedback = None
         
-        slide_generator = create_slide_generator_agent()
-        slide_runner = InMemoryRunner(agent=slide_generator)
-        
-        # Build slide generator message
-        outline_json = json.dumps(outline, indent=2, ensure_ascii=False)
-        report_knowledge_json = json.dumps(report_knowledge, indent=2, ensure_ascii=False)
-        target_audience_section = f"[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n" if config.target_audience else "[TARGET_AUDIENCE]\nN/A\n"
-        
-        slide_message = f"""
+        for layout_attempt in range(1, LAYOUT_MAX_RETRY_LOOPS + 1):
+            print("\n" + "=" * 60)
+            if layout_attempt > 1:
+                print(f"🔄 Slide Generation Retry Loop (Attempt {layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                print("=" * 60)
+                if previous_layout_feedback:
+                    print("\n📋 Previous Layout Review Feedback:")
+                    issues_summary = previous_layout_feedback.get("issues_summary", {})
+                    total_issues = issues_summary.get("total_issues", 0)
+                    print(f"   Total issues found: {total_issues}")
+                    if previous_layout_feedback.get("issues"):
+                        print(f"   Issues on {len(previous_layout_feedback['issues'])} slides")
+                        # Show specific feedback
+                        for slide_issue in previous_layout_feedback["issues"][:3]:  # Show first 3
+                            slide_num = slide_issue.get("slide_number", "?")
+                            for issue in slide_issue.get("issues", []):
+                                issue_type = issue.get("type", "unknown")
+                                count = issue.get("count", 0)
+                                print(f"   - Slide {slide_num}: {issue_type} ({count} instances)")
+            else:
+                print("🎨 Starting slide generation...")
+                print("=" * 60)
+            
+            # Step 3a: Generate slide deck
+            slide_generator = create_slide_generator_agent()
+            slide_runner = InMemoryRunner(agent=slide_generator)
+            
+            # Build slide generator message
+            outline_json = json.dumps(outline, indent=2, ensure_ascii=False)
+            report_knowledge_json = json.dumps(report_knowledge, indent=2, ensure_ascii=False)
+            target_audience_section = f"[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n" if config.target_audience else "[TARGET_AUDIENCE]\nN/A\n"
+            
+            # Add layout feedback if this is a retry
+            layout_feedback_section = ""
+            if previous_layout_feedback and layout_attempt > 1:
+                layout_feedback_json = json.dumps(previous_layout_feedback, indent=2, ensure_ascii=False)
+                layout_feedback_section = f"""
+[PREVIOUS_LAYOUT_REVIEW]
+{layout_feedback_json}
+[END_PREVIOUS_LAYOUT_REVIEW]
+
+IMPORTANT: The previous slide generation had layout issues. Please address:
+- Text overlap issues: Ensure titles and content don't overlap
+- Title length: Keep titles short (max 2 lines) and use smaller font sizes
+- Content spacing: Ensure proper spacing between text elements
+- Follow the layout feedback above to improve slide formatting
+"""
+            
+            slide_message = f"""
 [PRESENTATION_OUTLINE]
 {outline_json}
 [END_PRESENTATION_OUTLINE]
@@ -391,7 +434,7 @@ Your task:
 
 {target_audience_section}[CUSTOM_INSTRUCTION]
 {config.custom_instruction}
-
+{layout_feedback_section}
 Your task:
 - Generate detailed slide content based ONLY on the [PRESENTATION_OUTLINE] and [REPORT_KNOWLEDGE] provided above.
 - Use the scenario, duration, and custom_instruction to guide the slide content.
@@ -400,12 +443,37 @@ Your task:
 - Output the slide deck as JSON in the required format.
 - Do NOT ask any questions - all data is provided above.
 """
-        
-        print("📝 Generating slide deck...")
-        slide_events = await slide_runner.run_debug(slide_message, session_id=session.id)
-        slide_deck = extract_output_from_events(slide_events, "slide_deck")
-        
-        if slide_deck:
+            
+            print("📝 Generating slide deck...")
+            slide_events = await slide_runner.run_debug(slide_message, session_id=session.id)
+            slide_deck = extract_output_from_events(slide_events, "slide_deck")
+            
+            # Parse slide_deck if it's a string (JSON wrapped in markdown)
+            if slide_deck and isinstance(slide_deck, str):
+                try:
+                    cleaned = slide_deck.strip()
+                    if cleaned.startswith("```json"):
+                        cleaned = cleaned[7:].lstrip()
+                    elif cleaned.startswith("```"):
+                        cleaned = cleaned[3:].lstrip()
+                    if cleaned.endswith("```"):
+                        cleaned = cleaned[:-3].rstrip()
+                    slide_deck = json.loads(cleaned)
+                    print(f"📊 Debug: Parsed slide_deck from string to dict")
+                except (json.JSONDecodeError, ValueError) as e:
+                    print(f"⚠️  Warning: Could not parse slide_deck as JSON: {e}")
+                    slide_deck = None
+            
+            if not slide_deck:
+                print("⚠️  Warning: No slide_deck found in pipeline output")
+                print("   Slide generation may have failed - check agent output above")
+                if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                    print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                    continue
+                else:
+                    print("   Max retries reached. Continuing without slide deck.")
+                    break
+            
             outputs["slide_deck"] = slide_deck
             session.state["slide_deck"] = slide_deck
             if save_intermediate:
@@ -414,35 +482,24 @@ Your task:
                 print(f"📄 Slide deck saved to: {output_file}")
                 print(f"\nPreview:\n{preview_json(slide_deck)}\n")
             print(f"✅ Slide deck generated successfully ({len(slide_deck.get('slides', []))} slides)")
-        else:
-            print("⚠️  Warning: No slide_deck found in pipeline output")
-            print("   Slide generation may have failed - check agent output above")
-    else:
-        print("⚠️  WARNING: Slide generation SKIPPED because outline is None or empty!")
-        print("   Check outline generation step above for errors.")
-        slide_deck = None
-    
-    print("=" * 60)
-    print("✅ Slide generation complete\n")
-    
-    # Step 4: Generate presentation script
-    if slide_deck:
-        print("\n" + "=" * 60)
-        print("📝 Starting script generation...")
-        print("=" * 60)
-        
-        script_generator = create_script_generator_agent()
-        script_runner = InMemoryRunner(agent=script_generator)
-        
-        # Build script generator message
-        slide_deck_json = json.dumps(slide_deck, indent=2, ensure_ascii=False)
-        report_knowledge_json = json.dumps(report_knowledge, indent=2, ensure_ascii=False)
-        target_audience_section = f"[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n" if config.target_audience else "[TARGET_AUDIENCE]\nN/A\n"
-        
-        # Parse target duration to seconds for validation
-        target_duration_seconds = parse_duration_to_seconds(config.duration)
-        
-        script_message = f"""
+            
+            # Step 3b: Generate presentation script
+            print("\n" + "=" * 60)
+            print("📝 Starting script generation...")
+            print("=" * 60)
+            
+            script_generator = create_script_generator_agent()
+            script_runner = InMemoryRunner(agent=script_generator)
+            
+            # Build script generator message
+            slide_deck_json = json.dumps(slide_deck, indent=2, ensure_ascii=False)
+            report_knowledge_json = json.dumps(report_knowledge, indent=2, ensure_ascii=False)
+            target_audience_section = f"[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n" if config.target_audience else "[TARGET_AUDIENCE]\nN/A\n"
+            
+            # Parse target duration to seconds for validation
+            target_duration_seconds = parse_duration_to_seconds(config.duration)
+            
+            script_message = f"""
 [SLIDE_DECK]
 {slide_deck_json}
 [END_SLIDE_DECK]
@@ -472,12 +529,46 @@ Your task:
 - Output the script as JSON in the required format.
 - Do NOT ask any questions - all data is provided above.
 """
-        
-        print("📝 Generating presentation script...")
-        script_events = await script_runner.run_debug(script_message, session_id=session.id)
-        script = extract_output_from_events(script_events, "presentation_script")
-        
-        if script:
+            
+            print("📝 Generating presentation script...")
+            script_events = await script_runner.run_debug(script_message, session_id=session.id)
+            script = extract_output_from_events(script_events, "presentation_script")
+            
+            # Parse script if it's a string (JSON wrapped in markdown)
+            if script and isinstance(script, str):
+                try:
+                    cleaned = script.strip()
+                    if cleaned.startswith("```json"):
+                        cleaned = cleaned[7:].lstrip()
+                    elif cleaned.startswith("```"):
+                        cleaned = cleaned[3:].lstrip()
+                    if cleaned.endswith("```"):
+                        cleaned = cleaned[:-3].rstrip()
+                    script = json.loads(cleaned)
+                    print(f"📊 Debug: Parsed script from string to dict")
+                except (json.JSONDecodeError, ValueError) as e:
+                    print(f"⚠️  Warning: Could not parse script as JSON: {e}")
+                    script = None
+            
+            if not script:
+                print("⚠️  Warning: No presentation_script found in pipeline output")
+                if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                    print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                    continue
+                else:
+                    print("   Max retries reached. Continuing without script.")
+                    break
+            
+            # Ensure script is a dict before accessing
+            if not isinstance(script, dict):
+                print(f"⚠️  Warning: script is not a dict (type: {type(script).__name__})")
+                if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                    print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                    continue
+                else:
+                    print("   Max retries reached. Continuing without script.")
+                    break
+            
             # Validate estimated time matches target duration
             script_metadata = script.get("script_metadata", {})
             estimated_time_str = script_metadata.get("total_estimated_time", "")
@@ -526,130 +617,296 @@ Your task:
                 save_json_output(script, output_file)
                 print(f"📄 Presentation script saved to: {output_file}")
                 print(f"\nPreview:\n{preview_json(script)}\n")
-        else:
-            print("⚠️  Warning: No presentation_script found in pipeline output")
-    
-    print("=" * 60)
-    print("✅ Script generation complete\n")
-    
-    # Step 5: Export to Google Slides using agent
-    if slide_deck and script:
-        try:
-            print("\n" + "=" * 60)
-            print("📊 Exporting to Google Slides...")
+            
             print("=" * 60)
+            print("✅ Script generation complete\n")
             
-            # Create slideshow exporter agent
-            exporter_agent = create_slideshow_exporter_agent()
-            exporter_runner = InMemoryRunner(agent=exporter_agent)
-            
-            # Build message for exporter agent
-            slide_deck_json = json.dumps(slide_deck, indent=2, ensure_ascii=False)
-            script_json = json.dumps(script, indent=2, ensure_ascii=False)
-            config_dict = config.to_dict()
-            config_json = json.dumps(config_dict, indent=2, ensure_ascii=False)
-            
-            exporter_message = f"""
-[SLIDE_DECK]
-{slide_deck_json}
-[END_SLIDE_DECK]
+            # Step 3c: Export to Google Slides (call tool directly to avoid MALFORMED_FUNCTION_CALL)
+            try:
+                print("\n" + "=" * 60)
+                print("📊 Exporting to Google Slides...")
+                print("=" * 60)
+                
+                # Call the tool directly instead of using agent to avoid MALFORMED_FUNCTION_CALL
+                # The agent was failing because the parameters are too large for ADK to handle
+                from tools.google_slides_tool import export_slideshow_tool
+                
+                print("📝 Calling export_slideshow_tool directly...")
+                print("   (This may take a while - creating Google Slides presentation)")
+                
+                export_result = export_slideshow_tool(
+                    slide_deck=slide_deck,
+                    presentation_script=script,
+                    config=config.to_dict(),
+                    title=""
+                )
+                
+                print(f"✅ Tool call completed")
+                
+                # The tool directly returns the result dict - no need to extract from events
+                # export_result is already set from the tool call above
+                
+                # Handle nested result structure
+                if isinstance(export_result, dict) and "slideshow_export_result" in export_result:
+                    export_result = export_result["slideshow_export_result"]
+                
+                # Ensure export_result is a dict (parse JSON string if needed)
+                if export_result and isinstance(export_result, str):
+                    try:
+                        # Strip markdown code blocks if present
+                        cleaned = export_result.strip()
+                        if cleaned.startswith("```json"):
+                            cleaned = cleaned[7:].lstrip()
+                        elif cleaned.startswith("```"):
+                            cleaned = cleaned[3:].lstrip()
+                        if cleaned.endswith("```"):
+                            cleaned = cleaned[:-3].rstrip()
+                        export_result = json.loads(cleaned)
+                        print(f"📊 Debug: Parsed export_result from string to dict")
+                    except (json.JSONDecodeError, ValueError) as e:
+                        print(f"⚠️  Warning: Could not parse export_result as JSON: {e}")
+                        export_result = None
+                
+                # Final check: if we have a dict with presentation_id, accept it even without status="success"
+                if export_result and isinstance(export_result, dict):
+                    # Check if we have a valid result (either status="success" or presentation_id present)
+                    if export_result.get("status") == "success" or export_result.get("presentation_id"):
+                        # Success! Normalize the result format
+                        if not export_result.get("status"):
+                            export_result["status"] = "success"
+                        if not export_result.get("message"):
+                            export_result["message"] = "Google Slides presentation created successfully"
+                        
+                        presentation_id = export_result.get("presentation_id")
+                        shareable_url = export_result.get("shareable_url")
+                        
+                        if presentation_id:
+                            # Save IDs to files
+                            id_file = f"{output_dir}/presentation_slides_id.txt"
+                            url_file = f"{output_dir}/presentation_slides_url.txt"
+                            
+                            with open(id_file, 'w') as f:
+                                f.write(presentation_id)
+                            with open(url_file, 'w') as f:
+                                f.write(shareable_url)
+                            
+                            print(f"\n✅ Google Slides export successful!")
+                            print(f"   Presentation ID: {presentation_id}")
+                            print(f"   Shareable URL: {shareable_url}")
+                            print(f"\n📄 Presentation ID saved to: {id_file}")
+                            print(f"📄 Shareable URL saved to: {url_file}")
+                            
+                            outputs["slideshow_export_result"] = export_result
+                            
+                            # Step 3d: Layout review with Vision API
+                            if presentation_id:
+                                print("\n" + "=" * 60)
+                                print("🔍 Reviewing slide layout...")
+                                print("=" * 60)
+                                
+                                try:
+                                    # Create layout critic agent
+                                    layout_critic = create_layout_critic_agent()
+                                    layout_runner = InMemoryRunner(agent=layout_critic)
+                                    
+                                    # Build message for layout critic
+                                    layout_message = f"""
+[PRESENTATION_ID]
+{presentation_id}
+[END_PRESENTATION_ID]
 
-[PRESENTATION_SCRIPT]
-{script_json}
-[END_PRESENTATION_SCRIPT]
-
-[CONFIG]
-{config_json}
-[END_CONFIG]
+[OUTPUT_DIR]
+{output_dir}
+[END_OUTPUT_DIR]
 
 Your task:
-- Use the export_slideshow_tool to export the slide deck and script to Google Slides
-- Extract slide_deck and presentation_script from the sections above
-- Build config dict from [CONFIG] section
-- Call the tool with appropriate parameters
-- Return the result with presentation_id and shareable_url
+- Use the review_layout_tool to analyze the Google Slides presentation
+- Pass output_dir={output_dir} to save PDFs to {output_dir}/pdf/
+- The tool will export slides as images and analyze them with Vision API
+- Review the results and provide feedback on layout issues
+- Return the review as JSON in the required format
 """
-            
-            print("📝 Running slideshow exporter agent...")
-            exporter_events = await exporter_runner.run_debug(exporter_message, session_id=session.id)
-            
-            # Debug: Check what's in the events
-            export_result = None
-            if exporter_events:
-                print(f"📊 Debug: Found {len(exporter_events)} events")
-                for i, event in enumerate(exporter_events):
-                    if hasattr(event, 'actions'):
-                        # Check for tool results
-                        if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
-                            print(f"📊 Debug: Event {i} has {len(event.actions.tool_results)} tool results")
-                            for j, tool_result in enumerate(event.actions.tool_results):
-                                if hasattr(tool_result, 'result'):
-                                    result = tool_result.result
-                                    print(f"📊 Debug: Tool result {j} type: {type(result)}")
-                                    if isinstance(result, dict):
-                                        print(f"📊 Debug: Tool result {j} keys: {list(result.keys())}")
-                                        if 'presentation_id' in result or result.get('status') == 'success':
-                                            print(f"✅ Found export result in tool response!")
-                                            export_result = result
+                                    
+                                    print("📝 Running layout critic agent...")
+                                    layout_events = await layout_runner.run_debug(layout_message, session_id=session.id)
+                                    
+                                    # Extract layout review
+                                    layout_review = extract_output_from_events(layout_events, "layout_review")
+                                    
+                                    # Handle nested result structure
+                                    if isinstance(layout_review, dict) and "layout_review" in layout_review:
+                                        layout_review = layout_review["layout_review"]
+                                    
+                                    # Ensure layout_review is a dict (parse JSON string if needed)
+                                    if layout_review and isinstance(layout_review, str):
+                                        try:
+                                            # Strip markdown code blocks if present
+                                            cleaned = layout_review.strip()
+                                            if cleaned.startswith("```json"):
+                                                cleaned = cleaned[7:].lstrip()
+                                            elif cleaned.startswith("```"):
+                                                cleaned = cleaned[3:].lstrip()
+                                            if cleaned.endswith("```"):
+                                                cleaned = cleaned[:-3].rstrip()
+                                            # Try to parse as JSON
+                                            layout_review = json.loads(cleaned)
+                                            print(f"📊 Debug: Parsed layout_review from string to dict")
+                                        except (json.JSONDecodeError, ValueError) as e:
+                                            print(f"⚠️  Warning: Could not parse layout_review as JSON: {e}")
+                                            print(f"   Raw string (first 500 chars): {layout_review[:500]}")
+                                            # Try to extract JSON from the string if it contains escaped quotes
+                                            try:
+                                                # Sometimes the JSON is wrapped in quotes or has escaped quotes
+                                                # Try to unescape and parse again
+                                                import ast
+                                                unescaped = ast.literal_eval(f'"{cleaned}"') if cleaned.startswith('"') and cleaned.endswith('"') else cleaned
+                                                layout_review = json.loads(unescaped)
+                                                print(f"📊 Debug: Parsed layout_review after unescaping")
+                                            except:
+                                                layout_review = None
+                                    
+                                    if layout_review and isinstance(layout_review, dict):
+                                        # Check if there's an error in the review
+                                        if layout_review.get("error"):
+                                            error_msg = layout_review.get("error", "Unknown error")
+                                            print(f"\n⚠️  Layout review tool error: {error_msg}")
+                                            # If it's a dependency error, break (don't retry)
+                                            if "pdf2image" in error_msg.lower() or "poppler" in error_msg.lower():
+                                                print("   This is a dependency issue. Please install required packages.")
+                                                break
+                                            # For other errors, continue to retry logic
+                                            if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                                                print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                                            else:
+                                                print(f"   Max retries reached. Continuing without layout review.")
+                                                break
+                                            continue
+                                        
+                                        # Check if layout review passed
+                                        passed = layout_review.get("passed", False)
+                                        overall_quality = layout_review.get("overall_quality", "unknown")
+                                        issues_summary = layout_review.get("issues_summary", {})
+                                        issues_count = issues_summary.get("total_issues", 0) if isinstance(issues_summary, dict) else 0
+                                        
+                                        if passed:
+                                            print(f"\n✅ Layout review passed!")
+                                            print(f"   Overall quality: {overall_quality}")
+                                            print(f"\n✅ Slide generation and layout review complete!")
+                                            # Break out of retry loop - success!
                                             break
-                        # Check state_delta
-                        if hasattr(event.actions, 'state_delta'):
-                            state_delta = event.actions.state_delta
-                            print(f"📊 Debug: Event {i} - State delta keys: {list(state_delta.keys())}")
-                            if "slideshow_export_result" in state_delta:
-                                print(f"✅ Found slideshow_export_result in state_delta!")
-                                export_result = state_delta["slideshow_export_result"]
-            
-            # Try to extract from state first
-            if not export_result:
-                export_result = extract_output_from_events(exporter_events, "slideshow_export_result")
-            
-            # Handle nested result structure
-            if isinstance(export_result, dict) and "slideshow_export_result" in export_result:
-                export_result = export_result["slideshow_export_result"]
-            
-            # If still not found, try to extract from tool results
-            if not export_result:
-                for event in exporter_events:
-                    if hasattr(event, 'actions') and hasattr(event.actions, 'tool_results'):
-                        for tool_result in event.actions.tool_results:
-                            if hasattr(tool_result, 'result'):
-                                result = tool_result.result
-                                if isinstance(result, dict) and ('presentation_id' in result or result.get('status') == 'success'):
-                                    export_result = result
+                                        else:
+                                            print(f"\n⚠️  Layout review found issues!")
+                                            print(f"   Overall quality: {overall_quality}")
+                                            print(f"   Total issues: {issues_count}")
+                                            if layout_review.get("issues"):
+                                                print(f"   Issues found on {len(layout_review['issues'])} slides")
+                                            
+                                            # Store feedback for next retry
+                                            previous_layout_feedback = layout_review
+                                            
+                                            if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                                                print(f"\n🔄 Retrying slide generation with layout feedback... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                                                # Continue to next iteration of retry loop
+                                            else:
+                                                print(f"\n⚠️  WARNING: Maximum retry attempts ({LAYOUT_MAX_RETRY_LOOPS}) reached.")
+                                                print(f"   Proceeding with slides despite layout issues.")
+                                                # Break out of retry loop - max retries reached
+                                                break
+                                    elif layout_review and isinstance(layout_review, str):
+                                        print(f"\n⚠️  Layout review is a string (not parsed): {layout_review[:200]}")
+                                        if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                                            print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                                        else:
+                                            print(f"   Max retries reached. Continuing without layout review.")
+                                            break
+                                    else:
+                                        print(f"\n⚠️  Layout review not available or invalid format")
+                                        print(f"   Type: {type(layout_review).__name__ if layout_review else 'None'}")
+                                        # If we can't get layout review, assume it's okay and break
+                                        if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                                            print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                                        else:
+                                            print(f"   Max retries reached. Continuing without layout review.")
+                                            break
+                                            
+                                except FileNotFoundError as e:
+                                    print(f"\n⚠️  Layout review skipped: {e}")
+                                    print("   Vision API credentials not found. See LAYOUT_REVIEW_SETUP.md for setup.")
+                                    # If Vision API not available, skip layout review and break
                                     break
-            
-            if export_result and export_result.get("status") == "success":
-                presentation_id = export_result.get("presentation_id")
-                shareable_url = export_result.get("shareable_url")
-                
-                # Save IDs to files
-                id_file = f"{output_dir}/presentation_slides_id.txt"
-                url_file = f"{output_dir}/presentation_slides_url.txt"
-                
-                with open(id_file, 'w') as f:
-                    f.write(presentation_id)
-                with open(url_file, 'w') as f:
-                    f.write(shareable_url)
-                
-                print(f"\n✅ Google Slides export successful!")
-                print(f"   Presentation ID: {presentation_id}")
-                print(f"   Shareable URL: {shareable_url}")
-                print(f"\n📄 Presentation ID saved to: {id_file}")
-                print(f"📄 Shareable URL saved to: {url_file}")
-                
-                outputs["slideshow_export_result"] = export_result
-            else:
-                error_msg = export_result.get("error", "Unknown error") if export_result else "No result returned"
-                print(f"\n⚠️  Google Slides export failed: {error_msg}")
-                print("   Continuing without Google Slides export...")
-            
-        except FileNotFoundError as e:
-            print(f"\n⚠️  Google Slides export skipped: {e}")
-            print("   See GOOGLE_SLIDES_SETUP.md for setup instructions.")
-        except Exception as e:
-            print(f"\n⚠️  Google Slides export failed: {e}")
-            print("   Continuing without Google Slides export...")
+                                except Exception as e:
+                                    error_str = str(e)
+                                    print(f"\n⚠️  Layout review failed: {error_str}")
+                                    # Check if it's a dependency or parsing error
+                                    if "pdf2image" in error_str.lower() or "poppler" in error_str.lower() or "'str' object has no attribute 'get'" in error_str:
+                                        print("   This appears to be a dependency or parsing issue.")
+                                        print("   Skipping layout review for this attempt.")
+                                        if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                                            print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                                            continue
+                                        else:
+                                            print(f"   Max retries reached. Continuing without layout review.")
+                                            break
+                                    if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                                        print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                                    else:
+                                        print(f"   Max retries reached. Continuing without layout review.")
+                                        break
+                        else:
+                            # No presentation_id - export failed
+                            if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                                print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                                continue
+                            else:
+                                print("   Max retries reached. Continuing without Google Slides export.")
+                                break
+                            
+                else:
+                    if isinstance(export_result, dict):
+                        error_msg = export_result.get("error", "Unknown error")
+                    elif isinstance(export_result, str):
+                        error_msg = f"Export result is a string (not parsed): {export_result[:100]}"
+                    else:
+                        error_msg = f"Export result has unexpected type: {type(export_result).__name__}"
+                    if not export_result:
+                        error_msg = "No result returned"
+                    print(f"\n⚠️  Google Slides export failed: {error_msg}")
+                    if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                        print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                        continue
+                    else:
+                        print("   Max retries reached. Continuing without Google Slides export.")
+                        break
+                    
+            except FileNotFoundError as e:
+                print(f"\n⚠️  Google Slides export skipped: {e}")
+                print("   See GOOGLE_SLIDES_SETUP.md for setup instructions.")
+                # If credentials not available, break out of retry loop
+                break
+            except Exception as e:
+                print(f"\n⚠️  Google Slides export failed: {e}")
+                if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                    print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                    continue
+                else:
+                    print("   Max retries reached. Continuing without Google Slides export.")
+                    break
+        
+        # Save layout review if available
+        if layout_review:
+            outputs["layout_review"] = layout_review
+            if save_intermediate:
+                output_file = f"{output_dir}/layout_review.json"
+                save_json_output(layout_review, output_file)
+                print(f"📄 Layout review saved to: {output_file}")
+        
+        print("=" * 60)
+        print("✅ Slide generation, script, export, and layout review complete\n")
+    else:
+        print("⚠️  WARNING: Slide generation SKIPPED because outline is None or empty!")
+        print("   Check outline generation step above for errors.")
+        slide_deck = None
+        script = None
     
     # Save complete output only if there are multiple outputs
     # When there's only one output, it's redundant with the individual file
@@ -692,7 +949,7 @@ async def main():
     # Note: target_audience is optional - if not provided (or set to None), LLM will infer from scenario and report
     config = PresentationConfig(
         scenario="academic_teaching",
-        duration="20 minutes",
+        duration="2 minutes",
         target_audience="students",  # Optional - can be None to let LLM infer from scenario and report content
         custom_instruction="keep the slide as clean as possible, use more point forms, keep the details in speech only",
         report_url="https://arxiv.org/pdf/2511.08597",

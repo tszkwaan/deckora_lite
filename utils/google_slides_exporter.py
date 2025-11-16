@@ -17,7 +17,11 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # Scopes required for Google Slides API
-SCOPES = ['https://www.googleapis.com/auth/presentations']
+# Also include drive.readonly for PDF export (used by layout review)
+SCOPES = [
+    'https://www.googleapis.com/auth/presentations',
+    'https://www.googleapis.com/auth/drive.readonly'
+]
 
 # Path to credentials directory
 CREDENTIALS_DIR = Path(__file__).parent.parent / "credentials"
@@ -425,6 +429,57 @@ def export_to_google_slides(
             
             # Add title text (always add if title exists and shape is found)
             if title_shape_id and slide_title:
+                # First, clear any existing placeholder text to prevent overlap
+                # Get the shape to find current text length
+                try:
+                    # Get the slide page to access shape details
+                    page = service.presentations().pages().get(
+                        presentationId=presentation_id,
+                        pageObjectId=slide.get('objectId')
+                    ).execute()
+                    
+                    # Find the title shape and get its text length
+                    current_text_length = 0
+                    for element in page.get('pageElements', []):
+                        if element.get('objectId') == title_shape_id:
+                            shape = element.get('shape', {})
+                            if shape and shape.get('text'):
+                                text_content = shape.get('text', {})
+                                # Get text length from text elements
+                                if text_content.get('textElements'):
+                                    # Calculate total length
+                                    for text_elem in text_content.get('textElements', []):
+                                        if 'textRun' in text_elem:
+                                            current_text_length += len(text_elem['textRun'].get('content', ''))
+                                    break
+                    
+                    # Delete existing text if any
+                    if current_text_length > 0:
+                        content_requests.append({
+                            'deleteText': {
+                                'objectId': title_shape_id,
+                                'textRange': {
+                                    'type': 'FIXED_RANGE',
+                                    'startIndex': 0,
+                                    'endIndex': current_text_length
+                                }
+                            }
+                        })
+                except Exception as e:
+                    # If we can't get text length, try deleting with a large range
+                    # Google Slides will handle it gracefully
+                    print(f"⚠️  Could not get text length for title shape, using fallback: {e}")
+                    content_requests.append({
+                        'deleteText': {
+                            'objectId': title_shape_id,
+                            'textRange': {
+                                'type': 'FIXED_RANGE',
+                                'startIndex': 0,
+                                'endIndex': 1000  # Large number to clear all
+                            }
+                        }
+                    })
+                
                 # Limit title to max 2 lines
                 limited_title = limit_title_to_lines(slide_title, max_lines=2, max_chars_per_line=60)
                 
@@ -435,6 +490,7 @@ def export_to_google_slides(
                 content_requests.append({
                     'insertText': {
                         'objectId': title_shape_id,
+                        'insertionIndex': 0,
                         'text': plain_title
                     }
                 })
@@ -461,7 +517,7 @@ def export_to_google_slides(
                             }
                         })
                 
-                # Adjust title font size to be smaller (default is usually 44pt, make it 32pt)
+                # Adjust title font size to be smaller (default is usually 44pt, make it 24pt)
                 content_requests.append({
                     'updateTextStyle': {
                         'objectId': title_shape_id,
@@ -470,7 +526,7 @@ def export_to_google_slides(
                         },
                         'style': {
                             'fontSize': {
-                                'magnitude': 32,
+                                'magnitude': 24,
                                 'unit': 'PT'
                             }
                         },

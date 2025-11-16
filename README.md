@@ -25,25 +25,36 @@ python main.py
 ```
 ├── agents/              # Agent implementations
 │   ├── report_understanding.py
-│   ├── style_extractor.py
 │   ├── outline_generator.py
 │   ├── slide_generator.py
 │   ├── script_generator.py
 │   ├── critic.py
+│   ├── slideshow_exporter.py
+│   ├── layout_critic.py
 │   └── orchestrator.py
+├── tools/               # Agent tools
+│   ├── google_slides_tool.py
+│   └── google_slides_layout_tool.py
 ├── utils/               # Utility functions
 ├── config.py            # Configuration
 ├── main.py              # Main script
 └── requirements.txt     # Dependencies
 ```
 
-## Pipeline Overview
+## Multi-Agent Workflow
 
-1. **Report Understanding Agent**: Transforms raw report text into structured knowledge
-2. **Outline Generator Agent**: Creates presentation outline based on report knowledge
-3. **Slide Generator Agent**: Generates detailed slide content
-4. **Script Generator Agent**: Creates detailed presentation script
-5. **Critic Agents**: Review quality at each stage
+The pipeline uses a sequential multi-agent system with quality gates:
+
+1. **Report Understanding Agent**: Extracts structured knowledge from PDF report
+2. **Outline Generator Agent**: Creates presentation outline from report knowledge
+3. **Outline Critic Agent**: Reviews outline quality (hallucination & safety checks)
+   - Retry loop: Regenerates outline if quality check fails (max 3 attempts)
+4. **Slide Generator Agent**: Generates detailed slide content from outline
+5. **Script Generator Agent**: Creates presentation script with timing validation
+6. **Google Slides Exporter Agent**: Exports slides and script to Google Slides
+7. **Layout Critic Agent**: Reviews slide layout for text overlap issues using Vision API
+   - Retry loop: Regenerates slides if layout issues found (max 3 attempts)
+   - Passes only if no text overlap detected
 
 ## Configuration
 
@@ -65,11 +76,19 @@ config = PresentationConfig(
 Generated files in `output/` directory:
 - `report_knowledge.json` - Structured knowledge extracted from report
 - `presentation_outline.json` - Presentation outline
+- `outline_review.json` - Outline quality review
+- `slide_deck.json` - Generated slide content
+- `presentation_script.json` - Presentation script with timing
+- `presentation_slides_id.txt` - Google Slides presentation ID
+- `presentation_slides_url.txt` - Shareable Google Slides URL
+- `layout_review.json` - Layout review results (if Vision API configured)
 - `complete_output.json` - All outputs combined
 
 ## Notes
 
-- Uses `gemini-2.5-flash-lite` by default (configurable in `config.py`)
+- Uses `gemini-2.5-pro` by default (configurable in `config.py`)
 - All agents use retry configuration for API reliability
-- Intermediate outputs are saved for debugging
-- Critic agents can be disabled for faster execution
+- Quality gates: Outline must pass hallucination/safety checks; slides must pass layout review
+- Automatic retry: Both outline and slide generation retry up to 3 times if quality checks fail
+- Google Slides export requires OAuth setup (see `GOOGLE_SLIDES_SETUP.md`)
+- Layout review requires Vision API and `pdf2image` (see `LAYOUT_REVIEW_SETUP.md`)
