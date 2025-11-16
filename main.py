@@ -17,8 +17,7 @@ from agents.orchestrator import create_presentation_pipeline, create_simple_pipe
 from agents.report_understanding import create_report_understanding_agent
 from agents.outline_generator import create_outline_generator_agent
 from agents.critic import create_outline_critic
-from agents.slide_generator import create_slide_generator_agent
-from agents.script_generator import create_script_generator_agent
+from agents.slide_and_script_generator import create_slide_and_script_generator_agent
 from agents.slideshow_exporter import create_slideshow_exporter_agent
 from agents.layout_critic import create_layout_critic_agent
 from utils.pdf_loader import load_pdf
@@ -392,14 +391,21 @@ Your task:
                 print("🎨 Starting slide generation...")
                 print("=" * 60)
             
-            # Step 3a: Generate slide deck
-            slide_generator = create_slide_generator_agent()
-            slide_runner = InMemoryRunner(agent=slide_generator)
+            # Step 3a & 3b: Generate slide deck AND script together
+            print("\n" + "=" * 60)
+            print("📝 Generating slide deck and presentation script...")
+            print("=" * 60)
             
-            # Build slide generator message
+            combined_generator = create_slide_and_script_generator_agent()
+            combined_runner = InMemoryRunner(agent=combined_generator)
+            
+            # Build combined generator message
             outline_json = json.dumps(outline, indent=2, ensure_ascii=False)
             report_knowledge_json = json.dumps(report_knowledge, indent=2, ensure_ascii=False)
             target_audience_section = f"[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n" if config.target_audience else "[TARGET_AUDIENCE]\nN/A\n"
+            
+            # Parse target duration to seconds for validation
+            target_duration_seconds = parse_duration_to_seconds(config.duration)
             
             # Add layout feedback if this is a retry
             layout_feedback_section = ""
@@ -417,92 +423,10 @@ IMPORTANT: The previous slide generation had layout issues. Please address:
 - Follow the layout feedback above to improve slide formatting
 """
             
-            slide_message = f"""
+            combined_message = f"""
 [PRESENTATION_OUTLINE]
 {outline_json}
 [END_PRESENTATION_OUTLINE]
-
-[REPORT_KNOWLEDGE]
-{report_knowledge_json}
-[END_REPORT_KNOWLEDGE]
-
-[SCENARIO]
-{config.scenario}
-
-[DURATION]
-{config.duration}
-
-{target_audience_section}[CUSTOM_INSTRUCTION]
-{config.custom_instruction}
-{layout_feedback_section}
-Your task:
-- Generate detailed slide content based ONLY on the [PRESENTATION_OUTLINE] and [REPORT_KNOWLEDGE] provided above.
-- Use the scenario, duration, and custom_instruction to guide the slide content.
-- Do NOT invent any facts, numbers, or technical details not in the report_knowledge.
-- All content must be traceable to report_knowledge sections.
-- Output the slide deck as JSON in the required format.
-- Do NOT ask any questions - all data is provided above.
-"""
-            
-            print("📝 Generating slide deck...")
-            slide_events = await slide_runner.run_debug(slide_message, session_id=session.id)
-            slide_deck = extract_output_from_events(slide_events, "slide_deck")
-            
-            # Parse slide_deck if it's a string (JSON wrapped in markdown)
-            if slide_deck and isinstance(slide_deck, str):
-                try:
-                    cleaned = slide_deck.strip()
-                    if cleaned.startswith("```json"):
-                        cleaned = cleaned[7:].lstrip()
-                    elif cleaned.startswith("```"):
-                        cleaned = cleaned[3:].lstrip()
-                    if cleaned.endswith("```"):
-                        cleaned = cleaned[:-3].rstrip()
-                    slide_deck = json.loads(cleaned)
-                    print(f"📊 Debug: Parsed slide_deck from string to dict")
-                except (json.JSONDecodeError, ValueError) as e:
-                    print(f"⚠️  Warning: Could not parse slide_deck as JSON: {e}")
-                    slide_deck = None
-            
-            if not slide_deck:
-                print("⚠️  Warning: No slide_deck found in pipeline output")
-                print("   Slide generation may have failed - check agent output above")
-                if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
-                    print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
-                    continue
-                else:
-                    print("   Max retries reached. Continuing without slide deck.")
-                    break
-            
-            outputs["slide_deck"] = slide_deck
-            session.state["slide_deck"] = slide_deck
-            if save_intermediate:
-                output_file = f"{output_dir}/slide_deck.json"
-                save_json_output(slide_deck, output_file)
-                print(f"📄 Slide deck saved to: {output_file}")
-                print(f"\nPreview:\n{preview_json(slide_deck)}\n")
-            print(f"✅ Slide deck generated successfully ({len(slide_deck.get('slides', []))} slides)")
-            
-            # Step 3b: Generate presentation script
-            print("\n" + "=" * 60)
-            print("📝 Starting script generation...")
-            print("=" * 60)
-            
-            script_generator = create_script_generator_agent()
-            script_runner = InMemoryRunner(agent=script_generator)
-            
-            # Build script generator message
-            slide_deck_json = json.dumps(slide_deck, indent=2, ensure_ascii=False)
-            report_knowledge_json = json.dumps(report_knowledge, indent=2, ensure_ascii=False)
-            target_audience_section = f"[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n" if config.target_audience else "[TARGET_AUDIENCE]\nN/A\n"
-            
-            # Parse target duration to seconds for validation
-            target_duration_seconds = parse_duration_to_seconds(config.duration)
-            
-            script_message = f"""
-[SLIDE_DECK]
-{slide_deck_json}
-[END_SLIDE_DECK]
 
 [REPORT_KNOWLEDGE]
 {report_knowledge_json}
@@ -517,41 +441,61 @@ Target duration in seconds: {target_duration_seconds}
 
 {target_audience_section}[CUSTOM_INSTRUCTION]
 {config.custom_instruction}
-
+{layout_feedback_section}
 Your task:
-- Generate a detailed presentation script based on the [SLIDE_DECK] provided above.
-- Use [REPORT_KNOWLEDGE] for detailed technical content and explanations.
-- Expand on slide content with detailed explanations (especially important given: "{config.custom_instruction}").
-- Include smooth transitions between slides.
+- Generate BOTH slide deck AND presentation script in a single response.
+- Generate detailed slide content based ONLY on the [PRESENTATION_OUTLINE] and [REPORT_KNOWLEDGE] provided above.
+- Generate a detailed presentation script that expands on the slide content with detailed explanations.
+- Use the scenario, duration, and custom_instruction to guide both slide and script content.
+- Do NOT invent any facts, numbers, or technical details not in the report_knowledge.
+- All content must be traceable to report_knowledge sections.
 - CRITICAL: Ensure the total_estimated_time in script_metadata matches the target duration ({config.duration} = {target_duration_seconds} seconds).
 - Each point in main_content should have an estimated_time in seconds.
 - Sum of all estimated_time values should approximately equal {target_duration_seconds} seconds.
-- Output the script as JSON in the required format.
+- Output BOTH slide_deck and presentation_script as JSON in the required format.
 - Do NOT ask any questions - all data is provided above.
 """
             
-            print("📝 Generating presentation script...")
-            script_events = await script_runner.run_debug(script_message, session_id=session.id)
-            script = extract_output_from_events(script_events, "presentation_script")
+            print("📝 Generating slide deck and script together...")
+            combined_events = await combined_runner.run_debug(combined_message, session_id=session.id)
+            combined_output = extract_output_from_events(combined_events, "slide_and_script")
             
-            # Parse script if it's a string (JSON wrapped in markdown)
-            if script and isinstance(script, str):
+            # Parse combined_output if it's a string (JSON wrapped in markdown)
+            if combined_output and isinstance(combined_output, str):
                 try:
-                    cleaned = script.strip()
+                    cleaned = combined_output.strip()
                     if cleaned.startswith("```json"):
                         cleaned = cleaned[7:].lstrip()
                     elif cleaned.startswith("```"):
                         cleaned = cleaned[3:].lstrip()
                     if cleaned.endswith("```"):
                         cleaned = cleaned[:-3].rstrip()
-                    script = json.loads(cleaned)
-                    print(f"📊 Debug: Parsed script from string to dict")
+                    combined_output = json.loads(cleaned)
+                    print(f"📊 Debug: Parsed combined_output from string to dict")
                 except (json.JSONDecodeError, ValueError) as e:
-                    print(f"⚠️  Warning: Could not parse script as JSON: {e}")
-                    script = None
+                    print(f"⚠️  Warning: Could not parse combined_output as JSON: {e}")
+                    combined_output = None
+            
+            # Extract slide_deck and script from combined output
+            if combined_output and isinstance(combined_output, dict):
+                slide_deck = combined_output.get("slide_deck")
+                script = combined_output.get("presentation_script")
+            else:
+                slide_deck = None
+                script = None
+            
+            if not slide_deck:
+                print("⚠️  Warning: No slide_deck found in combined output")
+                print("   Slide generation may have failed - check agent output above")
+                if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
+                    print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
+                    continue
+                else:
+                    print("   Max retries reached. Continuing without slide deck.")
+                    break
             
             if not script:
-                print("⚠️  Warning: No presentation_script found in pipeline output")
+                print("⚠️  Warning: No presentation_script found in combined output")
                 if layout_attempt < LAYOUT_MAX_RETRY_LOOPS:
                     print(f"   Retrying... ({layout_attempt}/{LAYOUT_MAX_RETRY_LOOPS})")
                     continue
@@ -610,15 +554,24 @@ Your task:
             else:
                 print(f"\n⚠️  WARNING: Could not parse estimated time from script. Please verify manually.")
             
+            # Save outputs
+            outputs["slide_deck"] = slide_deck
             outputs["presentation_script"] = script
+            session.state["slide_deck"] = slide_deck
             session.state["presentation_script"] = script
+            
             if save_intermediate:
-                output_file = f"{output_dir}/presentation_script.json"
-                save_json_output(script, output_file)
-                print(f"📄 Presentation script saved to: {output_file}")
+                slide_deck_file = f"{output_dir}/slide_deck.json"
+                save_json_output(slide_deck, slide_deck_file)
+                print(f"📄 Slide deck saved to: {slide_deck_file}")
+                print(f"\nPreview:\n{preview_json(slide_deck)}\n")
+                
+                script_file = f"{output_dir}/presentation_script.json"
+                save_json_output(script, script_file)
+                print(f"📄 Presentation script saved to: {script_file}")
                 print(f"\nPreview:\n{preview_json(script)}\n")
             
-            print("=" * 60)
+            print(f"✅ Slide deck generated successfully ({len(slide_deck.get('slides', []))} slides)")
             print("✅ Script generation complete\n")
             
             # Step 3c: Export to Google Slides (call tool directly to avoid MALFORMED_FUNCTION_CALL)

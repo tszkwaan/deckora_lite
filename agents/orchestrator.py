@@ -12,8 +12,7 @@ from agents.outline_generator import create_outline_generator_agent
 from agents.critic import create_outline_critic
 # TODO: Uncomment when ready to add these agents
 # from agents.style_extractor import create_style_extractor_agent
-# from agents.slide_generator import create_slide_generator_agent
-# from agents.script_generator import create_script_generator_agent
+# from agents.slide_and_script_generator import create_slide_and_script_generator_agent
 # from agents.critic import create_slides_critic, create_script_critic
 
 
@@ -43,14 +42,10 @@ def create_presentation_pipeline(include_critics: bool = True):
     # agents.append(create_style_extractor_agent())
     
     # Continue with slide and script generation
-    # agents.extend([
-    #     create_slide_generator_agent(),
-    # ])
+    # agents.append(create_slide_and_script_generator_agent())
     
     # if include_critics:
     #     agents.append(create_slides_critic())
-    
-    # agents.append(create_script_generator_agent())
     
     # if include_critics:
     #     agents.append(create_script_critic())
@@ -95,12 +90,10 @@ def create_simple_pipeline(without_style: bool = False, without_critics: bool = 
     # if not without_critics:
     #     agents.append(create_outline_critic())
     # 
-    # agents.append(create_slide_generator_agent())
+    # agents.append(create_slide_and_script_generator_agent())
     # 
     # if not without_critics:
     #     agents.append(create_slides_critic())
-    # 
-    # agents.append(create_script_generator_agent())
     # 
     # if not without_critics:
     #     agents.append(create_script_critic())

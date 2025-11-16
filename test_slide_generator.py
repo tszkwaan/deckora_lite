@@ -12,7 +12,7 @@ from google.adk.runners import InMemoryRunner
 from google.adk.sessions import InMemorySessionService
 
 from config import PresentationConfig
-from agents.slide_generator import create_slide_generator_agent
+from agents.slide_and_script_generator import create_slide_and_script_generator_agent
 from agents.outline_generator import create_outline_generator_agent
 from agents.report_understanding import create_report_understanding_agent
 from utils.pdf_loader import load_pdf
@@ -217,20 +217,20 @@ Your task:
         "presentation_outline": presentation_outline,
     })
     
-    # Create slide generator agent
-    print("\n🔧 Creating Slide Generator Agent...")
-    slide_agent = create_slide_generator_agent()
+    # Create combined slide and script generator agent
+    print("\n🔧 Creating Slide and Script Generator Agent...")
+    combined_agent = create_slide_and_script_generator_agent()
     print("✅ Agent created")
     
     # Create runner
-    slide_runner = InMemoryRunner(agent=slide_agent)
+    combined_runner = InMemoryRunner(agent=combined_agent)
     
     # Build message
     outline_json = json.dumps(presentation_outline, indent=2, ensure_ascii=False)
     report_knowledge_json = json.dumps(report_knowledge, indent=2, ensure_ascii=False)
     target_audience_section = f"[TARGET_AUDIENCE]\n{target_audience or 'N/A'}\n" if target_audience else "[TARGET_AUDIENCE]\nN/A\n"
     
-    slide_message = f"""
+    combined_message = f"""
 [PRESENTATION_OUTLINE]
 {outline_json}
 [END_PRESENTATION_OUTLINE]
@@ -249,25 +249,35 @@ Your task:
 {custom_instruction}
 
 Your task:
+- Generate BOTH slide deck AND presentation script in a single response.
 - Generate detailed slide content based ONLY on the [PRESENTATION_OUTLINE] and [REPORT_KNOWLEDGE] provided above.
-- Use the scenario, duration, and custom_instruction to guide the slide content.
+- Generate a detailed presentation script that expands on the slide content with detailed explanations.
+- Use the scenario, duration, and custom_instruction to guide both slide and script content.
 - Do NOT invent any facts, numbers, or technical details not in the report_knowledge.
 - All content must be traceable to report_knowledge sections.
-- Output the slide deck as JSON in the required format.
+- Output BOTH slide_deck and presentation_script as JSON in the required format.
 - Do NOT ask any questions - all data is provided above.
 """
     
     # Run agent
-    print("\n🚀 Running Slide Generator Agent...")
+    print("\n🚀 Running Slide and Script Generator Agent...")
     print("=" * 60)
     
-    slide_events = await slide_runner.run_debug(slide_message, session_id=session.id)
+    combined_events = await combined_runner.run_debug(combined_message, session_id=session.id)
     
     print("=" * 60)
     print("✅ Agent execution complete\n")
     
     # Extract output
-    slide_deck = extract_output_from_events(slide_events, "slide_deck")
+    combined_output = extract_output_from_events(combined_events, "slide_and_script")
+    
+    # Extract slide_deck and script from combined output
+    if combined_output and isinstance(combined_output, dict):
+        slide_deck = combined_output.get("slide_deck")
+        script = combined_output.get("presentation_script")
+    else:
+        slide_deck = None
+        script = None
     
     if slide_deck:
         # Save to file

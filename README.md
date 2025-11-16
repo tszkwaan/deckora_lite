@@ -26,8 +26,7 @@ python main.py
 ├── agents/              # Agent implementations
 │   ├── report_understanding.py
 │   ├── outline_generator.py
-│   ├── slide_generator.py
-│   ├── script_generator.py
+│   ├── slide_and_script_generator.py
 │   ├── critic.py
 │   ├── slideshow_exporter.py
 │   ├── layout_critic.py
@@ -49,9 +48,8 @@ The pipeline uses a sequential multi-agent system with quality gates:
 2. **Outline Generator Agent**: Creates presentation outline from report knowledge
 3. **Outline Critic Agent**: Reviews outline quality (hallucination & safety checks)
    - Retry loop: Regenerates outline if quality check fails (max 3 attempts)
-4. **Slide Generator Agent**: Generates detailed slide content from outline
-5. **Script Generator Agent**: Creates presentation script with timing validation
-6. **Google Slides Exporter Agent**: Exports slides and script to Google Slides
+4. **Slide and Script Generator Agent**: Generates both detailed slide content and presentation script together
+5. **Google Slides Exporter Agent**: Exports slides and script to Google Slides
 7. **Layout Critic Agent**: Reviews slide layout for text overlap issues using Vision API
    - Retry loop: Regenerates slides if layout issues found (max 3 attempts)
    - Passes only if no text overlap detected
