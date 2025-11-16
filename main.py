@@ -13,13 +13,10 @@ from google.adk.runners import InMemoryRunner
 from google.adk.sessions import InMemorySessionService
 
 from config import PresentationConfig
-from agents.orchestrator import create_presentation_pipeline, create_simple_pipeline
 from agents.report_understanding import create_report_understanding_agent
 from agents.outline_generator import create_outline_generator_agent
 from agents.critic import create_outline_critic
 from agents.slide_and_script_generator import create_slide_and_script_generator_agent
-from agents.slideshow_exporter import create_slideshow_exporter_agent
-from agents.layout_critic import create_layout_critic_agent
 from utils.pdf_loader import load_pdf
 from utils.helpers import extract_output_from_events, save_json_output, preview_json
 from utils.quality_check import check_outline_quality, create_quality_log_entry
@@ -108,17 +105,6 @@ async def run_presentation_pipeline(
     
     # Set up session state
     session.state.update(config.to_dict())
-    
-    # Create pipeline
-    print("🔧 Creating presentation pipeline...")
-    if include_critics:
-        pipeline = create_presentation_pipeline(include_critics=True)
-    else:
-        pipeline = create_simple_pipeline(without_critics=True)
-    print("✅ Pipeline created")
-    
-    # Create runner
-    runner = InMemoryRunner(agent=pipeline)
     
     # Build initial message with explicit presentation config to prevent hallucination
     # TARGET_AUDIENCE is optional - if not provided, LLM will infer it
@@ -693,78 +679,6 @@ Your task:
                                     # """
                                     # print("📝 Running layout critic agent...")
                                     # layout_events = await layout_runner.run_debug(layout_message, session_id=session.id)
-                                    
-                                    # Skip agent extraction if we called the tool directly
-                                    if not skip_agent_extraction:
-                                        # Debug: Log all events to understand what was returned
-                                        print(f"\n🔍 [DEBUG] Layout critic agent returned {len(layout_events)} events")
-                                        for idx, event in enumerate(layout_events):
-                                            print(f"   Event {idx}: type={type(event).__name__}")
-                                            if hasattr(event, 'content') and event.content:
-                                                print(f"      content.parts: {len(event.content.parts) if hasattr(event.content, 'parts') else 'N/A'}")
-                                            if hasattr(event, 'actions') and event.actions:
-                                                print(f"      actions.state_delta keys: {list(event.actions.state_delta.keys()) if hasattr(event.actions, 'state_delta') and event.actions.state_delta else 'N/A'}")
-                                                if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
-                                                    print(f"      actions.tool_results: {len(event.actions.tool_results)} results")
-                                            if hasattr(event, 'get_function_calls'):
-                                                func_calls = event.get_function_calls()
-                                                if func_calls:
-                                                    print(f"      function_calls: {len(func_calls)} calls")
-                                            if hasattr(event, 'error_code') and event.error_code:
-                                                print(f"      ERROR: {event.error_code} - {getattr(event, 'error_message', 'N/A')}")
-                                            if hasattr(event, 'finish_reason') and event.finish_reason:
-                                                print(f"      finish_reason: {event.finish_reason}")
-                                        
-                                        # Extract layout review
-                                        layout_review = extract_output_from_events(layout_events, "layout_review")
-                                        print(f"\n🔍 [DEBUG] Extracted layout_review from state: type={type(layout_review).__name__ if layout_review else 'None'}")
-                                        
-                                        # If not found in state, try to extract directly from tool responses
-                                        if layout_review is None:
-                                            print(f"🔍 [DEBUG] layout_review not in state, checking tool responses...")
-                                            for event in reversed(layout_events):
-                                                # Check function_response.response
-                                                if hasattr(event, 'content') and event.content:
-                                                    if hasattr(event.content, 'parts'):
-                                                        for part in event.content.parts:
-                                                            if hasattr(part, 'function_response') and part.function_response:
-                                                                if hasattr(part.function_response, 'response'):
-                                                                    response = part.function_response.response
-                                                                    print(f"   Found function_response.response: type={type(response).__name__}")
-                                                                    if isinstance(response, dict):
-                                                                        # The tool returns the review directly
-                                                                        layout_review = response
-                                                                        print(f"   ✅ Extracted layout_review from function_response.response")
-                                                                        break
-                                                if layout_review is not None:
-                                                    break
-                                                
-                                                # Check tool_results
-                                                if hasattr(event, 'actions') and event.actions:
-                                                    if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
-                                                        for tool_result in event.actions.tool_results:
-                                                            if hasattr(tool_result, 'response'):
-                                                                response = tool_result.response
-                                                                print(f"   Found tool_result.response: type={type(response).__name__}")
-                                                                if isinstance(response, dict):
-                                                                    layout_review = response
-                                                                    print(f"   ✅ Extracted layout_review from tool_result.response")
-                                                                    break
-                                                        if layout_review is not None:
-                                                            break
-                                        
-                                        if layout_review:
-                                            if isinstance(layout_review, dict):
-                                                print(f"   ✅ Final layout_review keys: {list(layout_review.keys())[:10]}")
-                                            elif isinstance(layout_review, str):
-                                                print(f"   ⚠️  layout_review is a string (first 200 chars): {layout_review[:200]}")
-                                        else:
-                                            print(f"   ❌ layout_review is still None after all extraction attempts")
-                                        
-                                        # Handle nested result structure
-                                        if isinstance(layout_review, dict) and "layout_review" in layout_review:
-                                            print(f"🔍 [DEBUG] Found nested layout_review, unwrapping...")
-                                            layout_review = layout_review["layout_review"]
                                     
                                     # Ensure layout_review is a dict (parse JSON string if needed)
                                     if layout_review and isinstance(layout_review, str):

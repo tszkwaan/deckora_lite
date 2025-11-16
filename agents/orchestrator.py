@@ -11,7 +11,6 @@ from agents.report_understanding import create_report_understanding_agent
 from agents.outline_generator import create_outline_generator_agent
 from agents.critic import create_outline_critic
 # TODO: Uncomment when ready to add these agents
-# from agents.style_extractor import create_style_extractor_agent
 # from agents.slide_and_script_generator import create_slide_and_script_generator_agent
 # from agents.critic import create_slides_critic, create_script_critic
 
@@ -37,9 +36,6 @@ def create_presentation_pipeline(include_critics: bool = True):
         agents.append(create_outline_critic())
         # Optionally add a loop agent to refine outline based on critic feedback
         # For now, we'll keep it simple and sequential
-    
-    # TODO: Uncomment when ready to add these agents
-    # agents.append(create_style_extractor_agent())
     
     # Continue with slide and script generation
     # agents.append(create_slide_and_script_generator_agent())
@@ -82,9 +78,6 @@ def create_simple_pipeline(without_style: bool = False, without_critics: bool = 
     ]
     
     # TODO: Uncomment when ready to add these agents
-    # if not without_style:
-    #     agents.append(create_style_extractor_agent())
-    # 
     # agents.append(create_outline_generator_agent())
     # 
     # if not without_critics:
