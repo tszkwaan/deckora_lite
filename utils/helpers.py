@@ -8,7 +8,10 @@ from typing import Any, Dict, Optional
 
 def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
     """
-    Extract output from the last event's state_delta.
+    Extract output from events, checking multiple locations:
+    1. state_delta (primary location)
+    2. content.parts[].function_response.response (tool responses)
+    3. actions.tool_results (tool results)
     
     Args:
         events: List of events from runner.run_debug()
@@ -20,8 +23,46 @@ def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
     if not events:
         return None
     
+    # Priority 1: Check state_delta in last event
     last_event = events[-1]
-    raw = last_event.actions.state_delta.get(output_key, None)
+    raw = None
+    
+    if hasattr(last_event, 'actions') and last_event.actions:
+        if hasattr(last_event.actions, 'state_delta') and last_event.actions.state_delta:
+            raw = last_event.actions.state_delta.get(output_key, None)
+    
+    # Priority 2: Check content.parts[].function_response.response (tool responses)
+    if raw is None:
+        for event in reversed(events):  # Check from last to first
+            if hasattr(event, 'content') and event.content:
+                if hasattr(event.content, 'parts'):
+                    for part in event.content.parts:
+                        if hasattr(part, 'function_response') and part.function_response:
+                            if hasattr(part.function_response, 'response'):
+                                response = part.function_response.response
+                                if isinstance(response, dict):
+                                    raw = response.get(output_key, None)
+                                    if raw is not None:
+                                        break
+                        if raw is not None:
+                            break
+                if raw is not None:
+                    break
+    
+    # Priority 3: Check actions.tool_results
+    if raw is None:
+        for event in reversed(events):  # Check from last to first
+            if hasattr(event, 'actions') and event.actions:
+                if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
+                    for tool_result in event.actions.tool_results:
+                        if hasattr(tool_result, 'response'):
+                            response = tool_result.response
+                            if isinstance(response, dict):
+                                raw = response.get(output_key, None)
+                                if raw is not None:
+                                    break
+                    if raw is not None:
+                        break
     
     if raw is None:
         return None

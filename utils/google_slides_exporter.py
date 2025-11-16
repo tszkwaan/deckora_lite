@@ -18,9 +18,11 @@ from googleapiclient.errors import HttpError
 
 # Scopes required for Google Slides API
 # Also include drive.readonly for PDF export (used by layout review)
+# And cloud-platform for Vision API (used by layout review)
 SCOPES = [
     'https://www.googleapis.com/auth/presentations',
-    'https://www.googleapis.com/auth/drive.readonly'
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/cloud-platform'  # Required for Vision API (layout review)
 ]
 
 # Path to credentials directory

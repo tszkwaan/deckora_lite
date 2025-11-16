@@ -195,40 +195,22 @@ After reviewing, respond with JSON:
 }
 
 ------------------------------------------------------------
-STYLE REQUIREMENTS
+CRITICAL: OUTPUT RULES
 ------------------------------------------------------------
 
-- Use the review_layout_tool to get actual analysis data
-- The tool already determines pass/fail: passed = true only if there are NO text overlap issues
-- **CRITICAL**: If the tool returns an error (check for "error" key in tool output), you MUST return a proper JSON dict (NOT a string) with this exact structure:
-{
-  "review_type": "layout",
-  "presentation_id": "<presentation_id>",
-  "overall_quality": "unknown",
-  "total_slides_reviewed": 0,
-  "issues_summary": {
-    "total_issues": 0,
-    "overlaps_detected": 0,
-    "overflow_detected": 0,
-    "overlap_severity": {
-      "critical": 0,
-      "major": 0,
-      "minor": 0
-    }
-  },
-  "issues": [],
-  "recommendations": ["Install required dependencies: pdf2image, Pillow, and poppler"],
-  "passed": false,
-  "error": "<error message from tool>"
-}
-- **CRITICAL**: NEVER return just a string message. ALWAYS return a complete JSON dict with all required fields.
-- Interpret the tool's results and provide human-readable feedback
-- Prioritize critical issues (severe overlaps)
-- Provide specific, actionable suggestions
-- Use the "passed" value from the tool's output (don't override it)
-- **CRITICAL**: Always return a valid JSON dict, never return a plain string
-- Output must be valid JSON without markdown code blocks
-- Do NOT wrap the JSON in markdown code blocks (no ```json)
+**THE TOOL ALREADY RETURNS A COMPLETE JSON DICT. JUST RETURN IT AS-IS.**
+
+1. Call review_layout_tool(presentation_id, output_dir)
+2. The tool returns a dict with all required fields already filled in
+3. Return that dict directly - DO NOT modify it, DO NOT add text, DO NOT explain
+4. If the tool has an "error" key, that's fine - return the dict with the error included
+5. **NEVER return a string. ALWAYS return the tool's dict output.**
+
+Example: If tool returns {"review_type": "layout", "error": "pdf2image not installed", ...}
+Then you return: {"review_type": "layout", "error": "pdf2image not installed", ...}
+Do NOT return: "The layout review could not be completed because..."
+
+**DO NOT GENERATE YOUR OWN TEXT. JUST RETURN THE TOOL'S OUTPUT.**
 
 """,
         tools=[review_layout_tool],

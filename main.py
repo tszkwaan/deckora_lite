@@ -705,37 +705,113 @@ Your task:
                                 print("=" * 60)
                                 
                                 try:
-                                    # Create layout critic agent
-                                    layout_critic = create_layout_critic_agent()
-                                    layout_runner = InMemoryRunner(agent=layout_critic)
+                                    # Call the tool directly instead of using the agent to avoid extraction issues
+                                    print("📝 Calling layout review tool directly...")
+                                    from tools.google_slides_layout_tool import review_slides_layout
                                     
-                                    # Build message for layout critic
-                                    layout_message = f"""
-[PRESENTATION_ID]
-{presentation_id}
-[END_PRESENTATION_ID]
-
-[OUTPUT_DIR]
-{output_dir}
-[END_OUTPUT_DIR]
-
-Your task:
-- Use the review_layout_tool to analyze the Google Slides presentation
-- Pass output_dir={output_dir} to save PDFs to {output_dir}/pdf/
-- The tool will export slides as images and analyze them with Vision API
-- Review the results and provide feedback on layout issues
-- Return the review as JSON in the required format
-"""
+                                    # Call the tool directly
+                                    layout_review = review_slides_layout(presentation_id, output_dir=output_dir)
+                                    print(f"✅ Tool call completed directly")
+                                    print(f"🔍 [DEBUG] Direct tool result type: {type(layout_review).__name__}")
+                                    if isinstance(layout_review, dict):
+                                        print(f"   ✅ Direct tool result keys: {list(layout_review.keys())[:10]}")
                                     
-                                    print("📝 Running layout critic agent...")
-                                    layout_events = await layout_runner.run_debug(layout_message, session_id=session.id)
+                                    # Skip agent extraction - we have the result directly
+                                    skip_agent_extraction = True
                                     
-                                    # Extract layout review
-                                    layout_review = extract_output_from_events(layout_events, "layout_review")
+                                    # OLD CODE: Using agent (commented out for now)
+                                    # layout_critic = create_layout_critic_agent()
+                                    # layout_runner = InMemoryRunner(agent=layout_critic)
+                                    # layout_message = f"""
+                                    # [PRESENTATION_ID]
+                                    # {presentation_id}
+                                    # [END_PRESENTATION_ID]
+                                    # 
+                                    # [OUTPUT_DIR]
+                                    # {output_dir}
+                                    # [END_OUTPUT_DIR]
+                                    # 
+                                    # Your task:
+                                    # - Use the review_layout_tool to analyze the Google Slides presentation
+                                    # - Pass output_dir={output_dir} to save PDFs to {output_dir}/pdf/
+                                    # - The tool will export slides as images and analyze them with Vision API
+                                    # - Review the results and provide feedback on layout issues
+                                    # - Return the review as JSON in the required format
+                                    # """
+                                    # print("📝 Running layout critic agent...")
+                                    # layout_events = await layout_runner.run_debug(layout_message, session_id=session.id)
                                     
-                                    # Handle nested result structure
-                                    if isinstance(layout_review, dict) and "layout_review" in layout_review:
-                                        layout_review = layout_review["layout_review"]
+                                    # Skip agent extraction if we called the tool directly
+                                    if not skip_agent_extraction:
+                                        # Debug: Log all events to understand what was returned
+                                        print(f"\n🔍 [DEBUG] Layout critic agent returned {len(layout_events)} events")
+                                        for idx, event in enumerate(layout_events):
+                                            print(f"   Event {idx}: type={type(event).__name__}")
+                                            if hasattr(event, 'content') and event.content:
+                                                print(f"      content.parts: {len(event.content.parts) if hasattr(event.content, 'parts') else 'N/A'}")
+                                            if hasattr(event, 'actions') and event.actions:
+                                                print(f"      actions.state_delta keys: {list(event.actions.state_delta.keys()) if hasattr(event.actions, 'state_delta') and event.actions.state_delta else 'N/A'}")
+                                                if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
+                                                    print(f"      actions.tool_results: {len(event.actions.tool_results)} results")
+                                            if hasattr(event, 'get_function_calls'):
+                                                func_calls = event.get_function_calls()
+                                                if func_calls:
+                                                    print(f"      function_calls: {len(func_calls)} calls")
+                                            if hasattr(event, 'error_code') and event.error_code:
+                                                print(f"      ERROR: {event.error_code} - {getattr(event, 'error_message', 'N/A')}")
+                                            if hasattr(event, 'finish_reason') and event.finish_reason:
+                                                print(f"      finish_reason: {event.finish_reason}")
+                                        
+                                        # Extract layout review
+                                        layout_review = extract_output_from_events(layout_events, "layout_review")
+                                        print(f"\n🔍 [DEBUG] Extracted layout_review from state: type={type(layout_review).__name__ if layout_review else 'None'}")
+                                        
+                                        # If not found in state, try to extract directly from tool responses
+                                        if layout_review is None:
+                                            print(f"🔍 [DEBUG] layout_review not in state, checking tool responses...")
+                                            for event in reversed(layout_events):
+                                                # Check function_response.response
+                                                if hasattr(event, 'content') and event.content:
+                                                    if hasattr(event.content, 'parts'):
+                                                        for part in event.content.parts:
+                                                            if hasattr(part, 'function_response') and part.function_response:
+                                                                if hasattr(part.function_response, 'response'):
+                                                                    response = part.function_response.response
+                                                                    print(f"   Found function_response.response: type={type(response).__name__}")
+                                                                    if isinstance(response, dict):
+                                                                        # The tool returns the review directly
+                                                                        layout_review = response
+                                                                        print(f"   ✅ Extracted layout_review from function_response.response")
+                                                                        break
+                                                if layout_review is not None:
+                                                    break
+                                                
+                                                # Check tool_results
+                                                if hasattr(event, 'actions') and event.actions:
+                                                    if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
+                                                        for tool_result in event.actions.tool_results:
+                                                            if hasattr(tool_result, 'response'):
+                                                                response = tool_result.response
+                                                                print(f"   Found tool_result.response: type={type(response).__name__}")
+                                                                if isinstance(response, dict):
+                                                                    layout_review = response
+                                                                    print(f"   ✅ Extracted layout_review from tool_result.response")
+                                                                    break
+                                                        if layout_review is not None:
+                                                            break
+                                        
+                                        if layout_review:
+                                            if isinstance(layout_review, dict):
+                                                print(f"   ✅ Final layout_review keys: {list(layout_review.keys())[:10]}")
+                                            elif isinstance(layout_review, str):
+                                                print(f"   ⚠️  layout_review is a string (first 200 chars): {layout_review[:200]}")
+                                        else:
+                                            print(f"   ❌ layout_review is still None after all extraction attempts")
+                                        
+                                        # Handle nested result structure
+                                        if isinstance(layout_review, dict) and "layout_review" in layout_review:
+                                            print(f"🔍 [DEBUG] Found nested layout_review, unwrapping...")
+                                            layout_review = layout_review["layout_review"]
                                     
                                     # Ensure layout_review is a dict (parse JSON string if needed)
                                     if layout_review and isinstance(layout_review, str):
@@ -788,6 +864,11 @@ Your task:
                                         issues_summary = layout_review.get("issues_summary", {})
                                         issues_count = issues_summary.get("total_issues", 0) if isinstance(issues_summary, dict) else 0
                                         
+                                        # Always save layout_review to outputs (even if it passed or failed)
+                                        # This ensures it's included in complete_output.json
+                                        outputs["layout_review"] = layout_review
+                                        print(f"💾 [DEBUG] Saved layout_review to outputs (keys: {list(layout_review.keys())[:5]})")
+                                        
                                         if passed:
                                             print(f"\n✅ Layout review passed!")
                                             print(f"   Overall quality: {overall_quality}")
@@ -798,8 +879,37 @@ Your task:
                                             print(f"\n⚠️  Layout review found issues!")
                                             print(f"   Overall quality: {overall_quality}")
                                             print(f"   Total issues: {issues_count}")
+                                            
+                                            # Print detailed issue information
                                             if layout_review.get("issues"):
-                                                print(f"   Issues found on {len(layout_review['issues'])} slides")
+                                                print(f"\n📋 Detailed Issues Found:")
+                                                print(f"   Issues found on {len(layout_review['issues'])} slides:")
+                                                for slide_issue in layout_review['issues']:
+                                                    slide_num = slide_issue.get("slide_number", "?")
+                                                    print(f"\n   Slide {slide_num}:")
+                                                    for issue in slide_issue.get("issues", []):
+                                                        issue_type = issue.get("type", "unknown")
+                                                        count = issue.get("count", 0)
+                                                        details = issue.get("details", [])
+                                                        print(f"      - {issue_type}: {count} instance(s)")
+                                                        if details:
+                                                            for detail in details[:3]:  # Show first 3 details
+                                                                if isinstance(detail, dict):
+                                                                    # For text_overlap, show the actual words
+                                                                    if issue_type == "text_overlap":
+                                                                        word1 = detail.get("word1", "")
+                                                                        word2 = detail.get("word2", "")
+                                                                        if word1 and word2:
+                                                                            print(f"        • \"{word1}\" overlaps with \"{word2}\"")
+                                                                        elif detail.get("description"):
+                                                                            print(f"        • {detail.get('description', '')[:100]}")
+                                                                        else:
+                                                                            print(f"        • Overlap detected (details unavailable)")
+                                                                    else:
+                                                                        # For other issue types, show description
+                                                                        desc = detail.get("description", detail.get("text", ""))
+                                                                        if desc:
+                                                                            print(f"        • {desc[:100]}")
                                             
                                             # Store feedback for next retry
                                             previous_layout_feedback = layout_review
@@ -892,13 +1002,28 @@ Your task:
                     print("   Max retries reached. Continuing without Google Slides export.")
                     break
         
-        # Save layout review if available
+        # Save layout review if available (may have been saved earlier, but ensure it's saved here too)
         if layout_review:
-            outputs["layout_review"] = layout_review
-            if save_intermediate:
-                output_file = f"{output_dir}/layout_review.json"
-                save_json_output(layout_review, output_file)
-                print(f"📄 Layout review saved to: {output_file}")
+            if "layout_review" not in outputs:
+                outputs["layout_review"] = layout_review
+                print(f"💾 [DEBUG] Saved layout_review to outputs at end of loop")
+            else:
+                print(f"💾 [DEBUG] layout_review already in outputs")
+        else:
+            print(f"⚠️  [DEBUG] layout_review is None - not saving to outputs")
+        
+        # Always save layout_review.json if it exists
+        if layout_review and save_intermediate:
+            output_file = f"{output_dir}/layout_review.json"
+            save_json_output(layout_review, output_file)
+            print(f"📄 Layout review saved to: {output_file}")
+        
+        # Debug: Print what's in outputs before saving complete_output.json
+        print(f"\n🔍 [DEBUG] Outputs keys before saving complete_output.json: {list(outputs.keys())}")
+        if "layout_review" in outputs:
+            print(f"   ✅ layout_review is in outputs")
+        else:
+            print(f"   ❌ layout_review is NOT in outputs")
         
         print("=" * 60)
         print("✅ Slide generation, script, export, and layout review complete\n")
@@ -949,7 +1074,7 @@ async def main():
     # Note: target_audience is optional - if not provided (or set to None), LLM will infer from scenario and report
     config = PresentationConfig(
         scenario="academic_teaching",
-        duration="2 minutes",
+        duration="1 minute",
         target_audience="students",  # Optional - can be None to let LLM infer from scenario and report content
         custom_instruction="keep the slide as clean as possible, use more point forms, keep the details in speech only",
         report_url="https://arxiv.org/pdf/2511.08597",

@@ -1,11 +1,13 @@
 """
 Google Slides Layout Analysis Tool.
-Exports slides as images and analyzes them using Google Cloud Vision API.
+Exports slides as images and analyzes them using Google Cloud Vision API (OCR) or Gemini Vision API (prompt-based).
 """
 
 import os
 import io
 import json
+import base64
+import re
 from typing import Dict, List, Optional
 from pathlib import Path
 
@@ -23,15 +25,24 @@ except ImportError:
     VISION_AVAILABLE = False
     vision = None
 
+try:
+    from google.genai import Client
+    GEMINI_VISION_AVAILABLE = True
+except ImportError:
+    GEMINI_VISION_AVAILABLE = False
+    Client = None
+
 # Check pdf2image availability at runtime, not at import time
 # This allows the module to load even if pdf2image is not installed
 PDF2IMAGE_AVAILABLE = None  # Will be checked at runtime
 convert_from_bytes = None
 
 # Scopes required
+# Note: cloud-platform scope is needed for Vision API
 SCOPES = [
     'https://www.googleapis.com/auth/presentations',
-    'https://www.googleapis.com/auth/drive.readonly'
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/cloud-platform'  # Required for Vision API
 ]
 
 # Path to credentials directory
@@ -192,21 +203,33 @@ def export_slides_as_images(presentation_id: str, output_dir: str = "output") ->
             print(f"❌ [FAILED] PDF to image conversion error: {e}")
             raise
         
-        # Convert PIL Images to bytes
-        print(f"📦 [IN PROGRESS] Converting PIL Images to bytes...")
+        # Save images to output/img/ directory
+        img_dir = Path(output_dir) / "img"
+        img_dir.mkdir(parents=True, exist_ok=True)
+        print(f"💾 [IN PROGRESS] Saving images to {img_dir}/...")
+        
+        # Convert PIL Images to bytes and save to disk
+        print(f"📦 [IN PROGRESS] Converting PIL Images to bytes and saving to disk...")
         image_bytes_list = []
         for idx, image in enumerate(images, start=1):
             try:
+                # Save image to disk
+                img_filename = f"{presentation_id}_slide_{idx:03d}.png"
+                img_path = img_dir / img_filename
+                image.save(img_path, format='PNG')
+                print(f"   💾 Slide {idx} saved to: {img_path}")
+                
+                # Also convert to bytes for in-memory processing
                 img_bytes = io.BytesIO()
                 image.save(img_bytes, format='PNG')
                 img_bytes.seek(0)
                 image_bytes_list.append(img_bytes.read())
-                print(f"   ✅ Slide {idx} converted to PNG ({len(image_bytes_list[-1])} bytes)")
+                print(f"   ✅ Slide {idx} converted to PNG bytes ({len(image_bytes_list[-1])} bytes)")
             except Exception as e:
-                print(f"   ❌ [FAILED] Failed to convert slide {idx} to bytes: {e}")
+                print(f"   ❌ [FAILED] Failed to process slide {idx}: {e}")
                 raise
         
-        print(f"✅ [SUCCESS] All {len(image_bytes_list)} slides converted to image bytes")
+        print(f"✅ [SUCCESS] All {len(image_bytes_list)} slides saved to {img_dir}/ and converted to bytes")
         return image_bytes_list
         
     except Exception as e:
@@ -214,12 +237,21 @@ def export_slides_as_images(presentation_id: str, output_dir: str = "output") ->
         raise
 
 
-def detect_text_overlaps(word_data: List[Dict]) -> List[Dict]:
+def detect_text_overlaps(word_data: List[Dict], min_overlap_ratio: float = 0.05, min_overlap_area: int = 50) -> List[Dict]:
     """
     Detect overlapping text bounding boxes.
     
+    This is RULE-BASED (not prompt engineering):
+    1. Vision API provides OCR bounding boxes for each word
+    2. We check if bounding boxes overlap geometrically
+    3. We filter out minor overlaps (OCR artifacts) using thresholds
+    
     Args:
         word_data: List of dicts with 'text' and 'bounding_box' keys
+        min_overlap_ratio: Minimum overlap ratio to consider it a real overlap (default: 0.05 = 5%)
+                          This filters out tiny overlaps from OCR bounding box inaccuracies
+        min_overlap_area: Minimum overlap area in pixels to consider it a real overlap (default: 50)
+                          This filters out overlaps that are too small to be visible
         
     Returns:
         List of overlap detections
@@ -231,19 +263,23 @@ def detect_text_overlaps(word_data: List[Dict]) -> List[Dict]:
             box1 = word1['bounding_box']
             box2 = word2['bounding_box']
             
-            # Check if boxes overlap
+            # Check if boxes overlap geometrically
             if boxes_overlap(box1, box2):
                 overlap_area = calculate_overlap_area(box1, box2)
                 box1_area = (box1['x2'] - box1['x1']) * (box1['y2'] - box1['y1'])
                 box2_area = (box2['x2'] - box2['x1']) * (box2['y2'] - box2['y1'])
                 overlap_ratio = overlap_area / min(box1_area, box2_area) if min(box1_area, box2_area) > 0 else 0
                 
-                overlaps.append({
-                    'word1': word1['text'],
-                    'word2': word2['text'],
-                    'overlap_ratio': overlap_ratio,
-                    'severity': 'critical' if overlap_ratio > 0.5 else 'major' if overlap_ratio > 0.2 else 'minor'
-                })
+                # Filter out minor overlaps (OCR artifacts)
+                # Only report if overlap is significant enough to be visible
+                if overlap_area >= min_overlap_area and overlap_ratio >= min_overlap_ratio:
+                    overlaps.append({
+                        'word1': word1['text'],
+                        'word2': word2['text'],
+                        'overlap_area': overlap_area,
+                        'overlap_ratio': overlap_ratio,
+                        'severity': 'critical' if overlap_ratio > 0.5 else 'major' if overlap_ratio > 0.2 else 'minor'
+                    })
     
     return overlaps
 
@@ -291,6 +327,355 @@ def check_text_overflow(words: List[Dict], image_width: int, image_height: int, 
             })
     
     return overflow_issues
+
+
+def analyze_slides_batch_gemini_vision(slide_images: List[bytes], presentation_id: str = "") -> List[Dict]:
+    """
+    Analyze multiple slide images using Gemini Vision API with prompts.
+    This is PROMPT-BASED (not rule-based) - Gemini actually "sees" the images.
+    
+    Args:
+        slide_images: List of image data as bytes (one per slide)
+        presentation_id: Presentation ID for logging (optional)
+        
+    Returns:
+        List of dicts with layout analysis results (one per slide)
+    """
+    if not GEMINI_VISION_AVAILABLE:
+        error_msg = "google-genai is not installed. Install it with: pip install google-genai"
+        print(f"❌ [FAILED] Gemini Vision API dependency check: {error_msg}")
+        raise ImportError(error_msg)
+    
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        error_msg = "GOOGLE_API_KEY environment variable not set"
+        print(f"❌ [FAILED] {error_msg}")
+        raise ValueError(error_msg)
+    
+    print(f"\n🔍 [GEMINI VISION MODE] Analyzing {len(slide_images)} slides with Gemini Vision API (prompt-based)...")
+    
+    try:
+        # Initialize Gemini Vision client
+        client = Client(api_key=api_key)
+        print(f"   ✅ Gemini Vision client initialized")
+        
+        # Analyze each slide with Gemini Vision
+        results = []
+        for slide_num, image_bytes in enumerate(slide_images, start=1):
+            print(f"   📊 [IN PROGRESS] Analyzing slide {slide_num}/{len(slide_images)} with Gemini Vision...")
+            
+            try:
+                # Convert image bytes to base64
+                image_base64 = base64.b64encode(image_bytes).decode()
+                
+                # Create prompt for layout analysis
+                prompt = """Analyze this presentation slide image for layout issues. 
+
+Check for:
+1. **Text Overlap**: Are any text elements visually overlapping each other? (Not just bounding boxes - actual visible text overlap)
+2. **Empty Slides**: Is this slide empty or mostly empty?
+3. **Text Overflow**: Does any text extend beyond its container or slide boundaries?
+4. **Spacing Issues**: Is there adequate whitespace between elements?
+5. **Alignment Issues**: Are elements properly aligned?
+
+IMPORTANT: 
+- Focus on VISUAL overlap of actual text content, not just bounding box overlaps
+- Consider that text boxes may have padding, so slight bounding box overlaps are normal
+- Only report overlaps if the actual text characters are visually overlapping
+
+Return a JSON object with this exact structure:
+{
+    "slide_number": <number>,
+    "text_overlap_detected": <true/false>,
+    "empty_slide": <true/false>,
+    "text_overflow_detected": <true/false>,
+    "spacing_issues": <true/false>,
+    "alignment_issues": <true/false>,
+    "issues": [
+        {
+            "type": "<text_overlap | empty_slide | text_overflow | spacing | alignment>",
+            "description": "<detailed description>",
+            "severity": "<critical | major | minor>"
+        }
+    ],
+    "recommendations": ["<recommendation1>", "<recommendation2>"],
+    "overall_quality": "<excellent | good | needs_improvement | poor>"
+}
+
+Return ONLY valid JSON, no markdown code blocks, no explanations."""
+                
+                # Call Gemini Vision API
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash-exp",
+                    contents=[
+                        {
+                            "role": "user",
+                            "parts": [
+                                {"text": prompt},
+                                {
+                                    "inline_data": {
+                                        "mime_type": "image/png",
+                                        "data": image_base64
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                )
+                
+                # Parse response
+                response_text = response.text.strip()
+                
+                # Remove markdown code blocks if present
+                if response_text.startswith("```json"):
+                    response_text = response_text[7:].lstrip()
+                elif response_text.startswith("```"):
+                    response_text = response_text[3:].lstrip()
+                if response_text.endswith("```"):
+                    response_text = response_text[:-3].rstrip()
+                
+                # Parse JSON
+                try:
+                    analysis = json.loads(response_text)
+                    # Ensure slide_number is set
+                    analysis['slide_number'] = slide_num
+                    
+                    # Convert to our standard format
+                    overlaps = []
+                    overflow_issues = []
+                    
+                    for issue in analysis.get('issues', []):
+                        if issue.get('type') == 'text_overlap':
+                            # Extract actual text from description if possible
+                            description = issue.get('description', '')
+                            # Try to extract text elements from description
+                            # Format might be: "Title text overlaps with content text" or "Text 'X' overlaps with 'Y'"
+                            word1_text = 'text_element_1'
+                            word2_text = 'text_element_2'
+                            
+                            # Try to extract quoted text or specific mentions
+                            quoted_texts = re.findall(r"'([^']+)'", description) or re.findall(r'"([^"]+)"', description)
+                            if len(quoted_texts) >= 2:
+                                word1_text = quoted_texts[0]
+                                word2_text = quoted_texts[1]
+                            elif len(quoted_texts) == 1:
+                                word1_text = quoted_texts[0]
+                                word2_text = 'another_text_element'
+                            
+                            # If no quotes, try to extract from common patterns
+                            if word1_text == 'text_element_1':
+                                # Look for patterns like "X overlaps with Y" or "Title overlaps with content"
+                                overlap_pattern = re.search(r'(\w+(?:\s+\w+)*)\s+overlaps?\s+with\s+(\w+(?:\s+\w+)*)', description, re.IGNORECASE)
+                                if overlap_pattern:
+                                    word1_text = overlap_pattern.group(1)
+                                    word2_text = overlap_pattern.group(2)
+                            
+                            overlaps.append({
+                                'word1': word1_text,
+                                'word2': word2_text,
+                                'overlap_ratio': 0.5 if issue.get('severity') == 'critical' else 0.3 if issue.get('severity') == 'major' else 0.1,
+                                'severity': issue.get('severity', 'minor'),
+                                'description': description  # Keep full description for context
+                            })
+                        elif issue.get('type') == 'text_overflow':
+                            overflow_issues.append({
+                                'text': 'text_element',
+                                'issue': issue.get('description', 'Text overflow detected')
+                            })
+                    
+                    result = {
+                        'slide_number': slide_num,
+                        'text_detected': not analysis.get('empty_slide', False),
+                        'full_text': '',  # Gemini Vision doesn't extract text, just analyzes layout
+                        'word_count': 0,
+                        'words': [],
+                        'overlaps': overlaps,
+                        'overflow_issues': overflow_issues,
+                        'empty_slide': analysis.get('empty_slide', False),
+                        'spacing_issues': analysis.get('spacing_issues', False),
+                        'alignment_issues': analysis.get('alignment_issues', False),
+                        'overall_quality': analysis.get('overall_quality', 'unknown'),
+                        'recommendations': analysis.get('recommendations', []),
+                        'gemini_analysis': analysis  # Keep full Gemini response
+                    }
+                    
+                    results.append(result)
+                    
+                    if analysis.get('text_overlap_detected'):
+                        print(f"   ⚠️  Slide {slide_num}: Text overlap detected")
+                    elif analysis.get('empty_slide'):
+                        print(f"   ⚠️  Slide {slide_num}: Empty slide detected")
+                    else:
+                        print(f"   ✅ Slide {slide_num}: No major issues detected")
+                        
+                except json.JSONDecodeError as e:
+                    print(f"   ⚠️  Slide {slide_num}: Failed to parse Gemini response as JSON: {e}")
+                    print(f"   Raw response: {response_text[:200]}...")
+                    # Return empty result on parse error
+                    results.append({
+                        'slide_number': slide_num,
+                        'text_detected': False,
+                        'error': f'Failed to parse Gemini response: {e}',
+                        'words': [],
+                        'overlaps': [],
+                        'overflow_issues': []
+                    })
+                    
+            except Exception as e:
+                print(f"   ❌ [FAILED] Error analyzing slide {slide_num} with Gemini Vision: {e}")
+                results.append({
+                    'slide_number': slide_num,
+                    'text_detected': False,
+                    'error': str(e),
+                    'words': [],
+                    'overlaps': [],
+                    'overflow_issues': []
+                })
+        
+        print(f"   ✅ [SUCCESS] Gemini Vision analysis completed for {len(results)} slides")
+        return results
+        
+    except Exception as e:
+        print(f"   ❌ [FAILED] Gemini Vision batch error: {e}")
+        raise
+
+
+def analyze_slides_batch_vision_api(slide_images: List[bytes]) -> List[Dict]:
+    """
+    Analyze multiple slide images using Google Cloud Vision API in a single batch request.
+    This is more cost-effective than individual requests.
+    
+    Args:
+        slide_images: List of image data as bytes (one per slide)
+        
+    Returns:
+        List of dicts with text detection results and layout analysis (one per slide)
+    """
+    if not VISION_AVAILABLE:
+        error_msg = "google-cloud-vision is not installed. Install it with: pip install google-cloud-vision"
+        print(f"❌ [FAILED] Vision API dependency check: {error_msg}")
+        raise ImportError(error_msg)
+    
+    print(f"\n🔍 [BATCH MODE] Analyzing {len(slide_images)} slides in a single Vision API batch request...")
+    
+    try:
+        # Initialize Vision API client
+        try:
+            creds = get_credentials()
+            client = vision.ImageAnnotatorClient(credentials=creds)
+            print(f"   ✅ Vision API client initialized with OAuth credentials")
+        except Exception as e:
+            print(f"   ⚠️  OAuth credentials not available, using default credentials: {e}")
+            client = vision.ImageAnnotatorClient()
+            print(f"   ✅ Vision API client initialized with default credentials")
+        
+        # Prepare batch request - create image objects for all slides
+        requests = []
+        for image_bytes in slide_images:
+            image = vision.Image(content=image_bytes)
+            request = vision.AnnotateImageRequest(
+                image=image,
+                features=[vision.Feature(type_=vision.Feature.Type.TEXT_DETECTION)]
+            )
+            requests.append(request)
+        
+        # Perform batch text detection (all slides in one API call)
+        print(f"   📊 [IN PROGRESS] Calling Vision API batch_annotate_images for {len(requests)} slides...")
+        try:
+            batch_request = vision.BatchAnnotateImagesRequest(requests=requests)
+            response = client.batch_annotate_images(request=batch_request)
+            print(f"   ✅ [SUCCESS] Vision API batch request completed")
+        except Exception as e:
+            print(f"   ❌ [FAILED] Vision API batch request error: {e}")
+            raise
+        
+        # Process results - map back to individual slides
+        results = []
+        for slide_num, (image_bytes, annotate_response) in enumerate(zip(slide_images, response.responses), start=1):
+            if annotate_response.error.message:
+                print(f"   ⚠️  Error on slide {slide_num}: {annotate_response.error.message}")
+                results.append({
+                    'slide_number': slide_num,
+                    'text_detected': False,
+                    'error': annotate_response.error.message,
+                    'words': [],
+                    'overlaps': [],
+                    'overflow_issues': []
+                })
+                continue
+            
+            texts = annotate_response.text_annotations
+            
+            if not texts:
+                print(f"   ⚠️  No text detected in slide {slide_num}")
+                results.append({
+                    'slide_number': slide_num,
+                    'text_detected': False,
+                    'words': [],
+                    'overlaps': [],
+                    'overflow_issues': []
+                })
+                continue
+            
+            # First annotation contains all text
+            full_text = texts[0].description
+            
+            # Remaining annotations are individual words with bounding boxes
+            word_data = []
+            for text in texts[1:]:
+                vertices = text.bounding_poly.vertices
+                if len(vertices) >= 4:
+                    word_data.append({
+                        'text': text.description,
+                        'bounding_box': {
+                            'x1': vertices[0].x,
+                            'y1': vertices[0].y,
+                            'x2': vertices[2].x if len(vertices) > 2 else vertices[0].x,
+                            'y2': vertices[2].y if len(vertices) > 2 else vertices[0].y,
+                        }
+                    })
+            
+            # Detect overlaps
+            overlaps = detect_text_overlaps(word_data)
+            
+            # Get image dimensions
+            if word_data:
+                max_x = max(w['bounding_box']['x2'] for w in word_data)
+                max_y = max(w['bounding_box']['y2'] for w in word_data)
+                image_width = max_x + 100
+                image_height = max_y + 100
+            else:
+                image_width = 1920
+                image_height = 1080
+            
+            # Check for text overflow
+            overflow_issues = check_text_overflow(word_data, image_width, image_height)
+            
+            results.append({
+                'slide_number': slide_num,
+                'text_detected': True,
+                'full_text': full_text,
+                'word_count': len(word_data),
+                'words': word_data,
+                'overlaps': overlaps,
+                'overflow_issues': overflow_issues,
+                'estimated_dimensions': {
+                    'width': image_width,
+                    'height': image_height
+                }
+            })
+            
+            if overlaps:
+                print(f"   ⚠️  Slide {slide_num}: Found {len(overlaps)} text overlap(s)")
+            else:
+                print(f"   ✅ Slide {slide_num}: No overlaps detected ({len(word_data)} words)")
+        
+        print(f"   ✅ [SUCCESS] Batch analysis completed for {len(results)} slides")
+        return results
+        
+    except Exception as e:
+        print(f"   ❌ [FAILED] Vision API batch error: {e}")
+        raise
 
 
 def analyze_slide_with_vision_api(image_bytes: bytes, slide_num: int = 0) -> Dict:
@@ -447,33 +832,89 @@ def review_slides_layout(presentation_id: str, output_dir: str = "output") -> Di
         slide_images = export_slides_as_images(presentation_id, output_dir=output_dir)
         
         print("\n" + "=" * 60)
-        print("🤖 STEP 3: Analyze Slides with Vision API (VLM)")
+        print("🤖 STEP 3: Analyze Slides for Layout Issues")
         print("=" * 60)
-        print(f"📊 Analyzing {len(slide_images)} slides with Vision API...")
         
-        # Step 2: Analyze each slide with Vision API (VLM)
+        # Step 2: Analyze slides with Gemini Vision API (prompt-based, visual analysis)
+        if not GEMINI_VISION_AVAILABLE:
+            error_msg = "google-genai is not installed. Install it with: pip install google-genai"
+            print(f"❌ [FAILED] {error_msg}")
+            raise ImportError(error_msg)
+        
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            error_msg = "GOOGLE_API_KEY environment variable not set"
+            print(f"❌ [FAILED] {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Validate slide_images is not None
+        if slide_images is None:
+            error_msg = "Failed to export slides as images - slide_images is None"
+            print(f"❌ [FAILED] {error_msg}")
+            raise ValueError(error_msg)
+        
+        print(f"📊 Analyzing {len(slide_images)} slides with Gemini Vision API (prompt-based, visual analysis)...")
+        batch_results = analyze_slides_batch_gemini_vision(slide_images, presentation_id=presentation_id)
+        
+        # Validate batch_results is not None
+        if batch_results is None:
+            error_msg = "Gemini Vision analysis returned None"
+            print(f"❌ [FAILED] {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Step 3: Process batch results and collect issues
         all_issues = []
-        for slide_num, image_bytes in enumerate(slide_images, start=1):
-            print(f"\n--- Slide {slide_num}/{len(slide_images)} ---")
+        for analysis in batch_results:
+            # Skip None or invalid analysis results
+            if not analysis or not isinstance(analysis, dict):
+                print(f"   ⚠️  Skipping invalid analysis result: {type(analysis).__name__}")
+                continue
             
-            # Analyze with Vision API (VLM)
-            analysis = analyze_slide_with_vision_api(image_bytes, slide_num=slide_num)
+            slide_num = analysis.get('slide_number', 0)
             
             # Collect issues
             slide_issues = []
             
-            if analysis.get('overlaps'):
+            # Handle overlaps (from both Gemini Vision and Vision API)
+            overlaps = analysis.get('overlaps')
+            if overlaps and isinstance(overlaps, list):
                 slide_issues.append({
                     'type': 'text_overlap',
-                    'count': len(analysis['overlaps']),
-                    'details': analysis['overlaps']
+                    'count': len(overlaps),
+                    'details': overlaps
                 })
             
-            if analysis.get('overflow_issues'):
+            # Handle overflow issues
+            overflow_issues = analysis.get('overflow_issues')
+            if overflow_issues and isinstance(overflow_issues, list):
                 slide_issues.append({
                     'type': 'text_overflow',
-                    'count': len(analysis['overflow_issues']),
-                    'details': analysis['overflow_issues']
+                    'count': len(overflow_issues),
+                    'details': overflow_issues
+                })
+            
+            # Handle empty slides (from Gemini Vision)
+            if analysis.get('empty_slide'):
+                slide_issues.append({
+                    'type': 'empty_slide',
+                    'count': 1,
+                    'details': [{'description': 'Slide appears to be empty or mostly empty'}]
+                })
+            
+            # Handle spacing issues (from Gemini Vision)
+            if analysis.get('spacing_issues'):
+                slide_issues.append({
+                    'type': 'spacing',
+                    'count': 1,
+                    'details': [{'description': 'Inadequate whitespace between elements'}]
+                })
+            
+            # Handle alignment issues (from Gemini Vision)
+            if analysis.get('alignment_issues'):
+                slide_issues.append({
+                    'type': 'alignment',
+                    'count': 1,
+                    'details': [{'description': 'Elements are not properly aligned'}]
                 })
             
             if slide_issues:
