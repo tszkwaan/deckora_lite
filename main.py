@@ -7,6 +7,7 @@ import asyncio
 import json
 import datetime
 import re
+import logging
 from pathlib import Path
 
 from google.adk.runners import InMemoryRunner
@@ -21,6 +22,19 @@ from utils.pdf_loader import load_pdf
 from utils.helpers import extract_output_from_events, save_json_output, preview_json
 from utils.quality_check import check_outline_quality, create_quality_log_entry
 from config import OUTLINE_MAX_RETRY_LOOPS, LAYOUT_MAX_RETRY_LOOPS
+
+
+def create_runner(agent):
+    """
+    Create an InMemoryRunner for the agent.
+    
+    Args:
+        agent: The agent to run
+        
+    Returns:
+        InMemoryRunner instance
+    """
+    return InMemoryRunner(agent=agent)
 
 
 def parse_duration_to_seconds(duration_input) -> int:
@@ -142,7 +156,7 @@ Your task:
     
     # Step 1: Generate report knowledge (no retry needed)
     report_knowledge_agent = create_report_understanding_agent()
-    report_runner = InMemoryRunner(agent=report_knowledge_agent)
+    report_runner = create_runner(report_knowledge_agent)
     report_events = await report_runner.run_debug(initial_message, session_id=session.id)
     
     # Extract report_knowledge
@@ -167,8 +181,8 @@ Your task:
     
     outline_generator = create_outline_generator_agent()
     outline_critic = create_outline_critic()
-    outline_runner = InMemoryRunner(agent=outline_generator)
-    critic_runner = InMemoryRunner(agent=outline_critic)
+    outline_runner = create_runner(outline_generator)
+    critic_runner = create_runner(outline_critic)
     
     quality_logs = []
     outline = None
@@ -176,6 +190,9 @@ Your task:
     
     for attempt in range(1, OUTLINE_MAX_RETRY_LOOPS + 1):
         print(f"\n📝 Attempt {attempt}/{OUTLINE_MAX_RETRY_LOOPS}: Generating outline...")
+        
+        if attempt > 1:
+            pass  # Retry attempt
         
         # Build outline generator message with explicit data to prevent hallucination
         report_knowledge_json = json.dumps(report_knowledge, indent=2, ensure_ascii=False)
@@ -383,7 +400,7 @@ Your task:
             print("=" * 60)
             
             combined_generator = create_slide_and_script_generator_agent()
-            combined_runner = InMemoryRunner(agent=combined_generator)
+            combined_runner = create_runner(combined_generator)
             
             # Build combined generator message
             outline_json = json.dumps(outline, indent=2, ensure_ascii=False)
@@ -913,29 +930,41 @@ Your task:
 
 async def main():
     """Main function for local development."""
+    # Clean up any previous logs
+    for log_file in ["logger.log", "web.log", "tunnel.log"]:
+        if os.path.exists(log_file):
+            os.remove(log_file)
+            print(f"🧹 Cleaned up {log_file}")
+
+    # Configure logging with DEBUG log level.
+    logging.basicConfig(
+        filename="logger.log",
+        level=logging.DEBUG,
+        format="%(filename)s:%(lineno)s %(levelname)s:%(message)s",
+    )
+
+    print("✅ Logging configured")
+    
     # Try to load from .env file if available
     try:
         from dotenv import load_dotenv
         load_dotenv()
-        print("✅ Loaded environment variables from .env file")
     except ImportError:
         # python-dotenv not installed, skip .env loading
         pass
     except Exception as e:
-        print(f"⚠️  Warning: Could not load .env file: {e}")
+        print(f"Warning: Could not load .env file: {e}")
     
     # Check for API key
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        print("❌ Error: GOOGLE_API_KEY environment variable not set")
+        print("\n❌ GOOGLE_API_KEY environment variable not set")
         print("\nTo set the API key, use one of these methods:")
         print("1. Environment variable: export GOOGLE_API_KEY='your-key-here'")
         print("2. .env file: Create a .env file with: GOOGLE_API_KEY=your-key-here")
         print("   (Install python-dotenv: pip install python-dotenv)")
         print("3. Direct in code: os.environ['GOOGLE_API_KEY'] = 'your-key-here'")
         return
-    
-    print(f"✅ API key found (length: {len(api_key)} characters)")
     
     # Example configuration
     # Note: target_audience is optional - if not provided (or set to None), LLM will infer from scenario and report
@@ -948,21 +977,33 @@ async def main():
         style_images=[],  # Add image URLs here if you have them
     )
     
-    # Run pipeline
-    outputs = await run_presentation_pipeline(
-        config=config,
-        output_dir="output",
-        include_critics=True,
-        save_intermediate=True,
-    )
-    
-    print("\n" + "=" * 60)
-    print("🎉 Pipeline completed successfully!")
-    print("=" * 60)
-    print(f"\nGenerated outputs saved to 'output/' directory")
-    print(f"Total outputs: {len(outputs)}")
+    try:
+        # Run pipeline
+        outputs = await run_presentation_pipeline(
+            config=config,
+            output_dir="output",
+            include_critics=True,
+            save_intermediate=True,
+        )
+        
+        print("\n" + "=" * 60)
+        print("🎉 Pipeline completed successfully!")
+        print("=" * 60)
+        print(f"\nGenerated outputs saved to 'output/' directory")
+        print(f"Total outputs: {len(outputs)}")
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Pipeline aborted by user (KeyboardInterrupt)")
+        raise
+    except Exception as e:
+        print(f"\n\n❌ Pipeline failed with error: {e}")
+        raise
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n⚠️  Program interrupted by user")
+        # Exit gracefully
+        exit(0)
 

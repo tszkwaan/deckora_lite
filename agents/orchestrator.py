@@ -7,12 +7,12 @@ from google.adk.agents import SequentialAgent, LoopAgent
 from google.adk.runners import InMemoryRunner
 from google.adk.sessions import InMemorySessionService
 
-from agents.report_understanding import create_report_understanding_agent
-from agents.outline_generator import create_outline_generator_agent
-from agents.critic import create_outline_critic
+from .report_understanding import create_report_understanding_agent
+from .outline_generator import create_outline_generator_agent
+from .critic import create_outline_critic
 # TODO: Uncomment when ready to add these agents
-# from agents.slide_and_script_generator import create_slide_and_script_generator_agent
-# from agents.critic import create_slides_critic, create_script_critic
+# from .slide_and_script_generator import create_slide_and_script_generator_agent
+# from .critic import create_slides_critic, create_script_critic
 
 
 def create_presentation_pipeline(include_critics: bool = True):

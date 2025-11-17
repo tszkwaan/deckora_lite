@@ -35,6 +35,9 @@ python main.py
 │   ├── google_slides_tool.py
 │   └── google_slides_layout_tool.py
 ├── utils/               # Utility functions
+│   ├── helpers.py
+│   ├── pdf_loader.py
+│   └── quality_check.py
 ├── config.py            # Configuration
 ├── main.py              # Main script
 └── requirements.txt     # Dependencies
@@ -84,9 +87,9 @@ Generated files in `output/` directory:
 
 ## Notes
 
-- Uses `gemini-2.5-pro` by default (configurable in `config.py`)
+- Uses `gemini-2.5-flash-lite` by default (configurable in `config.py`)
 - All agents use retry configuration for API reliability
 - Quality gates: Outline must pass hallucination/safety checks; slides must pass layout review
 - Automatic retry: Both outline and slide generation retry up to 3 times if quality checks fail
-- Google Slides export requires OAuth setup (see `GOOGLE_SLIDES_SETUP.md`)
-- Layout review requires Vision API and `pdf2image` (see `LAYOUT_REVIEW_SETUP.md`)
+- Google Slides export requires OAuth setup
+- Layout review requires Vision API and `pdf2image`

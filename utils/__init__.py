@@ -2,8 +2,8 @@
 Utilities package for presentation generation pipeline.
 """
 
-from utils.pdf_loader import load_pdf_from_url, load_pdf_from_file, load_pdf
-from utils.helpers import (
+from .pdf_loader import load_pdf_from_url, load_pdf_from_file, load_pdf
+from .helpers import (
     extract_output_from_events,
     save_json_output,
     preview_json,
