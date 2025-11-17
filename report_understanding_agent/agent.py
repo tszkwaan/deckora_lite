@@ -1,27 +1,19 @@
-"""
-Report Understanding Agent.
-Transforms raw report text into structured report_knowledge JSON.
-"""
-
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
+import sys
+import os
+
+# Add parent directory to path to import config
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import RETRY_CONFIG, DEFAULT_MODEL
 
-
-def create_report_understanding_agent():
-    """
-    Create the Report Understanding Agent.
-    
-    This agent is the first stage of the presentation-generation pipeline.
-    It transforms an input report into structured presentation-ready knowledge.
-    """
-    return LlmAgent(
-        name="ReportUnderstandingAgent",
-        model=Gemini(
-            model=DEFAULT_MODEL,
-            retry_options=RETRY_CONFIG,
-        ),
-        instruction="""You are the Report Understanding Agent.
+root_agent = LlmAgent(
+    name="ReportUnderstandingAgent",
+    model=Gemini(
+        model=DEFAULT_MODEL,
+        retry_options=RETRY_CONFIG,
+    ),
+    instruction="""You are the Report Understanding Agent.
 
 Your role is the first stage of the presentation-generation pipeline.
 You do not create slides, outlines, or scripts.
@@ -169,7 +161,7 @@ STYLE REQUIREMENTS
 - Output ONLY the raw JSON object, nothing else.
 
 """,
-        tools=[],  # No external tools; this agent works on provided state.
-        output_key="report_knowledge",
-    )
+    tools=[],
+    output_key="report_knowledge",
+)
 

@@ -14,10 +14,10 @@ from google.adk.runners import InMemoryRunner
 from google.adk.sessions import InMemorySessionService
 
 from config import PresentationConfig
-from agents.report_understanding import create_report_understanding_agent
-from agents.outline_generator import create_outline_generator_agent
-from agents.critic import create_outline_critic
-from agents.slide_and_script_generator import create_slide_and_script_generator_agent
+from report_understanding_agent.agent import root_agent as report_understanding_agent
+from outline_generator_agent.agent import root_agent as outline_generator_agent
+from outline_critic_agent.agent import root_agent as outline_critic_agent
+from slide_and_script_generator_agent.agent import root_agent as slide_and_script_generator_agent
 from utils.pdf_loader import load_pdf
 from utils.helpers import extract_output_from_events, save_json_output, preview_json
 from utils.quality_check import check_outline_quality, create_quality_log_entry
@@ -155,8 +155,7 @@ Your task:
     print("=" * 60)
     
     # Step 1: Generate report knowledge (no retry needed)
-    report_knowledge_agent = create_report_understanding_agent()
-    report_runner = create_runner(report_knowledge_agent)
+    report_runner = create_runner(report_understanding_agent)
     report_events = await report_runner.run_debug(initial_message, session_id=session.id)
     
     # Extract report_knowledge
@@ -179,10 +178,8 @@ Your task:
     print("🔄 Starting outline generation with quality checks...")
     print("=" * 60)
     
-    outline_generator = create_outline_generator_agent()
-    outline_critic = create_outline_critic()
-    outline_runner = create_runner(outline_generator)
-    critic_runner = create_runner(outline_critic)
+    outline_runner = create_runner(outline_generator_agent)
+    critic_runner = create_runner(outline_critic_agent)
     
     quality_logs = []
     outline = None
@@ -399,8 +396,7 @@ Your task:
             print("📝 Generating slide deck and presentation script...")
             print("=" * 60)
             
-            combined_generator = create_slide_and_script_generator_agent()
-            combined_runner = create_runner(combined_generator)
+            combined_runner = create_runner(slide_and_script_generator_agent)
             
             # Build combined generator message
             outline_json = json.dumps(outline, indent=2, ensure_ascii=False)

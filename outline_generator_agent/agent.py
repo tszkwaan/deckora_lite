@@ -1,27 +1,19 @@
-"""
-Outline Generator Agent.
-Generates presentation outline based on report knowledge and presentation config.
-"""
-
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
+import sys
+import os
+
+# Add parent directory to path to import config
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import RETRY_CONFIG, DEFAULT_MODEL
 
-
-def create_outline_generator_agent():
-    """
-    Create the Outline Generator Agent.
-    
-    This agent generates a structured presentation outline based on
-    report knowledge and presentation configuration.
-    """
-    return LlmAgent(
-        name="OutlineGeneratorAgent",
-        model=Gemini(
-            model=DEFAULT_MODEL,
-            retry_options=RETRY_CONFIG,
-        ),
-        instruction="""You are the Outline Generator Agent.
+root_agent = LlmAgent(
+    name="OutlineGeneratorAgent",
+    model=Gemini(
+        model=DEFAULT_MODEL,
+        retry_options=RETRY_CONFIG,
+    ),
+    instruction="""You are the Outline Generator Agent.
 
 Your role is to create a structured presentation outline from report knowledge.
 
@@ -83,7 +75,7 @@ Respond with only valid JSON in the following structure:
       ],
       "estimated_time": "<time in seconds>",
       "content_notes": "<brief notes on what should be on this slide>",
-      "figures_to_include": ["<figure_id>"]  // References to figures from report_knowledge
+      "figures_to_include": ["<figure_id>"]
     }
   ],
   "total_slides": <number>,
@@ -114,7 +106,7 @@ STYLE REQUIREMENTS
 - Output ONLY the raw JSON object, nothing else.
 
 """,
-        tools=[],
-        output_key="presentation_outline",
-    )
+    tools=[],
+    output_key="presentation_outline",
+)
 
