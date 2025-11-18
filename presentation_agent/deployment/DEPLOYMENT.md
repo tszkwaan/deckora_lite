@@ -22,6 +22,7 @@ Quick summary:
 
 4. **Google Cloud Credentials**
    - Upload `credentials.json` to Secret Manager
+   - **Grant Secret Access**: Give Cloud Run service account (`PROJECT_ID-compute@developer.gserviceaccount.com`) the `Secret Manager Secret Accessor` role (see DEPLOYMENT_SETUP.md Step 6b)
 
 ## GitHub Repository Setup
 
@@ -133,6 +134,19 @@ Or in the Cloud Console:
 - Check Cloud Run logs for error messages
 - Verify `GOOGLE_API_KEY` is set correctly
 - Ensure credentials.json is accessible via Secret Manager
+
+### "Permission denied on secret" Error
+- **Fix**: Grant `Secret Manager Secret Accessor` role to Cloud Run service account:
+  ```bash
+  export PROJECT_ID="your-project-id"
+  export COMPUTE_SA="${PROJECT_ID}-compute@developer.gserviceaccount.com"
+  
+  gcloud secrets add-iam-policy-binding google-credentials \
+    --member="serviceAccount:${COMPUTE_SA}" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project=$PROJECT_ID
+  ```
+- Or via Console: Secret Manager → `google-credentials` → Permissions → Grant Access → Add `PROJECT_ID-compute@developer.gserviceaccount.com` with `Secret Manager Secret Accessor` role
 
 ## Cost Considerations
 
