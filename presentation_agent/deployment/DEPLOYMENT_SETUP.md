@@ -191,7 +191,20 @@ gcloud secrets create google-credentials \
 
 ## Step 6b: Grant Secret Access to Cloud Run Service Account
 
-**⚠️ IMPORTANT:** Cloud Run needs permission to access the secret. Grant access to the default compute service account:
+**⚠️ IMPORTANT:** Cloud Run uses a **different service account** to RUN the container than the one used for deployment.
+
+### Understanding Service Accounts
+
+- **GitHub Actions Service Account** (`deckora-lite@deckora-lite.iam.gserviceaccount.com`):
+  - Used to **deploy** the Cloud Run service
+  - Needs: Cloud Run Admin, Storage Admin, Artifact Registry Admin, Service Account User
+
+- **Cloud Run Runtime Service Account** (`PROJECT_NUMBER-compute@developer.gserviceaccount.com`):
+  - Used to **run** the deployed container
+  - Needs: Secret Manager Secret Accessor (to read secrets)
+  - This is the **default compute service account** (automatically created)
+
+**The runtime service account needs permission to access secrets!**
 
 ### Option A: Google Cloud Console (Web UI)
 
@@ -200,8 +213,11 @@ gcloud secrets create google-credentials \
 3. Click **"Permissions"** tab
 4. Click **"Grant Access"**
 5. In the dialog:
-   - **New principals**: Enter `YOUR_PROJECT_ID-compute@developer.gserviceaccount.com`
-     - Replace `YOUR_PROJECT_ID` with your actual project ID (e.g., `deckora-lite-compute@developer.gserviceaccount.com`)
+   - **New principals**: Enter `PROJECT_NUMBER-compute@developer.gserviceaccount.com`
+     - To find your project number:
+       - Go to [Cloud Console Home](https://console.cloud.google.com/home/dashboard)
+       - Your project number is shown next to the project name (e.g., `385552249410`)
+     - Example: `385552249410-compute@developer.gserviceaccount.com`
    - **Select a role**: `Secret Manager Secret Accessor` (`roles/secretmanager.secretAccessor`)
 6. Click **"Save"**
 
@@ -209,8 +225,14 @@ gcloud secrets create google-credentials \
 
 ```bash
 export PROJECT_ID="your-project-id"
-export COMPUTE_SA="${PROJECT_ID}-compute@developer.gserviceaccount.com"
 
+# Get project number
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+echo "Cloud Run Runtime Service Account: ${COMPUTE_SA}"
+
+# Grant secret access
 gcloud secrets add-iam-policy-binding google-credentials \
   --member="serviceAccount:${COMPUTE_SA}" \
   --role="roles/secretmanager.secretAccessor" \
