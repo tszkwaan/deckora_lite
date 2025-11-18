@@ -23,9 +23,10 @@ COPY . .
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
+ENV PYTHONPATH=/app
 
 # Expose port
 EXPOSE 8080
 
-# Run the application (server.py is in deployment folder, but copied to root)
-CMD ["python", "presentation_agent/deployment/server.py"]
+# Use gunicorn for production WSGI server
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "0", "presentation_agent.deployment.server:app"]

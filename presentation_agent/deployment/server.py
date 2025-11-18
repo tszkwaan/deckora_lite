@@ -4,8 +4,16 @@ Provides a REST API endpoint to run the presentation generation pipeline.
 """
 
 import os
+import sys
 import json
 import asyncio
+from pathlib import Path
+
+# Add project root to Python path
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 from flask import Flask, request, jsonify
 from google.adk.runners import InMemoryRunner
 from google.adk.sessions import InMemorySessionService
@@ -15,7 +23,14 @@ try:
     from presentation_agent.agent import root_agent
     from config import PresentationConfig
 except ImportError as e:
-    print(f"Warning: Import error - {e}")
+    print(f"ERROR: Import error - {e}")
+    print(f"Python path: {sys.path}")
+    print(f"Project root: {project_root}")
+    print(f"Project root exists: {project_root.exists()}")
+    if project_root.exists():
+        print(f"Files in project root: {[f.name for f in project_root.iterdir()]}")
+    import traceback
+    traceback.print_exc()
     root_agent = None
     PresentationConfig = None
 
