@@ -14,6 +14,10 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+# Enable nested event loops for Flask/gunicorn compatibility
+import nest_asyncio
+nest_asyncio.apply()
+
 from flask import Flask, request, jsonify
 from google.adk.runners import InMemoryRunner
 from google.adk.sessions import InMemorySessionService
