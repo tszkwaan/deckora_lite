@@ -42,7 +42,8 @@ gcloud config get-value project
 2. Search for and enable each of these APIs:
    - **Cloud Build API**
    - **Cloud Run API**
-   - **Container Registry API** (or **Artifact Registry API**)
+   - **Artifact Registry API** ⭐ **Required for Docker image pushes**
+   - **Container Registry API** (legacy, but still needed)
    - **Secret Manager API** (for storing credentials)
 
 For each API:
@@ -59,6 +60,7 @@ export PROJECT_ID="your-project-id"
 gcloud services enable \
   cloudbuild.googleapis.com \
   run.googleapis.com \
+  artifactregistry.googleapis.com \
   containerregistry.googleapis.com \
   secretmanager.googleapis.com \
   --project=$PROJECT_ID
@@ -102,14 +104,15 @@ gcloud iam service-accounts create github-actions-sa \
 4. Click **"Grant Access"** button (top right)
 5. In the dialog:
    - **New principals**: Enter `github-actions-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com`
-   - **Select a role**: Add these **3 required roles**:
+   - **Select a role**: Add these **4 required roles**:
      - **Cloud Run Admin** (`roles/run.admin`) - for deploying to Cloud Run
-     - **Storage Admin** (`roles/storage.admin`) - for pushing Docker images
+     - **Storage Admin** (`roles/storage.admin`) - for legacy GCR support
+     - **Artifact Registry Writer** (`roles/artifactregistry.writer`) - ⭐ **REQUIRED for pushing Docker images**
      - **Service Account User** (`roles/iam.serviceAccountUser`) - for using service accounts
    - Click **"Add another role"** after each one
 6. Click **"Save"**
 
-**Note:** You can add all 3 roles in one go by clicking "Add another role" after each selection.
+**Note:** You can add all 4 roles in one go by clicking "Add another role" after each selection.
 
 ### Option B: gcloud CLI
 
@@ -125,6 +128,11 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/storage.admin"
+
+# Grant Artifact Registry Writer (REQUIRED for Docker image pushes)
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/artifactregistry.writer"
 
 # Grant Service Account User
 gcloud projects add-iam-policy-binding $PROJECT_ID \
