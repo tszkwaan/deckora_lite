@@ -320,6 +320,9 @@ def export_to_google_slides(
         service = build('slides', 'v1', credentials=creds)
         
         # Create presentation
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("📊 Creating Google Slides presentation...")
         print("📊 Creating Google Slides presentation...")
         try:
             presentation = service.presentations().create(
@@ -330,9 +333,12 @@ def export_to_google_slides(
             # Validate presentation_id was actually created
             if not presentation_id:
                 error_msg = f"Failed to get presentation_id from Google Slides API response. Response: {presentation}"
+                logger.error(f"❌ {error_msg}")
                 print(f"❌ {error_msg}")
                 raise ValueError(error_msg)
             
+            logger.info(f"✅ Presentation created: {presentation_id}")
+            logger.info(f"   Full API response keys: {list(presentation.keys())}")
             print(f"✅ Presentation created: {presentation_id}")
             print(f"   Full API response keys: {list(presentation.keys())}")
             
@@ -704,6 +710,11 @@ def export_to_google_slides(
         # Generate shareable URL
         shareable_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
         
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"✅ Google Slides export complete!")
+        logger.info(f"   Presentation ID: {presentation_id}")
+        logger.info(f"   Shareable URL: {shareable_url}")
         print(f"✅ Google Slides export complete!")
         print(f"   Presentation ID: {presentation_id}")
         print(f"   Shareable URL: {shareable_url}")

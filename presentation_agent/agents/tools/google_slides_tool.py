@@ -125,6 +125,13 @@ def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: d
         }
     
     try:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("🚀 export_slideshow_tool called - starting Google Slides export")
+        logger.info(f"   Slide deck has {len(slide_deck.get('slides', []))} slides")
+        logger.info(f"   Script has {len(presentation_script.get('script_sections', []))} sections")
+        print(f"🚀 export_slideshow_tool called - starting Google Slides export")
+        
         # Create a simple config object-like structure for compatibility
         class SimpleConfig:
             def __init__(self, config_dict):
@@ -140,12 +147,18 @@ def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: d
         else:
             presentation_title = f"Presentation: {simple_config.scenario}"
         
-        return export_to_google_slides(
+        logger.info(f"   Calling export_to_google_slides with title: {presentation_title}")
+        result = export_to_google_slides(
             slide_deck=slide_deck,
             presentation_script=presentation_script,
             config=simple_config,
             title=presentation_title
         )
+        logger.info(f"✅ export_slideshow_tool completed: {result.get('status', 'unknown')}")
+        if result.get('presentation_id'):
+            logger.info(f"   Presentation ID: {result.get('presentation_id')}")
+            logger.info(f"   Shareable URL: {result.get('shareable_url')}")
+        return result
     except Exception as e:
         # Return error dict instead of raising to prevent crashes
         return {
