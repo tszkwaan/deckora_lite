@@ -1,55 +1,70 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
 # Python
-__pycache__/
+__pycache__
 *.py[cod]
 *$py.class
 *.so
 .Python
-*.egg-info/
-dist/
-build/
-
-# Virtual environments
-venv/
 env/
+venv/
 ENV/
+.venv
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
 # Logs
 *.log
-observability.log
-logger.log
+*.log.*
 
-# Outputs
+# Environment
+.env
+.env.local
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# ADK-web (submodule)
+.project_internal/
+
+# Outputs (don't need in container)
 presentation_agent/output/
 output/
-
-# Credentials (should use Secret Manager in production)
-presentation_agent/agents/credentials/
-credentials/
-*.json
-!requirements.txt
-
-# Git
-.git/
-.gitignore
-
-# ADK-web (not needed for deployment)
-.project_internal/
 
 # Documentation
 *.md
 !README.md
 
-# Test files
-test/
+# Deployment files (not needed in container)
+presentation_agent/deployment/DEPLOYMENT*.md
+presentation_agent/deployment/SERVICE_ACCOUNT_PERMISSIONS.md
+presentation_agent/deployment/create-gcr-repo.sh
+presentation_agent/deployment/deploy_to_agent_engine.py
+
+# Credentials (should use Secret Manager)
+credentials/
+*.json
+!requirements.txt
+
+# Jupyter
+.ipynb_checkpoints/
 *.ipynb
 
-# Environment files
-.env
-.env.local
-
+# OS
+.DS_Store
+Thumbs.db
