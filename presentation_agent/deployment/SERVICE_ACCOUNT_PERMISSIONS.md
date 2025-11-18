@@ -2,33 +2,34 @@
 
 ## Required Roles for `github-actions-sa`
 
-Your service account needs these **4 required roles** for CI/CD deployment to Vertex AI Agent Engine:
+Your service account needs these **4 required roles** for CI/CD deployment:
 
-### 1. **Vertex AI User** (`roles/aiplatform.user`)
-**Why needed:** Deploy and manage agents in Vertex AI Agent Engine
-- Deploy agents to Agent Engine
-- Manage agent resources
-- Access Vertex AI services
+### 1. **Cloud Run Admin** (`roles/run.admin`)
+**Why needed:** Deploy and manage Cloud Run services
+- Deploy new revisions
+- Update service configuration
+- Manage traffic splitting
 
 ### 2. **Storage Admin** (`roles/storage.admin`)
-**Why needed:** Access Cloud Storage for agent artifacts
-- Read/write agent artifacts and dependencies
+**Why needed:** Legacy GCR support and Cloud Storage access
+- Access to legacy Container Registry
 - Manage Cloud Storage buckets
-- Required for Agent Engine to store agent packages
+- Read/write to Cloud Storage objects
 
 ### 3. **Artifact Registry Admin** (`roles/artifactregistry.admin`) ⭐ **Recommended**
-**Why needed:** Store agent artifacts and dependencies
-- Upload agent packages to Artifact Registry
+**Why needed:** Push Docker images AND create repositories if they don't exist
+- Upload Docker images to `gcr.io` (now uses Artifact Registry backend)
 - **Create repositories on push** (required if repository doesn't exist yet)
+- Push/pull container images
 - Manage artifacts in Artifact Registry
 - **This role includes create permissions needed for first-time pushes!**
 
 **Alternative:** If you prefer minimal permissions, use `Artifact Registry Writer` + manually create the repository first (see troubleshooting section)
 
 ### 4. **Service Account User** (`roles/iam.serviceAccountUser`)
-**Why needed:** Use service accounts for Vertex AI operations
+**Why needed:** Use service accounts for Cloud Run deployment
 - Impersonate service accounts
-- Required for Vertex AI to use service accounts
+- Required for Cloud Run to use service accounts
 
 ---
 
@@ -64,8 +65,8 @@ Your service account needs these **4 required roles** for CI/CD deployment to Ve
 4. Click the "Select a role" dropdown and add these roles **one by one**:
 
    **First role:**
-   - Search for: `Vertex AI User`
-   - Select: `Vertex AI User` (roles/aiplatform.user)
+   - Search for: `Cloud Run Admin`
+   - Select: `Cloud Run Admin` (roles/run.admin)
    - Click "Add another role"
 
    **Second role:**
@@ -92,10 +93,10 @@ Your service account needs these **4 required roles** for CI/CD deployment to Ve
 export PROJECT_ID="your-project-id"
 export SA_EMAIL="github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
-# Grant Vertex AI User
+# Grant Cloud Run Admin
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/aiplatform.user"
+  --role="roles/run.admin"
 
 # Grant Storage Admin
 gcloud projects add-iam-policy-binding $PROJECT_ID \
@@ -120,9 +121,9 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 After granting permissions, verify they're set correctly:
 
 1. On the same "Permissions" tab, you should see:
-   - `Vertex AI User`
+   - `Cloud Run Admin`
    - `Storage Admin`
-   - `Artifact Registry Admin` ⭐ **This is critical for artifact storage and repo creation!**
+   - `Artifact Registry Admin` ⭐ **This is critical for Docker pushes and repo creation!**
    - `Service Account User`
 
 2. Or use CLI:
@@ -136,11 +137,12 @@ After granting permissions, verify they're set correctly:
 
 ## What Each Role Does (Detailed)
 
-### `roles/aiplatform.user`
-- ✅ Deploy agents to Vertex AI Agent Engine
-- ✅ Manage agent resources
-- ✅ Access Vertex AI services
-- ✅ Create and update agents
+### `roles/run.admin`
+- ✅ Deploy services to Cloud Run
+- ✅ Update service configuration
+- ✅ Manage revisions
+- ✅ Set environment variables
+- ✅ Configure traffic splitting
 
 ### `roles/storage.admin`
 - ✅ Legacy GCR support

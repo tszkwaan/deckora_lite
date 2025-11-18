@@ -1,8 +1,6 @@
-# Deployment Guide - Vertex AI Agent Engine
+# Deployment Guide - Google Cloud Run
 
-This guide explains how to deploy the Presentation Agent to Vertex AI Agent Engine using GitHub Actions CI/CD.
-
-> **Note**: This deployment uses Vertex AI Agent Engine. For Cloud Run deployment (legacy), see the git history or use the `deploy-cloud-run` branch.
+This guide explains how to deploy the Presentation Agent to Google Cloud Run using GitHub Actions CI/CD.
 
 ## Prerequisites
 

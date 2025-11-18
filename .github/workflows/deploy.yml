@@ -1,4 +1,4 @@
-name: Deploy to Vertex AI Agent Engine
+name: Deploy to Google Cloud Run
 
 on:
   push:
@@ -84,7 +84,7 @@ jobs:
           echo ""
           echo "=== Checking Enabled APIs ==="
           echo "Currently enabled APIs:"
-          gcloud services list --enabled --filter="name:aiplatform.googleapis.com OR name:artifactregistry.googleapis.com OR name:secretmanager.googleapis.com OR name:storage-api.googleapis.com" --format="table(name,title)" 2>&1 || echo "Could not list APIs"
+          gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:cloudbuild.googleapis.com OR name:containerregistry.googleapis.com OR name:secretmanager.googleapis.com" --format="table(name,title)" 2>&1 || echo "Could not list APIs"
 
       - name: Enable Required APIs
         run: |
@@ -94,46 +94,53 @@ jobs:
           echo ""
           echo "Enabling APIs..."
           gcloud services enable \
-            aiplatform.googleapis.com \
+            cloudbuild.googleapis.com \
+            run.googleapis.com \
             artifactregistry.googleapis.com \
             containerregistry.googleapis.com \
             secretmanager.googleapis.com \
-            storage-api.googleapis.com \
             --project=${{ secrets.GCP_PROJECT_ID }} || {
               echo ""
               echo "⚠️ API enablement failed. This is OK if APIs are already enabled or if you prefer to enable them manually."
               echo "Checking which APIs are already enabled..."
-              gcloud services list --enabled --filter="name:aiplatform.googleapis.com OR name:artifactregistry.googleapis.com OR name:containerregistry.googleapis.com OR name:secretmanager.googleapis.com OR name:storage-api.googleapis.com"
+              gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:cloudbuild.googleapis.com OR name:containerregistry.googleapis.com OR name:secretmanager.googleapis.com"
             }
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker
 
-      - name: Install dependencies
+      - name: Build Docker image
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install google-cloud-aiplatform[agent_engines,adk]
+          docker build -f presentation_agent/deployment/Dockerfile -t gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }} .
+          docker build -f presentation_agent/deployment/Dockerfile -t gcr.io/$PROJECT_ID/$SERVICE_NAME:latest .
 
-      - name: Deploy to Vertex AI Agent Engine
-        env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      - name: Push Docker image to GCR
         run: |
-          python presentation_agent/deployment/deploy_to_agent_engine.py \
-            --project-id ${{ secrets.GCP_PROJECT_ID }} \
-            --location ${{ env.REGION }} \
-            --agent-name ${{ env.SERVICE_NAME }}
+          docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }}
+          docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:latest
 
-      - name: Get agent information
+      - name: Deploy to Cloud Run
         run: |
-          echo "=== Deployment Summary ==="
-          echo "Agent Name: ${{ env.SERVICE_NAME }}"
-          echo "Project: ${{ secrets.GCP_PROJECT_ID }}"
-          echo "Location: ${{ env.REGION }}"
-          echo ""
-          echo "✅ Agent deployed to Vertex AI Agent Engine!"
-          echo "View your agent in the console:"
-          echo "https://console.cloud.google.com/vertex-ai/agents?project=${{ secrets.GCP_PROJECT_ID }}"
+          gcloud run deploy $SERVICE_NAME \
+            --image gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }} \
+            --platform managed \
+            --region $REGION \
+            --allow-unauthenticated \
+            --memory 2Gi \
+            --cpu 2 \
+            --timeout 3600 \
+            --max-instances 10 \
+            --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" \
+            --set-secrets "GOOGLE_APPLICATION_CREDENTIALS=google-credentials:latest"
+
+      - name: Get service URL
+        run: |
+          SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
+          echo "Service deployed at: $SERVICE_URL"
+          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
+
+      - name: Test deployment
+        run: |
+          SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region $REGION --format 'value(status.url)')
+          curl -f $SERVICE_URL/health || exit 1
 

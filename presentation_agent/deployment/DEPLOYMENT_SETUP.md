@@ -40,10 +40,11 @@ gcloud config get-value project
 
 1. Go to [APIs & Services → Library](https://console.cloud.google.com/apis/library)
 2. Search for and enable each of these APIs:
-   - **Vertex AI API** (`aiplatform.googleapis.com`) ⭐ **Required for Agent Engine**
-   - **Artifact Registry API** (`artifactregistry.googleapis.com`) ⭐ **Required for agent artifacts**
+   - **Cloud Build API** (`cloudbuild.googleapis.com`)
+   - **Cloud Run API** (`run.googleapis.com`)
+   - **Artifact Registry API** (`artifactregistry.googleapis.com`) ⭐ **Required for Docker image pushes**
+   - **Container Registry API** (`containerregistry.googleapis.com`) (legacy, but still needed)
    - **Secret Manager API** (`secretmanager.googleapis.com`) (for storing credentials)
-   - **Storage API** (`storage-api.googleapis.com`) (for Cloud Storage access)
 
 For each API:
 - Click on the API name
@@ -57,10 +58,11 @@ export PROJECT_ID="your-project-id"
 
 # Enable all required APIs at once
 gcloud services enable \
-  aiplatform.googleapis.com \
+  cloudbuild.googleapis.com \
+  run.googleapis.com \
   artifactregistry.googleapis.com \
+  containerregistry.googleapis.com \
   secretmanager.googleapis.com \
-  storage-api.googleapis.com \
   --project=$PROJECT_ID
 ```
 
@@ -103,9 +105,9 @@ gcloud iam service-accounts create github-actions-sa \
 5. In the dialog:
    - **New principals**: Enter `github-actions-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com`
    - **Select a role**: Add these **4 required roles**:
-     - **Vertex AI User** (`roles/aiplatform.user`) - for deploying agents to Vertex AI Agent Engine
-     - **Storage Admin** (`roles/storage.admin`) - for Cloud Storage access
-     - **Artifact Registry Admin** (`roles/artifactregistry.admin`) - ⭐ **REQUIRED for storing agent artifacts and creating repositories**
+     - **Cloud Run Admin** (`roles/run.admin`) - for deploying to Cloud Run
+     - **Storage Admin** (`roles/storage.admin`) - for legacy GCR support
+     - **Artifact Registry Admin** (`roles/artifactregistry.admin`) - ⭐ **REQUIRED for pushing Docker images and creating repositories**
      - **Service Account User** (`roles/iam.serviceAccountUser`) - for using service accounts
    - Click **"Add another role"** after each one
 6. Click **"Save"**
@@ -117,10 +119,10 @@ gcloud iam service-accounts create github-actions-sa \
 ```bash
 export SA_EMAIL="github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
-# Grant Vertex AI User
+# Grant Cloud Run Admin
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/aiplatform.user"
+  --role="roles/run.admin"
 
 # Grant Storage Admin
 gcloud projects add-iam-policy-binding $PROJECT_ID \
