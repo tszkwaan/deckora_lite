@@ -44,22 +44,47 @@ jobs:
           echo "Current Project:"
           gcloud config get-value project
           echo ""
-          echo "Service Account Email (from credentials):"
-          echo "${{ secrets.GCP_SA_KEY }}" | jq -r '.client_email' || echo "Failed to parse service account email"
+          echo "=== Service Account Email (from credentials) ==="
+          # Try multiple methods to extract service account email
+          SA_EMAIL=""
+          if command -v jq &> /dev/null; then
+            SA_EMAIL=$(echo "${{ secrets.GCP_SA_KEY }}" | jq -r '.client_email' 2>/dev/null || echo "")
+          fi
+          if [ -z "$SA_EMAIL" ]; then
+            # Fallback: use grep/sed to extract email
+            SA_EMAIL=$(echo "${{ secrets.GCP_SA_KEY }}" | grep -o '"client_email"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"client_email"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "")
+          fi
+          if [ -z "$SA_EMAIL" ]; then
+            # Last resort: try python
+            SA_EMAIL=$(python3 -c "import json, sys; print(json.load(sys.stdin)['client_email'])" <<< "${{ secrets.GCP_SA_KEY }}" 2>/dev/null || echo "")
+          fi
+          if [ -n "$SA_EMAIL" ]; then
+            echo "Service Account Email: $SA_EMAIL"
+          else
+            echo "⚠️ Could not extract service account email from GCP_SA_KEY secret"
+            echo "Please verify the secret is valid JSON with a 'client_email' field"
+            echo ""
+            echo "First 100 chars of secret (for debugging):"
+            echo "${{ secrets.GCP_SA_KEY }}" | head -c 100
+            echo "..."
+          fi
           echo ""
           echo "=== Checking Service Account Permissions ==="
-          SA_EMAIL=$(echo "${{ secrets.GCP_SA_KEY }}" | jq -r '.client_email')
-          echo "Service Account: $SA_EMAIL"
-          echo ""
-          echo "IAM Policy for this service account:"
-          gcloud projects get-iam-policy ${{ secrets.GCP_PROJECT_ID }} \
-            --flatten="bindings[].members" \
-            --filter="bindings.members:serviceAccount:$SA_EMAIL" \
-            --format="table(bindings.role)" || echo "Could not retrieve IAM policy"
+          if [ -n "$SA_EMAIL" ]; then
+            echo "Service Account: $SA_EMAIL"
+            echo ""
+            echo "IAM Policy for this service account:"
+            gcloud projects get-iam-policy ${{ secrets.GCP_PROJECT_ID }} \
+              --flatten="bindings[].members" \
+              --filter="bindings.members:serviceAccount:$SA_EMAIL" \
+              --format="table(bindings.role)" 2>&1 || echo "Could not retrieve IAM policy (may need permissions)"
+          else
+            echo "Skipping IAM check - service account email not available"
+          fi
           echo ""
           echo "=== Checking Enabled APIs ==="
           echo "Currently enabled APIs:"
-          gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:cloudbuild.googleapis.com OR name:containerregistry.googleapis.com OR name:secretmanager.googleapis.com" || echo "Could not list APIs"
+          gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:cloudbuild.googleapis.com OR name:containerregistry.googleapis.com OR name:secretmanager.googleapis.com" --format="table(name,title)" 2>&1 || echo "Could not list APIs"
 
       - name: Enable Required APIs
         run: |
