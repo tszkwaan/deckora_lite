@@ -16,30 +16,45 @@ export GOOGLE_API_KEY='your-api-key-here'
 Or create a `.env` file: `GOOGLE_API_KEY=your-api-key-here`
 
 ### 3. Run Pipeline
+
+**Option A: Run directly via Python**
 ```bash
 python main.py
 ```
 
+**Option B: Run via ADK-web UI** (for interactive development and debugging)
+
+1. **Start ADK API Server** (in one terminal):
+```bash
+adk api_server --allow_origins=http://localhost:4200 --host=0.0.0.0
+```
+
+2. **Start ADK-web** (in another terminal, from `.project_internal/adk-web/`):
+```bash
+cd .project_internal/adk-web
+npm run serve --backend=http://localhost:8000
+```
+
+3. **Open browser**: Go to `http://localhost:4200` and select `presentation_agent` from the dropdown
+
+Note: The ADK API server discovers agents from your project root. Only `presentation_agent` will appear as a selectable agent in ADK-web.
+
 ## Project Structure
 
 ```
-├── agents/              # Agent implementations
-│   ├── report_understanding.py
-│   ├── outline_generator.py
-│   ├── slide_and_script_generator.py
-│   ├── critic.py
-│   ├── slideshow_exporter.py
-│   ├── layout_critic.py
-│   └── orchestrator.py
-├── tools/               # Agent tools
-│   ├── google_slides_tool.py
-│   └── google_slides_layout_tool.py
-├── utils/               # Utility functions
-│   ├── helpers.py
-│   ├── pdf_loader.py
-│   └── quality_check.py
+├── presentation_agent/   # Main agent app (discovered by ADK-web)
+│   ├── agent.py         # Entry point: exports root_agent
+│   ├── agents/          # Sub-agent implementations
+│   │   ├── report_understanding_agent/
+│   │   ├── outline_generator_agent/
+│   │   ├── outline_critic_agent/
+│   │   ├── slide_and_script_generator_agent/
+│   │   ├── layout_critic_agent/
+│   │   ├── tools/       # Agent tools
+│   │   └── utils/       # Utility functions
+│   └── output/          # Generated outputs
 ├── config.py            # Configuration
-├── main.py              # Main script
+├── main.py              # Main script (for direct execution)
 └── requirements.txt     # Dependencies
 ```
 
@@ -84,6 +99,15 @@ Generated files in `output/` directory:
 - `presentation_slides_url.txt` - Shareable Google Slides URL
 - `layout_review.json` - Layout review results (if Vision API configured)
 - `complete_output.json` - All outputs combined
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for instructions on deploying to Google Cloud Run using GitHub Actions CI/CD.
+
+Quick deployment:
+1. Set up Google Cloud project and service account
+2. Add secrets to GitHub repository
+3. Push to `main` branch - deployment happens automatically!
 
 ## Notes
 
