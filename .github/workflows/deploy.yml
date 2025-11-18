@@ -119,42 +119,6 @@ jobs:
           docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }}
           docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:latest
 
-      - name: Grant Secret Access to Cloud Run Service Account
-        run: |
-          echo "=== Granting Secret Manager access to Cloud Run service account ==="
-          echo ""
-          echo "Note: Cloud Run uses a DIFFERENT service account to RUN the container"
-          echo "  - Deployment SA (GitHub Actions): deckora-lite@deckora-lite.iam.gserviceaccount.com"
-          echo "  - Runtime SA (Cloud Run): PROJECT_NUMBER-compute@developer.gserviceaccount.com"
-          echo ""
-          
-          # Get project number (needed for compute service account)
-          PROJECT_NUMBER=$(gcloud projects describe ${{ secrets.GCP_PROJECT_ID }} --format='value(projectNumber)')
-          COMPUTE_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-          
-          echo "Cloud Run Runtime Service Account: ${COMPUTE_SA}"
-          echo ""
-          echo "Granting Secret Manager Secret Accessor role..."
-          gcloud secrets add-iam-policy-binding google-credentials \
-            --member="serviceAccount:${COMPUTE_SA}" \
-            --role="roles/secretmanager.secretAccessor" \
-            --project=${{ secrets.GCP_PROJECT_ID }} || {
-              echo ""
-              echo "⚠️ Could not grant secret access automatically."
-              echo "This might be because the GitHub Actions service account doesn't have permission."
-              echo ""
-              echo "Please grant manually:"
-              echo "  gcloud secrets add-iam-policy-binding google-credentials \\"
-              echo "    --member=\"serviceAccount:${COMPUTE_SA}\" \\"
-              echo "    --role=\"roles/secretmanager.secretAccessor\" \\"
-              echo "    --project=${{ secrets.GCP_PROJECT_ID }}"
-              echo ""
-              echo "Or via Console:"
-              echo "  1. Go to Secret Manager → google-credentials → Permissions"
-              echo "  2. Grant Access to: ${COMPUTE_SA}"
-              echo "  3. Role: Secret Manager Secret Accessor"
-            }
-
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy $SERVICE_NAME \
