@@ -7,7 +7,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import RETRY_CONFIG, DEFAULT_MODEL
 
-root_agent = LlmAgent(
+# Export as 'agent' instead of 'root_agent' so this won't be discovered as a root agent by ADK-web
+agent = LlmAgent(
     name="OutlineCriticAgent",
     model=Gemini(
         model=DEFAULT_MODEL,

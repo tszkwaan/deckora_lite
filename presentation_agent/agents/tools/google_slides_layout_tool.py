@@ -104,7 +104,71 @@ def get_credentials() -> Credentials:
     return creds
 
 
-def export_slides_as_images(presentation_id: str, output_dir: str = "output") -> List[bytes]:
+def extract_presentation_id_from_url(url: str) -> Optional[str]:
+    """
+    Extract presentation ID from Google Slides shareable URL.
+    
+    Args:
+        url: Google Slides URL (e.g., "https://docs.google.com/presentation/d/ABC123/edit")
+        
+    Returns:
+        Presentation ID string, or None if URL format is invalid
+    """
+    if not url or not isinstance(url, str):
+        return None
+    
+    # Pattern to match Google Slides URLs
+    # Examples:
+    # - https://docs.google.com/presentation/d/ABC123/edit
+    # - https://docs.google.com/presentation/d/ABC123/view
+    # - https://docs.google.com/presentation/d/ABC123
+    pattern = r'/presentation/d/([a-zA-Z0-9_-]+)'
+    match = re.search(pattern, url)
+    
+    if match:
+        return match.group(1)
+    
+    return None
+
+
+def verify_presentation_exists(presentation_id: str, credentials: Credentials) -> Dict:
+    """
+    Verify that a Google Slides presentation exists and is accessible.
+    
+    Args:
+        presentation_id: Google Slides presentation ID
+        credentials: OAuth2 credentials
+        
+    Returns:
+        Dict with 'exists' (bool) and 'title' (str) or 'error' (str)
+    """
+    try:
+        slides_service = build('slides', 'v1', credentials=credentials)
+        presentation = slides_service.presentations().get(
+            presentationId=presentation_id
+        ).execute()
+        return {
+            'exists': True,
+            'title': presentation.get('title', 'Untitled'),
+            'presentation_id': presentation_id
+        }
+    except HttpError as error:
+        error_details = error.error_details if hasattr(error, 'error_details') else []
+        return {
+            'exists': False,
+            'error': f"Presentation {presentation_id} not found or not accessible",
+            'error_details': error_details,
+            'presentation_id': presentation_id
+        }
+    except Exception as e:
+        return {
+            'exists': False,
+            'error': f"Error verifying presentation: {str(e)}",
+            'presentation_id': presentation_id
+        }
+
+
+def export_slides_as_images(presentation_id: str, output_dir: str = "presentation_agent/output") -> List[bytes]:
     """
     Export Google Slides presentation as images.
     
@@ -129,6 +193,21 @@ def export_slides_as_images(presentation_id: str, output_dir: str = "output") ->
     try:
         creds = get_credentials()
         
+        # First, verify the presentation exists using Slides API
+        print(f"🔍 [IN PROGRESS] Verifying presentation {presentation_id} exists...")
+        verification_result = verify_presentation_exists(presentation_id, creds)
+        
+        if not verification_result.get('exists'):
+            error_msg = verification_result.get('error', 'Unknown error')
+            error_details = verification_result.get('error_details', [])
+            print(f"❌ [FAILED] {error_msg}")
+            raise HttpError(
+                resp=type('obj', (object,), {'status': 404})(),
+                content=f"Presentation not found: {presentation_id}. The presentation may have been deleted or you may not have access to it. Details: {error_details}".encode('utf-8')
+            )
+        
+        print(f"✅ [SUCCESS] Presentation verified: {verification_result.get('title', 'Untitled')}")
+        
         # Export as PDF using Google Drive API
         # Note: Google Slides API doesn't directly support PDF export,
         # but Google Drive API's export_media endpoint supports it
@@ -152,8 +231,15 @@ def export_slides_as_images(presentation_id: str, output_dir: str = "output") ->
             print(f"   💾 PDF saved to: {pdf_file}")
             
         except HttpError as error:
-            print(f"❌ [FAILED] PDF export via Google Drive API: {error}")
-            raise
+            error_details = error.error_details if hasattr(error, 'error_details') else []
+            error_msg = f"Failed to export PDF for presentation {presentation_id}. Error: {error}"
+            print(f"❌ [FAILED] PDF export via Google Drive API: {error_msg}")
+            print(f"   Error details: {error_details}")
+            # Re-raise with more context
+            raise HttpError(
+                resp=error.resp,
+                content=f"PDF export failed for presentation {presentation_id}. The file may not exist in Google Drive or you may not have access. Details: {error_details}".encode('utf-8')
+            )
         except Exception as e:
             print(f"❌ [FAILED] PDF export error: {e}")
             raise
@@ -808,7 +894,7 @@ def analyze_slide_with_vision_api(image_bytes: bytes, slide_num: int = 0) -> Dic
         }
 
 
-def review_slides_layout(presentation_id: str, output_dir: str = "output") -> Dict:
+def review_slides_layout(presentation_id: str, output_dir: str = "presentation_agent/output") -> Dict:
     """
     Review Google Slides presentation for layout issues using Vision API.
     
@@ -827,6 +913,19 @@ def review_slides_layout(presentation_id: str, output_dir: str = "output") -> Di
     """
     try:
         print(f"\n🔍 Starting layout review for presentation: {presentation_id}")
+        
+        # Validate presentation_id format (should be numeric string)
+        if not presentation_id or not isinstance(presentation_id, str):
+            return {
+                'review_type': 'layout_vision_api',
+                'presentation_id': presentation_id,
+                'error': f'Invalid presentation_id: {presentation_id} (must be a non-empty string)',
+                'total_slides_reviewed': 0,
+                'issues_summary': {'total_issues': 0, 'overlaps_detected': 0, 'overflow_detected': 0, 'overlap_severity': {'critical': 0, 'major': 0, 'minor': 0}},
+                'issues': [],
+                'overall_quality': 'unknown',
+                'passed': False
+            }
         
         # Step 1: Export slides as images (PDF export + PDF to image conversion)
         slide_images = export_slides_as_images(presentation_id, output_dir=output_dir)

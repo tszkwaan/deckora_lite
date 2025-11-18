@@ -5,7 +5,7 @@ A tool function that can be used by agents to export slide decks to Google Slide
 
 import json
 from typing import Dict, Any, Union
-from utils.google_slides_exporter import export_to_google_slides
+from presentation_agent.agents.utils.google_slides_exporter import export_to_google_slides
 
 
 def _validate_and_normalize_input(value: Any, expected_type: type, param_name: str) -> Any:

@@ -14,13 +14,16 @@ from google.adk.runners import InMemoryRunner
 from google.adk.sessions import InMemorySessionService
 
 from config import PresentationConfig
-from report_understanding_agent.agent import root_agent as report_understanding_agent
-from outline_generator_agent.agent import root_agent as outline_generator_agent
-from outline_critic_agent.agent import root_agent as outline_critic_agent
-from slide_and_script_generator_agent.agent import root_agent as slide_and_script_generator_agent
-from utils.pdf_loader import load_pdf
-from utils.helpers import extract_output_from_events, save_json_output, preview_json
-from utils.quality_check import check_outline_quality, create_quality_log_entry
+# Import the root agent that uses SequentialAgent and LoopAgent structure
+from presentation_agent.agent import root_agent
+# Also import individual agents for the old manual pipeline (still used in main.py)
+from presentation_agent.agents.report_understanding_agent.agent import agent as report_understanding_agent
+from presentation_agent.agents.outline_generator_agent.agent import agent as outline_generator_agent
+from presentation_agent.agents.outline_critic_agent.agent import agent as outline_critic_agent
+from presentation_agent.agents.slide_and_script_generator_agent.agent import agent as slide_and_script_generator_agent
+from presentation_agent.agents.utils.pdf_loader import load_pdf
+from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, preview_json
+from presentation_agent.agents.utils.quality_check import check_outline_quality, create_quality_log_entry
 from config import OUTLINE_MAX_RETRY_LOOPS, LAYOUT_MAX_RETRY_LOOPS
 
 
@@ -85,7 +88,7 @@ def parse_duration_to_seconds(duration_input) -> int:
 
 async def run_presentation_pipeline(
     config: PresentationConfig,
-    output_dir: str = "output",
+    output_dir: str = "presentation_agent/output",
     include_critics: bool = True,
     save_intermediate: bool = True,
 ):
@@ -581,7 +584,7 @@ Your task:
                 
                 # Call the tool directly instead of using agent to avoid MALFORMED_FUNCTION_CALL
                 # The agent was failing because the parameters are too large for ADK to handle
-                from tools.google_slides_tool import export_slideshow_tool
+                from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool
                 
                 print("📝 Calling export_slideshow_tool directly...")
                 print("   (This may take a while - creating Google Slides presentation)")
@@ -659,7 +662,7 @@ Your task:
                                 try:
                                     # Call the tool directly instead of using the agent to avoid extraction issues
                                     print("📝 Calling layout review tool directly...")
-                                    from tools.google_slides_layout_tool import review_slides_layout
+                                    from presentation_agent.agents.tools.google_slides_layout_tool import review_slides_layout
                                     
                                     # Call the tool directly
                                     layout_review = review_slides_layout(presentation_id, output_dir=output_dir)
@@ -722,10 +725,19 @@ Your task:
                                                 layout_review = None
                                     
                                     if layout_review and isinstance(layout_review, dict):
+                                        # Always save layout_review to outputs, even if there's an error
+                                        # This ensures error information is preserved
+                                        outputs["layout_review"] = layout_review
+                                        print(f"💾 [DEBUG] Saved layout_review to outputs (keys: {list(layout_review.keys())[:5]})")
+                                        
                                         # Check if there's an error in the review
                                         if layout_review.get("error"):
                                             error_msg = layout_review.get("error", "Unknown error")
                                             print(f"\n⚠️  Layout review tool error: {error_msg}")
+                                            # If it's a credentials error, break (don't retry)
+                                            if "credentials" in error_msg.lower() or "not found" in error_msg.lower():
+                                                print("   This is a credentials issue. Please ensure credentials.json is in place.")
+                                                break
                                             # If it's a dependency error, break (don't retry)
                                             if "pdf2image" in error_msg.lower() or "poppler" in error_msg.lower():
                                                 print("   This is a dependency issue. Please install required packages.")

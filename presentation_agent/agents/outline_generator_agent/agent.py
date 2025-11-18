@@ -7,7 +7,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import RETRY_CONFIG, DEFAULT_MODEL
 
-root_agent = LlmAgent(
+# Export as 'agent' instead of 'root_agent' so this won't be discovered as a root agent by ADK-web
+agent = LlmAgent(
     name="OutlineGeneratorAgent",
     model=Gemini(
         model=DEFAULT_MODEL,
@@ -49,11 +50,23 @@ You will receive inputs in the user message with the following format:
 [CUSTOM_INSTRUCTION]
 <custom_instruction value>
 
+[PREVIOUS_CRITIC_REVIEW] (optional - only present if this is a retry)
+<Previous critic review output if threshold was not met>
+[END_PREVIOUS_CRITIC_REVIEW]
+
+[THRESHOLD_CHECK] (optional - only present if this is a retry)
+<Threshold check result indicating why regeneration is needed>
+[END_THRESHOLD_CHECK]
+
 CRITICAL: 
 - Use ONLY the information from [REPORT_KNOWLEDGE] section
 - Do NOT invent facts, numbers, or technical details not present in report_knowledge
 - All slide content must be traceable back to report_knowledge sections
 - The [REPORT_KNOWLEDGE] is your ground truth - stick to it strictly
+- If [PREVIOUS_CRITIC_REVIEW] and [THRESHOLD_CHECK] are provided, use them to improve the outline:
+  * Address hallucination issues if hallucination_score was below threshold
+  * Address safety issues if safety_score was below threshold
+  * Fix any issues mentioned in the critic review
 
 ------------------------------------------------------------
 REQUIRED OUTPUT FORMAT

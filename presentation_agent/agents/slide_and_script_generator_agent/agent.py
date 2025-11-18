@@ -7,7 +7,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import RETRY_CONFIG, DEFAULT_MODEL
 
-root_agent = LlmAgent(
+# Export as 'agent' instead of 'root_agent' so this won't be discovered as a root agent by ADK-web
+agent = LlmAgent(
     name="SlideAndScriptGeneratorAgent",
     model=Gemini(
         model=DEFAULT_MODEL,
@@ -32,13 +33,26 @@ OBJECTIVES
 INPUTS YOU WILL RECEIVE
 ------------------------------------------------------------
 
-You will be given (via state/context):
+You will be given (via state/context or message):
 - presentation_outline: Outline from Outline Generator Agent
 - report_knowledge: Structured knowledge from Report Understanding Agent
 - scenario: Presentation scenario
 - duration: Presentation duration (CRITICAL for script timing)
 - target_audience: Target audience
 - custom_instruction: Custom instructions (e.g., "keep details in speech only")
+
+[PREVIOUS_LAYOUT_REVIEW] (optional - only present if this is a retry)
+<Previous layout review output if threshold was not met>
+[END_PREVIOUS_LAYOUT_REVIEW]
+
+[THRESHOLD_CHECK] (optional - only present if this is a retry)
+<Threshold check result indicating why regeneration is needed>
+[END_THRESHOLD_CHECK]
+
+If [PREVIOUS_LAYOUT_REVIEW] and [THRESHOLD_CHECK] are provided, use them to improve the slides:
+- Address layout issues mentioned in the review (text overlap, overflow, spacing)
+- Fix specific issues on slides mentioned in the review
+- Improve formatting based on the critic's recommendations
 
 ------------------------------------------------------------
 REQUIRED OUTPUT FORMAT
