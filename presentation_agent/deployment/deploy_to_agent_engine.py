@@ -13,20 +13,35 @@ sys.path.insert(0, str(project_root))
 
 try:
     from google.cloud import aiplatform
+    from presentation_agent.agent import root_agent
+    
     # Try different import paths for AgentEngine
+    AgentEngine = None
+    import_error = None
+    
+    # Try primary import path
     try:
         from google.adk.agent_engines import AgentEngine
-    except ImportError:
+        print("✅ Found AgentEngine at: google.adk.agent_engines")
+    except ImportError as e1:
+        import_error = e1
+        # Try alternative import path
         try:
             from google.cloud.aiplatform.agent_engines import AgentEngine
-        except ImportError:
-            # Fallback: use ADK's deployment utilities
-            from google.adk.deployment import deploy_agent as adk_deploy_agent
-            AgentEngine = None
-    from presentation_agent.agent import root_agent
+            print("✅ Found AgentEngine at: google.cloud.aiplatform.agent_engines")
+        except ImportError as e2:
+            print("❌ Could not find AgentEngine in standard locations")
+            print(f"   Error 1: {e1}")
+            print(f"   Error 2: {e2}")
+            print("\nTrying alternative deployment method...")
+            # Try using ADK's deploy command directly via CLI
+            AgentEngine = "CLI_FALLBACK"
+            
 except ImportError as e:
-    print(f"Error importing required modules: {e}")
-    print("Please install: pip install google-cloud-aiplatform[agent_engines,adk]")
+    print(f"❌ Error importing required modules: {e}")
+    print("\nPlease ensure you have installed:")
+    print("  pip install google-cloud-aiplatform[agent_engines,adk]")
+    print("  pip install google-adk")
     sys.exit(1)
 
 
@@ -70,18 +85,65 @@ def deploy_agent(
     print(f"   Requirements: {len(requirements)} packages")
     
     try:
-        if AgentEngine is not None:
+        if AgentEngine is None:
+            print("\n❌ AgentEngine class not found!")
+            print("\nPlease check the ADK documentation for the correct import path:")
+            print("  https://google.github.io/adk-docs/deploy/agent-engine/")
+            print("\nOr try installing/upgrading:")
+            print("  pip install --upgrade google-cloud-aiplatform[agent_engines,adk]")
+            print("  pip install --upgrade google-adk")
+            sys.exit(1)
+        
+        if AgentEngine == "CLI_FALLBACK":
+            # Use ADK CLI command as fallback
+            print("\n⚠️ Using ADK CLI fallback method...")
+            import subprocess
+            import json
+            
+            # Create a temporary requirements file
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                f.write('\n'.join(requirements))
+                req_file = f.name
+            
+            try:
+                # Use adk deploy command
+                cmd = [
+                    "adk", "deploy",
+                    "--agent-name", agent_name,
+                    "--project-id", project_id,
+                    "--location", location,
+                    "--requirements", req_file,
+                    "--agent-path", str(project_root / "presentation_agent")
+                ]
+                print(f"Running: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                print(result.stdout)
+                print("✅ Agent deployed successfully via ADK CLI!")
+                return {"status": "deployed", "method": "cli"}
+            except subprocess.CalledProcessError as e:
+                print(f"❌ CLI deployment failed: {e}")
+                print(f"stdout: {e.stdout}")
+                print(f"stderr: {e.stderr}")
+                raise
+            finally:
+                import os
+                if os.path.exists(req_file):
+                    os.unlink(req_file)
+        else:
             # Use AgentEngine class
+            print(f"\n📦 Creating AgentEngine instance...")
             agent_engine = AgentEngine(
                 agent=root_agent,
                 agent_name=agent_name,
                 requirements=requirements,
             )
             
+            print(f"🚀 Deploying agent...")
             # Deploy the agent
             deployed_agent = agent_engine.deploy()
             
-            print(f"✅ Agent deployed successfully!")
+            print(f"\n✅ Agent deployed successfully!")
             if hasattr(deployed_agent, 'resource_name'):
                 print(f"   Agent Resource Name: {deployed_agent.resource_name}")
             if hasattr(deployed_agent, 'agent_id'):
@@ -90,23 +152,16 @@ def deploy_agent(
                 print(f"   Agent Name: {deployed_agent.name}")
             
             return deployed_agent
-        else:
-            # Fallback: use ADK deployment function directly
-            print("⚠️ Using fallback deployment method...")
-            deployed_agent = adk_deploy_agent(
-                agent=root_agent,
-                agent_name=agent_name,
-                project_id=project_id,
-                location=location,
-                requirements=requirements
-            )
-            print(f"✅ Agent deployed successfully!")
-            return deployed_agent
         
     except Exception as e:
-        print(f"❌ Deployment failed: {e}")
+        print(f"\n❌ Deployment failed: {e}")
         import traceback
         traceback.print_exc()
+        print("\n💡 Troubleshooting tips:")
+        print("1. Verify Vertex AI API is enabled")
+        print("2. Check service account has Vertex AI User role")
+        print("3. Ensure all dependencies are installed")
+        print("4. Check ADK documentation for latest deployment API")
         raise
 
 
