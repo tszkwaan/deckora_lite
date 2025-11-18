@@ -226,7 +226,39 @@ gcloud iam service-accounts list --filter="email:github-actions-sa"
 
 # Check APIs are enabled
 gcloud services list --enabled --filter="name:cloudbuild OR name:run OR name:containerregistry"
+
+# Verify service account permissions
+export SA_EMAIL="github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+gcloud projects get-iam-policy $PROJECT_ID \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:serviceAccount:${SA_EMAIL}" \
+  --format="table(bindings.role)"
 ```
+
+### Verify Service Account in GitHub Secrets
+
+To ensure the correct service account is configured in GitHub Actions:
+
+1. Go to your GitHub repository → **Settings** → **Secrets and variables** → **Actions**
+2. Click on `GCP_SA_KEY` secret
+3. Copy the JSON content and check the `client_email` field
+4. Verify this matches the service account you granted permissions to in Google Cloud Console
+
+**Example:**
+```json
+{
+  "type": "service_account",
+  "project_id": "deckora-lite",
+  "private_key_id": "...",
+  "private_key": "...",
+  "client_email": "github-actions-sa@deckora-lite.iam.gserviceaccount.com",  ← Check this!
+  ...
+}
+```
+
+If the `client_email` doesn't match the service account you configured, you need to either:
+- Update the `GCP_SA_KEY` secret with the correct service account key, OR
+- Grant permissions to the service account shown in `client_email`
 
 ---
 
