@@ -311,6 +311,7 @@ def export_to_google_slides(
         FileNotFoundError: If credentials.json is not found
         HttpError: If Google API call fails
     """
+    presentation_id = None  # Initialize to track if presentation was created
     try:
         # Get credentials
         creds = get_credentials()
@@ -320,11 +321,40 @@ def export_to_google_slides(
         
         # Create presentation
         print("📊 Creating Google Slides presentation...")
-        presentation = service.presentations().create(
-            body={'title': title}
-        ).execute()
-        presentation_id = presentation.get('presentationId')
-        print(f"✅ Presentation created: {presentation_id}")
+        try:
+            presentation = service.presentations().create(
+                body={'title': title}
+            ).execute()
+            presentation_id = presentation.get('presentationId')
+            
+            # Validate presentation_id was actually created
+            if not presentation_id:
+                error_msg = f"Failed to get presentation_id from Google Slides API response. Response: {presentation}"
+                print(f"❌ {error_msg}")
+                raise ValueError(error_msg)
+            
+            print(f"✅ Presentation created: {presentation_id}")
+            print(f"   Full API response keys: {list(presentation.keys())}")
+            
+            # Verify the presentation exists by trying to get it
+            try:
+                verify_presentation = service.presentations().get(
+                    presentationId=presentation_id
+                ).execute()
+                print(f"✅ Verified presentation exists and is accessible")
+            except HttpError as verify_error:
+                print(f"⚠️  Warning: Could not verify presentation immediately: {verify_error}")
+                # Continue anyway - might be a timing issue
+                
+        except HttpError as create_error:
+            error_details = str(create_error)
+            print(f"❌ Failed to create Google Slides presentation: {error_details}")
+            # Try to extract more details from the error
+            if hasattr(create_error, 'content'):
+                print(f"   Error content: {create_error.content}")
+            if hasattr(create_error, 'resp'):
+                print(f"   Error response status: {getattr(create_error.resp, 'status', 'N/A')}")
+            raise
         
         # Get presentation to access slides
         presentation = service.presentations().get(
@@ -659,7 +689,17 @@ def export_to_google_slides(
                 print(f"   First 3 requests:")
                 for i, req in enumerate(content_requests[:3]):
                     print(f"      {i}: {list(req.keys())[0]}")
-                raise
+                # Even if content addition fails, return the presentation info so it can still be accessed
+                # The presentation was created successfully, even if content couldn't be added
+                shareable_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+                print(f"⚠️  Warning: Content addition failed, but presentation was created: {shareable_url}")
+                return {
+                    'status': 'partial_success',
+                    'presentation_id': presentation_id,
+                    'shareable_url': shareable_url,
+                    'message': f'Google Slides presentation created but content addition failed: {e}',
+                    'error': f'Content addition error: {str(e)}'
+                }
         
         # Generate shareable URL
         shareable_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
@@ -705,11 +745,40 @@ def export_to_google_slides(
         }
         
     except FileNotFoundError as e:
+        # Re-raise FileNotFoundError so it can be handled by the tool wrapper
         raise e
     except HttpError as error:
         print(f"❌ Google API error: {error}")
+        error_details = str(error)
+        # Check if presentation was created before the error
+        # If so, return partial success with the presentation_id so it can still be accessed
+        if presentation_id:
+            shareable_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+            print(f"⚠️  Warning: API error occurred, but presentation was created: {shareable_url}")
+            return {
+                'status': 'partial_success',
+                'presentation_id': presentation_id,
+                'shareable_url': shareable_url,
+                'message': f'Google Slides presentation created but encountered API error: {error_details}',
+                'error': error_details
+            }
+        # If presentation wasn't created, raise the error
         raise
     except Exception as e:
         print(f"❌ Error exporting to Google Slides: {e}")
+        error_details = str(e)
+        # Check if presentation was created before the error
+        # If so, return partial success with the presentation_id so it can still be accessed
+        if presentation_id:
+            shareable_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+            print(f"⚠️  Warning: Error occurred, but presentation was created: {shareable_url}")
+            return {
+                'status': 'partial_success',
+                'presentation_id': presentation_id,
+                'shareable_url': shareable_url,
+                'message': f'Google Slides presentation created but encountered error: {error_details}',
+                'error': error_details
+            }
+        # If presentation wasn't created, raise the error
         raise
 

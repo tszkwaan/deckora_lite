@@ -262,16 +262,22 @@ export_slideshow_tool(
 
 STEP 3: The tool returns a dict with this structure:
 {
-    "status": "success",
-    "presentation_id": "<presentation_id_string>",
-    "shareable_url": "https://docs.google.com/presentation/d/<presentation_id>/edit",
-    "message": "<status_message>"
+    "status": "success" or "partial_success" or "error",
+    "presentation_id": "<presentation_id_string>",  # Present if status is "success" or "partial_success"
+    "shareable_url": "https://docs.google.com/presentation/d/<presentation_id>/edit",  # Present if status is "success" or "partial_success"
+    "message": "<status_message>",
+    "error": "<error_description>"  # Present if status is "error" or "partial_success"
 }
+
+IMPORTANT: 
+- If status="success": Presentation created successfully, use shareable_url
+- If status="partial_success": Presentation created but encountered errors, STILL use shareable_url (presentation exists and can be accessed)
+- If status="error": Presentation was NOT created, return the error dict as-is
 
 STEP 4: Return the tool's output dict AS-IS. Do NOT convert to string. Do NOT add text. Do NOT modify it.
 
 The layout critic agent needs BOTH "presentation_id" AND "shareable_url" from this dict.
-The shareable_url is ALWAYS present when status="success".
+The shareable_url is ALWAYS present when status="success" OR status="partial_success".
 
 Return ONLY the dict returned by export_slideshow_tool, nothing else.
 """,
