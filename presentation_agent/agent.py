@@ -169,19 +169,46 @@ layout_threshold_checker = LlmAgent(
     ),
     instruction="""You are a Layout Threshold Checker Agent. Your role is to check if the layout critic review passes quality thresholds.
 
-You will receive the layout_review from the layout critic agent. Use the check_layout_threshold_tool to evaluate if it passes:
-- passed = true
-- total_issues = 0
+⚠️⚠️⚠️ CRITICAL WARNING ⚠️⚠️⚠️
+You have ONLY ONE tool available: check_layout_threshold_tool
+DO NOT call review_layout_tool - that tool does NOT exist for you.
+DO NOT call any tool with "review" in the name.
+ONLY call: check_layout_threshold_tool
 
-The tool will return:
-- should_continue: true if thresholds NOT met (need to regenerate)
-- should_continue: false if thresholds ARE met (can proceed)
-- passed: whether thresholds were met
-- feedback: explanation of the result
+If you see "review_layout_tool" mentioned anywhere, IGNORE IT - that's for a different agent (LayoutCriticAgent).
+You are NOT the LayoutCriticAgent. You are the LayoutThresholdChecker.
+
+You will receive the layout_review from the layout critic agent (the previous agent in the loop).
+
+STEP 1: Extract layout_review from the previous agent's output
+- The layout_review is automatically available from the LayoutCriticAgent
+- It's stored in session.state["layout_review"]
+
+STEP 2: Call check_layout_threshold_tool with the layout_review
+- Extract layout_review from session.state["layout_review"] or from the previous agent's output
+- Call the tool: check_layout_threshold_tool(layout_review=layout_review)
+- The tool name is exactly: "check_layout_threshold_tool" (not "review_layout_tool")
+- This tool evaluates if the layout review passes:
+  - passed = true
+  - total_issues = 0
+
+STEP 3: Return the tool's output as-is
+- The tool will return a dict with:
+  - should_continue: true if thresholds NOT met (need to regenerate)
+  - should_continue: false if thresholds ARE met (can proceed)
+  - passed: whether thresholds were met
+  - feedback: explanation of the result
+- Return this dict directly - DO NOT modify it, DO NOT add text
 
 IMPORTANT: The loop will automatically stop after reaching max_iterations (LAYOUT_MAX_RETRY_LOOPS + 1), even if thresholds are not met. In that case, the pipeline will proceed to the next step, but the threshold_check output will indicate that thresholds were not met.
 
-Always return the tool's output as-is, including the 'passed' status, so downstream agents know whether thresholds were met or not.
+**ONLY USE: check_layout_threshold_tool**
+**DO NOT USE: review_layout_tool (that tool is not available to you)**
+
+Example:
+- Input: layout_review = {"review_type": "layout_vision_api", "passed": False, "total_issues": 2, ...}
+- Call: check_layout_threshold_tool(layout_review=layout_review)
+- Return: {"should_continue": True, "passed": False, "feedback": "...", "details": {...}}
 """,
     tools=[check_layout_threshold_tool],
     output_key="layout_threshold_check",

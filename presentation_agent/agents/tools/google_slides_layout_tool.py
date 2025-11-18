@@ -16,6 +16,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import HttpRequest
 
 # Optional imports - will fail gracefully if not installed
 try:
@@ -201,9 +202,9 @@ def export_slides_as_images(presentation_id: str, output_dir: str = "presentatio
             error_msg = verification_result.get('error', 'Unknown error')
             error_details = verification_result.get('error_details', [])
             print(f"❌ [FAILED] {error_msg}")
-            raise HttpError(
-                resp=type('obj', (object,), {'status': 404})(),
-                content=f"Presentation not found: {presentation_id}. The presentation may have been deleted or you may not have access to it. Details: {error_details}".encode('utf-8')
+            # Raise a ValueError instead of trying to create a fake HttpError
+            raise ValueError(
+                f"Presentation not found: {presentation_id}. The presentation may have been deleted or you may not have access to it. Details: {error_details}"
             )
         
         print(f"✅ [SUCCESS] Presentation verified: {verification_result.get('title', 'Untitled')}")
@@ -235,11 +236,8 @@ def export_slides_as_images(presentation_id: str, output_dir: str = "presentatio
             error_msg = f"Failed to export PDF for presentation {presentation_id}. Error: {error}"
             print(f"❌ [FAILED] PDF export via Google Drive API: {error_msg}")
             print(f"   Error details: {error_details}")
-            # Re-raise with more context
-            raise HttpError(
-                resp=error.resp,
-                content=f"PDF export failed for presentation {presentation_id}. The file may not exist in Google Drive or you may not have access. Details: {error_details}".encode('utf-8')
-            )
+            # Re-raise the original HttpError (it already has proper resp attribute)
+            raise
         except Exception as e:
             print(f"❌ [FAILED] PDF export error: {e}")
             raise
@@ -247,6 +245,10 @@ def export_slides_as_images(presentation_id: str, output_dir: str = "presentatio
     except FileNotFoundError as e:
         print(f"❌ [FAILED] Credentials not found: {e}")
         raise e
+    except ValueError as e:
+        # Handle ValueError from presentation verification
+        print(f"❌ [FAILED] Presentation verification error: {e}")
+        raise
     except HttpError as error:
         print(f"❌ [FAILED] Google API error: {error}")
         raise

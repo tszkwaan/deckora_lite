@@ -1,5 +1,5 @@
 # Core dependencies
-google-adk
+google-adk[eval]  # Includes eval module for evaluation features
 google-genai
 pypdf
 requests
