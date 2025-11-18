@@ -33,9 +33,14 @@ Your service account needs these **4 required roles** for CI/CD deployment:
 
 ---
 
-## Optional (Recommended) Role
+## Optional Roles
 
-### 4. **Cloud Build Editor** (`roles/cloudbuild.builds.editor`)
+### 5. **Service Usage Admin** (`roles/serviceusage.serviceUsageAdmin`) - Optional but Recommended
+**Why needed:** Allows the workflow to automatically enable required APIs
+- Enable/disable Google Cloud APIs
+- **Note:** If you don't grant this role, you must manually enable APIs before first deployment (see DEPLOYMENT_SETUP.md Step 2)
+
+### 6. **Cloud Build Editor** (`roles/cloudbuild.builds.editor`) - Optional
 **Why needed:** If you want to use Cloud Build as an alternative
 - Create and manage Cloud Build jobs
 - View build logs

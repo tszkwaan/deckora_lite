@@ -33,6 +33,16 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
+      - name: Enable Required APIs
+        run: |
+          gcloud services enable \
+            cloudbuild.googleapis.com \
+            run.googleapis.com \
+            artifactregistry.googleapis.com \
+            containerregistry.googleapis.com \
+            secretmanager.googleapis.com \
+            --project=${{ secrets.GCP_PROJECT_ID }}
+
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker
 
