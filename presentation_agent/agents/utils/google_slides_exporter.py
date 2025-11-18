@@ -698,7 +698,12 @@ def export_to_google_slides(
                 # Even if content addition fails, return the presentation info so it can still be accessed
                 # The presentation was created successfully, even if content couldn't be added
                 shareable_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"⚠️  Warning: Content addition failed, but presentation was created")
+                logger.info(f"   🔗 Google Slides URL: {shareable_url}")
                 print(f"⚠️  Warning: Content addition failed, but presentation was created: {shareable_url}")
+                print(f"🔗 Google Slides URL: {shareable_url}")
                 return {
                     'status': 'partial_success',
                     'presentation_id': presentation_id,
@@ -714,10 +719,10 @@ def export_to_google_slides(
         logger = logging.getLogger(__name__)
         logger.info(f"✅ Google Slides export complete!")
         logger.info(f"   Presentation ID: {presentation_id}")
-        logger.info(f"   Shareable URL: {shareable_url}")
+        logger.info(f"   🔗 Google Slides URL: {shareable_url}")
         print(f"✅ Google Slides export complete!")
         print(f"   Presentation ID: {presentation_id}")
-        print(f"   Shareable URL: {shareable_url}")
+        print(f"   🔗 Google Slides URL: {shareable_url}")
         
         # Open URL in Chrome
         try:
@@ -782,7 +787,12 @@ def export_to_google_slides(
         # If so, return partial success with the presentation_id so it can still be accessed
         if presentation_id:
             shareable_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"⚠️  Warning: Error occurred, but presentation was created")
+            logger.info(f"   🔗 Google Slides URL: {shareable_url}")
             print(f"⚠️  Warning: Error occurred, but presentation was created: {shareable_url}")
+            print(f"🔗 Google Slides URL: {shareable_url}")
             return {
                 'status': 'partial_success',
                 'presentation_id': presentation_id,

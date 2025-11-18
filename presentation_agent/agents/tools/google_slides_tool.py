@@ -157,7 +157,14 @@ def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: d
         logger.info(f"✅ export_slideshow_tool completed: {result.get('status', 'unknown')}")
         if result.get('presentation_id'):
             logger.info(f"   Presentation ID: {result.get('presentation_id')}")
-            logger.info(f"   Shareable URL: {result.get('shareable_url')}")
+        if result.get('shareable_url'):
+            logger.info(f"   🔗 Google Slides URL: {result.get('shareable_url')}")
+            print(f"🔗 Google Slides URL: {result.get('shareable_url')}")
+        elif result.get('presentation_id'):
+            # Generate URL if we have ID but no URL
+            generated_url = f"https://docs.google.com/presentation/d/{result.get('presentation_id')}/edit"
+            logger.info(f"   🔗 Google Slides URL (generated): {generated_url}")
+            print(f"🔗 Google Slides URL (generated): {generated_url}")
         return result
     except Exception as e:
         # Return error dict instead of raising to prevent crashes
