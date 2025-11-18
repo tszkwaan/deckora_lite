@@ -38,8 +38,8 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }} .
-          docker build -t gcr.io/$PROJECT_ID/$SERVICE_NAME:latest .
+          docker build -f presentation_agent/deployment/Dockerfile -t gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }} .
+          docker build -f presentation_agent/deployment/Dockerfile -t gcr.io/$PROJECT_ID/$SERVICE_NAME:latest .
 
       - name: Push Docker image to GCR
         run: |

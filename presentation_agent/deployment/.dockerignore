@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+observability.log
+logger.log
+
+# Outputs
+presentation_agent/output/
+output/
+
+# Credentials (should use Secret Manager in production)
+presentation_agent/agents/credentials/
+credentials/
+*.json
+!requirements.txt
+
+# Git
+.git/
+.gitignore
+
+# ADK-web (not needed for deployment)
+.project_internal/
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+test/
+*.ipynb
+
+# Environment files
+.env
+.env.local
+

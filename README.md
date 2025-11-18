@@ -102,12 +102,31 @@ Generated files in `output/` directory:
 
 ## Deployment
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for instructions on deploying to Google Cloud Run using GitHub Actions CI/CD.
+See [presentation_agent/deployment/DEPLOYMENT.md](presentation_agent/deployment/DEPLOYMENT.md) for instructions on deploying to Google Cloud Run using GitHub Actions CI/CD.
+
+**Deployment Files**: All deployment configuration is in `presentation_agent/deployment/` folder.
 
 Quick deployment:
-1. Set up Google Cloud project and service account
+1. Set up Google Cloud project and service account (see `presentation_agent/deployment/DEPLOYMENT_SETUP.md`)
 2. Add secrets to GitHub repository
 3. Push to `main` branch - deployment happens automatically!
+4. After deployment, your API will be available at the Cloud Run URL
+
+**API Endpoints:**
+- `GET /health` - Health check
+- `POST /generate` - Generate presentation
+
+**Example API Call:**
+```bash
+curl -X POST https://YOUR_SERVICE_URL/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "report_url": "https://arxiv.org/pdf/2511.08597",
+    "scenario": "academic_teaching",
+    "duration": "20 minutes",
+    "target_audience": "students"
+  }'
+```
 
 ## Notes
 
