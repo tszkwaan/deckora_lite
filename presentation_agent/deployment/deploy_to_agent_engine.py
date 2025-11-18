@@ -17,25 +17,34 @@ try:
     
     # Try different import paths for AgentEngine
     AgentEngine = None
-    import_error = None
+    AgentEngine_create = None
     
-    # Try primary import path
+    # Try primary import path: aiplatform.AgentEngine
     try:
-        from google.adk.agent_engines import AgentEngine
-        print("✅ Found AgentEngine at: google.adk.agent_engines")
-    except ImportError as e1:
-        import_error = e1
-        # Try alternative import path
+        # Based on web search: aiplatform.AgentEngine.create()
+        if hasattr(aiplatform, 'AgentEngine'):
+            AgentEngine_create = aiplatform.AgentEngine.create
+            print("✅ Found AgentEngine at: aiplatform.AgentEngine")
+        else:
+            raise AttributeError("aiplatform.AgentEngine not found")
+    except (AttributeError, ImportError) as e1:
+        # Try alternative: google.adk.agent_engines
         try:
-            from google.cloud.aiplatform.agent_engines import AgentEngine
-            print("✅ Found AgentEngine at: google.cloud.aiplatform.agent_engines")
+            from google.adk.agent_engines import AgentEngine
+            print("✅ Found AgentEngine at: google.adk.agent_engines")
         except ImportError as e2:
-            print("❌ Could not find AgentEngine in standard locations")
-            print(f"   Error 1: {e1}")
-            print(f"   Error 2: {e2}")
-            print("\nTrying alternative deployment method...")
-            # Try using ADK's deploy command directly via CLI
-            AgentEngine = "CLI_FALLBACK"
+            # Try: google.cloud.aiplatform.agent_engines
+            try:
+                from google.cloud.aiplatform.agent_engines import AgentEngine
+                print("✅ Found AgentEngine at: google.cloud.aiplatform.agent_engines")
+            except ImportError as e3:
+                print("❌ Could not find AgentEngine in standard locations")
+                print(f"   Error 1: {e1}")
+                print(f"   Error 2: {e2}")
+                print(f"   Error 3: {e3}")
+                print("\nTrying alternative deployment method...")
+                # Try using ADK's deploy command directly via CLI
+                AgentEngine = "CLI_FALLBACK"
             
 except ImportError as e:
     print(f"❌ Error importing required modules: {e}")
@@ -130,8 +139,10 @@ def deploy_agent(
                 # Try different command formats
                 # Format 1: adk deploy agent-engine
                 cmd_options = [
-                    # Option 1: Try with agent-engine subcommand
+                    # Option 1: Try with agent-engine subcommand (correct syntax)
                     ["adk", "deploy", "agent-engine", agent_path, "--name", agent_name, "--project", project_id, "--location", location, "--requirements", req_file],
+                    # Option 1b: Try with agent_engine (underscore)
+                    ["adk", "deploy", "agent_engine", agent_path, "--name", agent_name, "--project", project_id, "--location", location, "--requirements", req_file],
                     # Option 2: Try without subcommand but with different flags
                     ["adk", "deploy", agent_path, "--name", agent_name, "--project", project_id, "--region", location, "--requirements", req_file],
                     # Option 3: Try minimal command
@@ -176,8 +187,27 @@ def deploy_agent(
             finally:
                 if os.path.exists(req_file):
                     os.unlink(req_file)
+        elif AgentEngine_create is not None:
+            # Use aiplatform.AgentEngine.create() method (recommended)
+            print(f"\n📦 Creating AgentEngine using aiplatform.AgentEngine.create()...")
+            deployed_agent = AgentEngine_create(
+                local_agent=root_agent,
+                requirements=requirements,
+                display_name=agent_name,
+                description="Presentation generation agent from research reports",
+            )
+            
+            print(f"\n✅ Agent deployed successfully!")
+            if hasattr(deployed_agent, 'resource_name'):
+                print(f"   Agent Resource Name: {deployed_agent.resource_name}")
+            if hasattr(deployed_agent, 'agent_id'):
+                print(f"   Agent ID: {deployed_agent.agent_id}")
+            if hasattr(deployed_agent, 'name'):
+                print(f"   Agent Name: {deployed_agent.name}")
+            
+            return deployed_agent
         else:
-            # Use AgentEngine class
+            # Use AgentEngine class (if found)
             print(f"\n📦 Creating AgentEngine instance...")
             agent_engine = AgentEngine(
                 agent=root_agent,
