@@ -119,6 +119,20 @@ jobs:
           docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }}
           docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:latest
 
+      - name: Grant Secret Access to Cloud Run Service Account
+        run: |
+          echo "Granting Secret Manager access to Cloud Run service account..."
+          COMPUTE_SA="${PROJECT_ID}-compute@developer.gserviceaccount.com"
+          gcloud secrets add-iam-policy-binding google-credentials \
+            --member="serviceAccount:${COMPUTE_SA}" \
+            --role="roles/secretmanager.secretAccessor" \
+            --project=${{ secrets.GCP_PROJECT_ID }} || {
+              echo "⚠️ Could not grant secret access automatically."
+              echo "Please grant 'Secret Manager Secret Accessor' role to:"
+              echo "  ${COMPUTE_SA}"
+              echo "For secret: google-credentials"
+            }
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy $SERVICE_NAME \

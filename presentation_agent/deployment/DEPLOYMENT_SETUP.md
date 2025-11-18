@@ -189,6 +189,38 @@ gcloud secrets create google-credentials \
 
 ---
 
+## Step 6b: Grant Secret Access to Cloud Run Service Account
+
+**⚠️ IMPORTANT:** Cloud Run needs permission to access the secret. Grant access to the default compute service account:
+
+### Option A: Google Cloud Console (Web UI)
+
+1. Go to [Secret Manager](https://console.cloud.google.com/security/secret-manager)
+2. Click on the `google-credentials` secret
+3. Click **"Permissions"** tab
+4. Click **"Grant Access"**
+5. In the dialog:
+   - **New principals**: Enter `YOUR_PROJECT_ID-compute@developer.gserviceaccount.com`
+     - Replace `YOUR_PROJECT_ID` with your actual project ID (e.g., `deckora-lite-compute@developer.gserviceaccount.com`)
+   - **Select a role**: `Secret Manager Secret Accessor` (`roles/secretmanager.secretAccessor`)
+6. Click **"Save"**
+
+### Option B: gcloud CLI
+
+```bash
+export PROJECT_ID="your-project-id"
+export COMPUTE_SA="${PROJECT_ID}-compute@developer.gserviceaccount.com"
+
+gcloud secrets add-iam-policy-binding google-credentials \
+  --member="serviceAccount:${COMPUTE_SA}" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project=$PROJECT_ID
+```
+
+**Note:** The GitHub Actions workflow will attempt to grant this automatically, but you can also do it manually.
+
+---
+
 ## Step 7: Add Secrets to GitHub
 
 1. Go to your GitHub repository
