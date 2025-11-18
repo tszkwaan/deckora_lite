@@ -16,12 +16,15 @@ Your service account needs these **4 required roles** for CI/CD deployment:
 - Manage Cloud Storage buckets
 - Read/write to Cloud Storage objects
 
-### 3. **Artifact Registry Writer** (`roles/artifactregistry.writer`)
-**Why needed:** Push Docker images to Container Registry/Artifact Registry
+### 3. **Artifact Registry Admin** (`roles/artifactregistry.admin`) ⭐ **Recommended**
+**Why needed:** Push Docker images AND create repositories if they don't exist
 - Upload Docker images to `gcr.io` (now uses Artifact Registry backend)
+- **Create repositories on push** (required if repository doesn't exist yet)
 - Push/pull container images
 - Manage artifacts in Artifact Registry
-- **This is the key role for Docker image pushes!**
+- **This role includes create permissions needed for first-time pushes!**
+
+**Alternative:** If you prefer minimal permissions, use `Artifact Registry Writer` + manually create the repository first (see troubleshooting section)
 
 ### 4. **Service Account User** (`roles/iam.serviceAccountUser`)
 **Why needed:** Use service accounts for Cloud Run deployment
@@ -67,9 +70,11 @@ Your service account needs these **4 required roles** for CI/CD deployment:
    - Click "Add another role"
 
    **Third role:**
-   - Search for: `Artifact Registry Writer`
-   - Select: `Artifact Registry Writer` (roles/artifactregistry.writer)
+   - Search for: `Artifact Registry Admin`
+   - Select: `Artifact Registry Admin` (roles/artifactregistry.admin) ⭐ **Recommended**
    - Click "Add another role"
+   
+   **Alternative:** If you prefer minimal permissions, use `Artifact Registry Writer` but you'll need to create the repository manually first
 
    **Fourth role:**
    - Search for: `Service Account User`
@@ -93,10 +98,10 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/storage.admin"
 
-# Grant Artifact Registry Writer (REQUIRED for Docker image pushes)
+# Grant Artifact Registry Admin (REQUIRED for Docker image pushes + repo creation)
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/artifactregistry.writer"
+  --role="roles/artifactregistry.admin"
 
 # Grant Service Account User
 gcloud projects add-iam-policy-binding $PROJECT_ID \
@@ -113,7 +118,7 @@ After granting permissions, verify they're set correctly:
 1. On the same "Permissions" tab, you should see:
    - `Cloud Run Admin`
    - `Storage Admin`
-   - `Artifact Registry Writer` ⭐ **This is critical for Docker pushes!**
+   - `Artifact Registry Admin` ⭐ **This is critical for Docker pushes and repo creation!**
    - `Service Account User`
 
 2. Or use CLI:
@@ -139,11 +144,19 @@ After granting permissions, verify they're set correctly:
 - ✅ Manage Cloud Storage buckets
 - ✅ Read/write object metadata
 
-### `roles/artifactregistry.writer` ⭐ **Critical for Docker pushes!**
+### `roles/artifactregistry.admin` ⭐ **Recommended - Includes create permissions!**
 - ✅ Push Docker images to Container Registry/Artifact Registry
+- ✅ **Create repositories on push** (solves "repo does not exist" error)
 - ✅ Pull images from registry
 - ✅ Upload artifacts to Artifact Registry
 - ✅ Required for `gcr.io` (now uses Artifact Registry backend)
+- ✅ Full management of Artifact Registry repositories
+
+### `roles/artifactregistry.writer` (Alternative - requires manual repo creation)
+- ✅ Push Docker images to Container Registry/Artifact Registry
+- ✅ Pull images from registry
+- ✅ Upload artifacts to Artifact Registry
+- ❌ **Cannot create repositories** - must create manually first
 
 ### `roles/iam.serviceAccountUser`
 - ✅ Use service accounts in Cloud Run
@@ -159,9 +172,21 @@ After granting permissions, verify they're set correctly:
 - **Check:** Verify service account email is correct
 
 ### ❌ "Cannot push to Container Registry" or "Permission artifactregistry.repositories.uploadArtifacts denied"
-- **Fix:** Grant `Artifact Registry Writer` role (`roles/artifactregistry.writer`)
+- **Fix:** Grant `Artifact Registry Admin` role (`roles/artifactregistry.admin`)
 - **Why:** GCR now uses Artifact Registry backend, so this role is required
 - **Note:** `Storage Admin` alone is not sufficient for Docker image pushes
+
+### ❌ "gcr.io repo does not exist. Creating on push requires the artifactregistry.repositories.createOnPush permission"
+- **Fix Option 1 (Recommended):** Grant `Artifact Registry Admin` role (`roles/artifactregistry.admin`)
+  - This role includes create permissions, so repositories are created automatically on first push
+- **Fix Option 2:** Manually create the repository first:
+  ```bash
+  gcloud artifacts repositories create gcr.io \
+    --repository-format=docker \
+    --location=us \
+    --project=$PROJECT_ID
+  ```
+  Then `Artifact Registry Writer` role is sufficient
 
 ### ❌ "Service account user permission denied"
 - **Fix:** Grant `Service Account User` role

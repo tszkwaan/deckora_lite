@@ -107,7 +107,7 @@ gcloud iam service-accounts create github-actions-sa \
    - **Select a role**: Add these **4 required roles**:
      - **Cloud Run Admin** (`roles/run.admin`) - for deploying to Cloud Run
      - **Storage Admin** (`roles/storage.admin`) - for legacy GCR support
-     - **Artifact Registry Writer** (`roles/artifactregistry.writer`) - ⭐ **REQUIRED for pushing Docker images**
+     - **Artifact Registry Admin** (`roles/artifactregistry.admin`) - ⭐ **REQUIRED for pushing Docker images and creating repositories**
      - **Service Account User** (`roles/iam.serviceAccountUser`) - for using service accounts
    - Click **"Add another role"** after each one
 6. Click **"Save"**
@@ -129,10 +129,10 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/storage.admin"
 
-# Grant Artifact Registry Writer (REQUIRED for Docker image pushes)
+# Grant Artifact Registry Admin (REQUIRED for Docker image pushes + repo creation)
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/artifactregistry.writer"
+  --role="roles/artifactregistry.admin"
 
 # Grant Service Account User
 gcloud projects add-iam-policy-binding $PROJECT_ID \
