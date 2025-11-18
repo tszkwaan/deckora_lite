@@ -24,6 +24,10 @@ from presentation_agent.agents.slide_and_script_generator_agent.agent import age
 from presentation_agent.agents.utils.pdf_loader import load_pdf
 from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, preview_json
 from presentation_agent.agents.utils.quality_check import check_outline_quality, create_quality_log_entry
+from presentation_agent.agents.utils.observability import (
+    get_observability_logger,
+    AgentStatus
+)
 from config import OUTLINE_MAX_RETRY_LOOPS, LAYOUT_MAX_RETRY_LOOPS
 
 
@@ -107,6 +111,14 @@ async def run_presentation_pipeline(
     # Create output directory
     Path(output_dir).mkdir(exist_ok=True)
     
+    # Initialize observability
+    trace_file = f"{output_dir}/trace_history.json"
+    obs_logger = get_observability_logger(
+        log_file="observability.log",
+        trace_file=trace_file
+    )
+    obs_logger.start_pipeline("presentation_pipeline")
+    
     # Load PDF if URL provided
     if config.report_url and not config.report_content:
         print(f"📄 Loading PDF from URL: {config.report_url}")
@@ -158,23 +170,31 @@ Your task:
     print("=" * 60)
     
     # Step 1: Generate report knowledge (no retry needed)
-    report_runner = create_runner(report_understanding_agent)
-    report_events = await report_runner.run_debug(initial_message, session_id=session.id)
-    
-    # Extract report_knowledge
-    outputs = {}
-    report_knowledge = extract_output_from_events(report_events, "report_knowledge")
-    if report_knowledge:
-        outputs["report_knowledge"] = report_knowledge
-        session.state["report_knowledge"] = report_knowledge
-        if save_intermediate:
-            output_file = f"{output_dir}/report_knowledge.json"
-            save_json_output(report_knowledge, output_file)
-            print(f"📄 Report knowledge saved to: {output_file}")
-            print(f"\nPreview:\n{preview_json(report_knowledge)}\n")
-    else:
-        print("⚠️  Warning: No report_knowledge found in pipeline output")
-        return outputs
+    obs_logger.start_agent_execution("ReportUnderstandingAgent", output_key="report_knowledge")
+    try:
+        report_runner = create_runner(report_understanding_agent)
+        report_events = await report_runner.run_debug(initial_message, session_id=session.id)
+        
+        # Extract report_knowledge
+        outputs = {}
+        report_knowledge = extract_output_from_events(report_events, "report_knowledge")
+        if report_knowledge:
+            outputs["report_knowledge"] = report_knowledge
+            session.state["report_knowledge"] = report_knowledge
+            if save_intermediate:
+                output_file = f"{output_dir}/report_knowledge.json"
+                save_json_output(report_knowledge, output_file)
+                print(f"📄 Report knowledge saved to: {output_file}")
+                print(f"\nPreview:\n{preview_json(report_knowledge)}\n")
+            obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
+        else:
+            print("⚠️  Warning: No report_knowledge found in pipeline output")
+            obs_logger.finish_agent_execution(AgentStatus.FAILED, "No output generated", has_output=False)
+            return outputs
+    except Exception as e:
+        error_msg = str(e)
+        obs_logger.finish_agent_execution(AgentStatus.FAILED, error_msg, has_output=False)
+        raise
     
     # Step 2: Generate outline with quality check and retry loop
     print("\n" + "=" * 60)
@@ -192,7 +212,7 @@ Your task:
         print(f"\n📝 Attempt {attempt}/{OUTLINE_MAX_RETRY_LOOPS}: Generating outline...")
         
         if attempt > 1:
-            pass  # Retry attempt
+            obs_logger.log_retry("OutlineGeneratorAgent", attempt, "Quality check failed")
         
         # Build outline generator message with explicit data to prevent hallucination
         report_knowledge_json = json.dumps(report_knowledge, indent=2, ensure_ascii=False)
@@ -222,8 +242,18 @@ Your task:
 """
         
         # Generate outline
-        outline_events = await outline_runner.run_debug(outline_message, session_id=session.id)
-        outline = extract_output_from_events(outline_events, "presentation_outline")
+        obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline", retry_count=attempt-1)
+        try:
+            outline_events = await outline_runner.run_debug(outline_message, session_id=session.id)
+            outline = extract_output_from_events(outline_events, "presentation_outline")
+            obs_logger.finish_agent_execution(
+                AgentStatus.SUCCESS if outline else AgentStatus.FAILED,
+                None if outline else "No outline generated",
+                has_output=bool(outline)
+            )
+        except Exception as e:
+            obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+            raise
         
         if not outline:
             print(f"⚠️  Warning: No outline generated in attempt {attempt}")
@@ -267,8 +297,18 @@ Your task:
 - Do NOT ask any questions - all data is provided above.
 """
         
-        critic_events = await critic_runner.run_debug(critic_message, session_id=session.id)
-        outline_review = extract_output_from_events(critic_events, "critic_review_outline")
+        obs_logger.start_agent_execution("OutlineCriticAgent", output_key="critic_review_outline", retry_count=attempt-1)
+        try:
+            critic_events = await critic_runner.run_debug(critic_message, session_id=session.id)
+            outline_review = extract_output_from_events(critic_events, "critic_review_outline")
+            obs_logger.finish_agent_execution(
+                AgentStatus.SUCCESS if outline_review else AgentStatus.FAILED,
+                None if outline_review else "No critic review generated",
+                has_output=bool(outline_review)
+            )
+        except Exception as e:
+            obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+            raise
         
         if not outline_review:
             print(f"⚠️  Warning: No critic review generated in attempt {attempt}")
@@ -459,8 +499,18 @@ Your task:
 """
             
             print("📝 Generating slide deck and script together...")
-            combined_events = await combined_runner.run_debug(combined_message, session_id=session.id)
-            combined_output = extract_output_from_events(combined_events, "slide_and_script")
+            obs_logger.start_agent_execution("SlideAndScriptGeneratorAgent", output_key="slide_and_script", retry_count=layout_attempt-1)
+            try:
+                combined_events = await combined_runner.run_debug(combined_message, session_id=session.id)
+                combined_output = extract_output_from_events(combined_events, "slide_and_script")
+                obs_logger.finish_agent_execution(
+                    AgentStatus.SUCCESS if combined_output else AgentStatus.FAILED,
+                    None if combined_output else "No slide_and_script generated",
+                    has_output=bool(combined_output)
+                )
+            except Exception as e:
+                obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+                raise
             
             # Parse combined_output if it's a string (JSON wrapped in markdown)
             if combined_output and isinstance(combined_output, str):
@@ -589,14 +639,23 @@ Your task:
                 print("📝 Calling export_slideshow_tool directly...")
                 print("   (This may take a while - creating Google Slides presentation)")
                 
-                export_result = export_slideshow_tool(
-                    slide_deck=slide_deck,
-                    presentation_script=script,
-                    config=config.to_dict(),
-                    title=""
-                )
-                
-                print(f"✅ Tool call completed")
+                obs_logger.start_agent_execution("SlidesExportAgent", output_key="slides_export_result", retry_count=layout_attempt-1)
+                try:
+                    export_result = export_slideshow_tool(
+                        slide_deck=slide_deck,
+                        presentation_script=script,
+                        config=config.to_dict(),
+                        title=""
+                    )
+                    print(f"✅ Tool call completed")
+                    obs_logger.finish_agent_execution(
+                        AgentStatus.SUCCESS if export_result and export_result.get("status") in ["success", "partial_success"] else AgentStatus.FAILED,
+                        export_result.get("error") if export_result and isinstance(export_result, dict) else None,
+                        has_output=bool(export_result)
+                    )
+                except Exception as e:
+                    obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+                    raise
                 
                 # The tool directly returns the result dict - no need to extract from events
                 # export_result is already set from the tool call above
@@ -665,8 +724,18 @@ Your task:
                                     from presentation_agent.agents.tools.google_slides_layout_tool import review_slides_layout
                                     
                                     # Call the tool directly
-                                    layout_review = review_slides_layout(presentation_id, output_dir=output_dir)
-                                    print(f"✅ Tool call completed directly")
+                                    obs_logger.start_agent_execution("LayoutCriticAgent", output_key="layout_review", retry_count=layout_attempt-1)
+                                    try:
+                                        layout_review = review_slides_layout(presentation_id, output_dir=output_dir)
+                                        print(f"✅ Tool call completed directly")
+                                        obs_logger.finish_agent_execution(
+                                            AgentStatus.SUCCESS if layout_review and not layout_review.get("error") else AgentStatus.FAILED,
+                                            layout_review.get("error") if layout_review and isinstance(layout_review, dict) else None,
+                                            has_output=bool(layout_review)
+                                        )
+                                    except Exception as e:
+                                        obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+                                        raise
                                     print(f"🔍 [DEBUG] Direct tool result type: {type(layout_review).__name__}")
                                     if isinstance(layout_review, dict):
                                         print(f"   ✅ Direct tool result keys: {list(layout_review.keys())[:10]}")
@@ -933,13 +1002,16 @@ Your task:
     elif len(outputs) == 1:
         print(f"💡 Skipping complete_output.json (only one output - use the individual file instead).")
     
+    # Finish observability tracking and generate summary
+    obs_logger.finish_pipeline(save_trace=True)
+    
     return outputs
 
 
 async def main():
     """Main function for local development."""
     # Clean up any previous logs
-    for log_file in ["logger.log", "web.log", "tunnel.log"]:
+    for log_file in ["logger.log", "web.log", "tunnel.log", "observability.log"]:
         if os.path.exists(log_file):
             os.remove(log_file)
             print(f"🧹 Cleaned up {log_file}")
