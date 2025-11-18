@@ -99,35 +99,81 @@ def deploy_agent(
             print("\n⚠️ Using ADK CLI fallback method...")
             import subprocess
             import json
+            import os
             
+            # Check adk deploy command structure
+            try:
+                help_result = subprocess.run(
+                    ["adk", "deploy", "--help"],
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                print("ADK deploy help:")
+                print(help_result.stdout)
+                if help_result.stderr:
+                    print("ADK deploy stderr:")
+                    print(help_result.stderr)
+            except Exception as e:
+                print(f"Could not get adk deploy help: {e}")
+            
+            # Try using adk deploy agent-engine command
             # Create a temporary requirements file
             import tempfile
             with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
                 f.write('\n'.join(requirements))
                 req_file = f.name
             
+            agent_path = str(project_root / "presentation_agent")
+            
             try:
-                # Use adk deploy command
-                cmd = [
-                    "adk", "deploy",
-                    "--agent-name", agent_name,
-                    "--project-id", project_id,
-                    "--location", location,
-                    "--requirements", req_file,
-                    "--agent-path", str(project_root / "presentation_agent")
+                # Try different command formats
+                # Format 1: adk deploy agent-engine
+                cmd_options = [
+                    # Option 1: Try with agent-engine subcommand
+                    ["adk", "deploy", "agent-engine", agent_path, "--name", agent_name, "--project", project_id, "--location", location, "--requirements", req_file],
+                    # Option 2: Try without subcommand but with different flags
+                    ["adk", "deploy", agent_path, "--name", agent_name, "--project", project_id, "--region", location, "--requirements", req_file],
+                    # Option 3: Try minimal command
+                    ["adk", "deploy", agent_path, "--project", project_id],
                 ]
-                print(f"Running: {' '.join(cmd)}")
-                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                print(result.stdout)
-                print("✅ Agent deployed successfully via ADK CLI!")
-                return {"status": "deployed", "method": "cli"}
-            except subprocess.CalledProcessError as e:
-                print(f"❌ CLI deployment failed: {e}")
-                print(f"stdout: {e.stdout}")
-                print(f"stderr: {e.stderr}")
+                
+                for i, cmd in enumerate(cmd_options, 1):
+                    print(f"\nTrying command format {i}: {' '.join(cmd)}")
+                    try:
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            check=True,
+                            cwd=project_root
+                        )
+                        print("✅ Success!")
+                        print(result.stdout)
+                        if result.stderr:
+                            print("stderr:", result.stderr)
+                        return {"status": "deployed", "method": f"cli_format_{i}"}
+                    except subprocess.CalledProcessError as e:
+                        print(f"❌ Format {i} failed (exit code {e.returncode})")
+                        if e.stdout:
+                            print(f"stdout: {e.stdout}")
+                        if e.stderr:
+                            print(f"stderr: {e.stderr}")
+                        if i < len(cmd_options):
+                            print("Trying next format...")
+                            continue
+                        else:
+                            raise
+                            
+            except Exception as e:
+                print(f"\n❌ All CLI deployment attempts failed: {e}")
+                print("\n💡 Manual deployment option:")
+                print("You can deploy manually using:")
+                print(f"  cd {agent_path}")
+                print(f"  adk deploy --help  # Check available options")
+                print(f"  # Then use the correct adk deploy command syntax")
                 raise
             finally:
-                import os
                 if os.path.exists(req_file):
                     os.unlink(req_file)
         else:
