@@ -770,7 +770,12 @@ def export_to_google_slides(
         # If so, return partial success with the presentation_id so it can still be accessed
         if presentation_id:
             shareable_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"⚠️  Warning: API error occurred, but presentation was created")
+            logger.info(f"   🔗 Google Slides URL: {shareable_url}")
             print(f"⚠️  Warning: API error occurred, but presentation was created: {shareable_url}")
+            print(f"🔗 Google Slides URL: {shareable_url}")
             return {
                 'status': 'partial_success',
                 'presentation_id': presentation_id,
