@@ -52,132 +52,6 @@ CREDENTIALS_FILE = CREDENTIALS_DIR / "credentials.json"
 TOKEN_FILE = CREDENTIALS_DIR / "token.json"
 
 
-def _load_credentials_from_secret_manager() -> Optional[str]:
-    """
-    Load credentials.json from Google Secret Manager (for Cloud Run).
-    
-    Returns:
-        Path to temporary credentials file, or None if not available
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    try:
-        from google.cloud import secretmanager
-        
-        # Get project NUMBER (not ID!) - Secret Manager API requires project number
-        project_number = os.environ.get('GCP_PROJECT_NUMBER')
-        project_id = os.environ.get('GCP_PROJECT') or os.environ.get('GOOGLE_CLOUD_PROJECT')
-        
-        logger.info(f"🔍 Checking for project: GCP_PROJECT={project_id}, GCP_PROJECT_NUMBER={project_number}")
-        
-        if not project_number:
-            # Try to get project number from metadata server (required for Secret Manager API)
-            try:
-                import requests
-                logger.info("🔍 Trying to get project NUMBER from metadata server...")
-                project_number = requests.get(
-                    'http://metadata.google.internal/computeMetadata/v1/project/numeric-project-id',
-                    headers={'Metadata-Flavor': 'Google'},
-                    timeout=2
-                ).text
-                logger.info(f"✅ Got project NUMBER from metadata: {project_number}")
-            except Exception as e:
-                logger.warning(f"⚠️  Could not get project number from metadata: {e}")
-                # Fallback: try to get project ID and convert (but this may not work)
-                if not project_id:
-                    try:
-                        project_id = requests.get(
-                            'http://metadata.google.internal/computeMetadata/v1/project/project-id',
-                            headers={'Metadata-Flavor': 'Google'},
-                            timeout=2
-                        ).text
-                        logger.info(f"✅ Got project ID from metadata: {project_id}")
-                    except:
-                        pass
-        
-        if not project_number and project_id:
-            # Last resort: try using project ID (may work in some cases, but not recommended)
-            logger.warning(f"⚠️  Project NUMBER not found, trying with project ID: {project_id}")
-            project_number = project_id
-        
-        if not project_number:
-            logger.error("❌ No project NUMBER found - cannot access Secret Manager")
-            return None
-        
-        logger.info(f"🔍 Accessing Secret Manager for project NUMBER: {project_number}")
-        
-        # Access secret - MUST use project NUMBER, not project ID
-        client = secretmanager.SecretManagerServiceClient()
-        secret_name = f"projects/{project_number}/secrets/google-credentials/versions/latest"
-        logger.info(f"🔍 Secret name (using project NUMBER): {secret_name}")
-        
-        try:
-            response = client.access_secret_version(request={"name": secret_name})
-            credentials_json = response.payload.data.decode('UTF-8')
-            logger.info(f"✅ Successfully loaded credentials from Secret Manager ({len(credentials_json)} bytes)")
-            
-            # Validate it's valid JSON and looks like OAuth2 credentials
-            try:
-                import json
-                creds_dict = json.loads(credentials_json)
-                # Check if it has OAuth2 client credentials structure
-                if not isinstance(creds_dict, dict):
-                    raise ValueError("Credentials is not a JSON object")
-                if "installed" not in creds_dict and "web" not in creds_dict and "type" not in creds_dict:
-                    # Might be service account credentials - that's OK, but log it
-                    if creds_dict.get("type") == "service_account":
-                        logger.warning("⚠️  Secret contains service account credentials, not OAuth2 credentials")
-                        logger.warning("   OAuth2 credentials should have 'installed' or 'web' key")
-                    else:
-                        logger.warning("⚠️  Credentials format may be incorrect - missing 'installed' or 'web' key")
-            except json.JSONDecodeError as e:
-                logger.error(f"❌ Secret content is not valid JSON: {e}")
-                return None
-            except Exception as e:
-                logger.warning(f"⚠️  Could not validate credentials format: {e}")
-            
-            # Write to temporary file
-            try:
-                import tempfile
-                temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
-                temp_file.write(credentials_json)
-                temp_file.close()
-                
-                logger.info(f"✅ Wrote credentials to temp file: {temp_file.name}")
-                return temp_file.name
-            except Exception as e:
-                error_msg = f"Failed to write credentials to temp file: {e}"
-                logger.error(f"❌ {error_msg}")
-                print(f"❌ {error_msg}")
-                return None
-        except Exception as e:
-            # Don't print the full exception message if it contains sensitive data
-            error_type = type(e).__name__
-            error_str = str(e)
-            # Truncate long error messages that might contain JSON
-            if len(error_str) > 500:
-                error_str = error_str[:500] + "... (truncated)"
-            error_msg = f"Could not load credentials from Secret Manager: {error_type}: {error_str}"
-            logger.error(f"❌ {error_msg}")
-            print(f"❌ {error_msg}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return None
-    except ImportError as e:
-        error_msg = f"Secret Manager library not available: {e}"
-        logger.error(f"❌ {error_msg}")
-        print(f"❌ {error_msg}")
-        return None
-    except Exception as e:
-        error_msg = f"Error accessing Secret Manager: {e}"
-        logger.error(f"❌ {error_msg}")
-        print(f"❌ {error_msg}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return None
-
-
 def get_credentials() -> Credentials:
     """
     Get OAuth2 credentials for Google APIs.
@@ -189,98 +63,37 @@ def get_credentials() -> Credentials:
     """
     creds = None
     
-    # Prioritize local files (from GitHub Secrets baked into Docker image)
-    credentials_file_path = None
-    temp_credentials_file = None
-    
     import logging
     logger = logging.getLogger(__name__)
     
-    # Check for local file first (files are baked into Docker image from GitHub Secrets)
-    if CREDENTIALS_FILE.exists():
-        credentials_file_path = str(CREDENTIALS_FILE)
-        logger.info(f"✅ Using local credentials file (from GitHub Secrets): {CREDENTIALS_FILE}")
-    else:
-        # Fallback: Try Secret Manager only if local file doesn't exist (for backward compatibility)
-        logger.info("⚠️  Local credentials file not found, trying Secret Manager as fallback...")
-        temp_credentials_file = _load_credentials_from_secret_manager()
-        if temp_credentials_file:
-            credentials_file_path = temp_credentials_file
-            logger.info("✅ Loaded credentials from Secret Manager (fallback)")
-            print("✅ Loaded credentials from Secret Manager (fallback)")
-        else:
-            logger.warning(f"❌ Credentials file not found locally and Secret Manager failed")
+    # Use local files (from GitHub Secrets baked into Docker image)
+    credentials_file_path = None
     
     # Create credentials directory if it doesn't exist
     CREDENTIALS_DIR.mkdir(exist_ok=True)
     
-    # Prioritize local token file (from GitHub Secrets baked into Docker image)
-    token_file_path = None
-    temp_token_file = None
+    # Check for local credentials file
+    if CREDENTIALS_FILE.exists():
+        credentials_file_path = str(CREDENTIALS_FILE)
+        logger.info(f"✅ Using local credentials file: {CREDENTIALS_FILE}")
+    else:
+        error_msg = (
+            f"❌ Credentials file not found: {CREDENTIALS_FILE}\n"
+            f"Please ensure GitHub Secrets GOOGLE_CREDENTIALS_JSON is set.\n"
+            f"Files should be created during Docker build from GitHub Secrets."
+        )
+        logger.error(error_msg)
+        raise FileNotFoundError(error_msg)
     
-    # Check for local file first (file is baked into Docker image from GitHub Secrets)
+    # Use local token file
+    token_file_path = None
+    
     if TOKEN_FILE.exists():
         token_file_path = str(TOKEN_FILE)
-        logger.info(f"✅ Using local token file (from GitHub Secrets): {TOKEN_FILE}")
+        logger.info(f"✅ Using local token file: {TOKEN_FILE}")
     else:
-        # Fallback: Try Secret Manager only if local file doesn't exist (for backward compatibility)
-        logger.info("⚠️  Local token file not found, trying Secret Manager as fallback...")
-        try:
-            from google.cloud import secretmanager
-            
-            # Get project NUMBER (required for Secret Manager API)
-            project_number = os.environ.get('GCP_PROJECT_NUMBER')
-            if not project_number:
-                try:
-                    import requests
-                    project_number = requests.get(
-                        'http://metadata.google.internal/computeMetadata/v1/project/numeric-project-id',
-                        headers={'Metadata-Flavor': 'Google'},
-                        timeout=2
-                    ).text
-                    logger.info(f"✅ Got project NUMBER for token: {project_number}")
-                except Exception as e:
-                    logger.warning(f"⚠️  Could not get project number: {e}")
-                    pass
-            
-            if project_number:
-                client = secretmanager.SecretManagerServiceClient()
-                try:
-                    # Try to get token.json from Secret Manager - use project NUMBER
-                    secret_name = f"projects/{project_number}/secrets/google-token/versions/latest"
-                    logger.info(f"🔍 Trying to load token from: {secret_name}")
-                    response = client.access_secret_version(request={"name": secret_name})
-                    token_json = response.payload.data.decode('UTF-8')
-                    
-                    # Validate JSON before writing
-                    try:
-                        import json
-                        token_data = json.loads(token_json)
-                        logger.info(f"✅ Token JSON is valid (has keys: {list(token_data.keys())[:3]}...)")
-                    except json.JSONDecodeError as e:
-                        logger.error(f"❌ Token JSON is invalid: {e}")
-                        logger.error(f"   First 200 chars: {token_json[:200]}")
-                        raise ValueError(f"Invalid JSON in token secret: {e}")
-                    
-                    # Write to temporary file
-                    import tempfile
-                    temp_token_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
-                    temp_token_file.write(token_json)
-                    temp_token_file.close()
-                    token_file_path = temp_token_file.name
-                    logger.info(f"✅ Loaded token from Secret Manager (fallback) and wrote to {token_file_path}")
-                    print("✅ Loaded token from Secret Manager (fallback)")
-                except Exception as e:
-                    # Token secret doesn't exist or has issues
-                    logger.warning(f"⚠️  Token secret issue: {e}")
-                    import traceback
-                    logger.debug(traceback.format_exc())
-                    pass
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.warning(f"⚠️  Warning: Could not load token from Secret Manager: {e}")
-            print(f"⚠️  Warning: Could not load token from Secret Manager: {e}")
+        logger.warning(f"⚠️  Token file not found: {TOKEN_FILE}")
+        logger.warning("   Please ensure GitHub Secret GOOGLE_TOKEN_JSON is set.")
     
     # Load existing token if available
     if token_file_path:
@@ -329,18 +142,6 @@ def get_credentials() -> Credentials:
         with open(TOKEN_FILE, 'w') as token:
             token.write(creds.to_json())
         print("✅ Credentials saved for future use")
-    
-    # Clean up temp files if created
-    if temp_credentials_file and os.path.exists(temp_credentials_file):
-        try:
-            os.unlink(temp_credentials_file)
-        except:
-            pass
-    if temp_token_file and os.path.exists(temp_token_file):
-        try:
-            os.unlink(temp_token_file)
-        except:
-            pass
     
     return creds
 
