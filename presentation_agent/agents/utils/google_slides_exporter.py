@@ -45,35 +45,52 @@ def _load_credentials_from_secret_manager() -> Optional[str]:
     try:
         from google.cloud import secretmanager
         
-        # Get project ID from environment or metadata
+        # Get project NUMBER (not ID!) - Secret Manager API requires project number
+        project_number = os.environ.get('GCP_PROJECT_NUMBER')
         project_id = os.environ.get('GCP_PROJECT') or os.environ.get('GOOGLE_CLOUD_PROJECT')
-        logger.info(f"🔍 Checking for project ID: GCP_PROJECT={os.environ.get('GCP_PROJECT')}, GOOGLE_CLOUD_PROJECT={os.environ.get('GOOGLE_CLOUD_PROJECT')}")
         
-        if not project_id:
-            # Try to get from metadata server
+        logger.info(f"🔍 Checking for project: GCP_PROJECT={project_id}, GCP_PROJECT_NUMBER={project_number}")
+        
+        if not project_number:
+            # Try to get project number from metadata server (required for Secret Manager API)
             try:
                 import requests
-                logger.info("🔍 Trying to get project ID from metadata server...")
-                project_id = requests.get(
-                    'http://metadata.google.internal/computeMetadata/v1/project/project-id',
+                logger.info("🔍 Trying to get project NUMBER from metadata server...")
+                project_number = requests.get(
+                    'http://metadata.google.internal/computeMetadata/v1/project/numeric-project-id',
                     headers={'Metadata-Flavor': 'Google'},
                     timeout=2
                 ).text
-                logger.info(f"✅ Got project ID from metadata: {project_id}")
+                logger.info(f"✅ Got project NUMBER from metadata: {project_number}")
             except Exception as e:
-                logger.warning(f"⚠️  Could not get project ID from metadata: {e}")
-                return None
+                logger.warning(f"⚠️  Could not get project number from metadata: {e}")
+                # Fallback: try to get project ID and convert (but this may not work)
+                if not project_id:
+                    try:
+                        project_id = requests.get(
+                            'http://metadata.google.internal/computeMetadata/v1/project/project-id',
+                            headers={'Metadata-Flavor': 'Google'},
+                            timeout=2
+                        ).text
+                        logger.info(f"✅ Got project ID from metadata: {project_id}")
+                    except:
+                        pass
         
-        if not project_id:
-            logger.error("❌ No project ID found - cannot access Secret Manager")
+        if not project_number and project_id:
+            # Last resort: try using project ID (may work in some cases, but not recommended)
+            logger.warning(f"⚠️  Project NUMBER not found, trying with project ID: {project_id}")
+            project_number = project_id
+        
+        if not project_number:
+            logger.error("❌ No project NUMBER found - cannot access Secret Manager")
             return None
         
-        logger.info(f"🔍 Accessing Secret Manager for project: {project_id}")
+        logger.info(f"🔍 Accessing Secret Manager for project NUMBER: {project_number}")
         
-        # Access secret
+        # Access secret - MUST use project NUMBER, not project ID
         client = secretmanager.SecretManagerServiceClient()
-        secret_name = f"projects/{project_id}/secrets/google-credentials/versions/latest"
-        logger.info(f"🔍 Secret name: {secret_name}")
+        secret_name = f"projects/{project_number}/secrets/google-credentials/versions/latest"
+        logger.info(f"🔍 Secret name (using project NUMBER): {secret_name}")
         
         try:
             response = client.access_secret_version(request={"name": secret_name})
@@ -152,23 +169,30 @@ def get_credentials() -> Credentials:
         # Try Secret Manager for token.json
         try:
             from google.cloud import secretmanager
-            project_id = os.environ.get('GCP_PROJECT') or os.environ.get('GOOGLE_CLOUD_PROJECT')
-            if not project_id:
+            import logging
+            token_logger = logging.getLogger(__name__)
+            
+            # Get project NUMBER (required for Secret Manager API)
+            project_number = os.environ.get('GCP_PROJECT_NUMBER')
+            if not project_number:
                 try:
                     import requests
-                    project_id = requests.get(
-                        'http://metadata.google.internal/computeMetadata/v1/project/project-id',
+                    project_number = requests.get(
+                        'http://metadata.google.internal/computeMetadata/v1/project/numeric-project-id',
                         headers={'Metadata-Flavor': 'Google'},
                         timeout=2
                     ).text
-                except:
+                    token_logger.info(f"✅ Got project NUMBER for token: {project_number}")
+                except Exception as e:
+                    token_logger.warning(f"⚠️  Could not get project number: {e}")
                     pass
             
-            if project_id:
+            if project_number:
                 client = secretmanager.SecretManagerServiceClient()
                 try:
-                    # Try to get token.json from Secret Manager
-                    secret_name = f"projects/{project_id}/secrets/google-token/versions/latest"
+                    # Try to get token.json from Secret Manager - use project NUMBER
+                    secret_name = f"projects/{project_number}/secrets/google-token/versions/latest"
+                    token_logger.info(f"🔍 Trying to load token from: {secret_name}")
                     response = client.access_secret_version(request={"name": secret_name})
                     token_json = response.payload.data.decode('UTF-8')
                     
@@ -177,13 +201,18 @@ def get_credentials() -> Credentials:
                     temp_token_file.write(token_json)
                     temp_token_file.close()
                     token_file_path = temp_token_file.name
+                    token_logger.info("✅ Loaded token from Secret Manager")
                     print("✅ Loaded token from Secret Manager")
-                except Exception:
+                except Exception as e:
                     # Token secret doesn't exist, that's OK
+                    token_logger.info(f"ℹ️  Token secret not found (this is OK if not uploaded yet): {e}")
                     pass
         except ImportError:
             pass
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"⚠️  Warning: Could not load token from Secret Manager: {e}")
             print(f"⚠️  Warning: Could not load token from Secret Manager: {e}")
     
     # Use local token file if available

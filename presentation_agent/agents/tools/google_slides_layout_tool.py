@@ -62,26 +62,30 @@ def _load_credentials_from_secret_manager() -> Optional[str]:
     try:
         from google.cloud import secretmanager
         
-        # Get project ID from environment or metadata
+        # Get project NUMBER (not ID!) - Secret Manager API requires project number
+        project_number = os.environ.get('GCP_PROJECT_NUMBER')
         project_id = os.environ.get('GCP_PROJECT') or os.environ.get('GOOGLE_CLOUD_PROJECT')
-        if not project_id:
-            # Try to get from metadata server
+        
+        if not project_number:
+            # Try to get project number from metadata server (required for Secret Manager API)
             try:
                 import requests
-                project_id = requests.get(
-                    'http://metadata.google.internal/computeMetadata/v1/project/project-id',
+                project_number = requests.get(
+                    'http://metadata.google.internal/computeMetadata/v1/project/numeric-project-id',
                     headers={'Metadata-Flavor': 'Google'},
                     timeout=2
                 ).text
             except:
-                return None
+                # Fallback to project ID (may not work, but worth trying)
+                if project_id:
+                    project_number = project_id
         
-        if not project_id:
+        if not project_number:
             return None
         
-        # Access secret
+        # Access secret - MUST use project NUMBER, not project ID
         client = secretmanager.SecretManagerServiceClient()
-        secret_name = f"projects/{project_id}/secrets/google-credentials/versions/latest"
+        secret_name = f"projects/{project_number}/secrets/google-credentials/versions/latest"
         
         try:
             response = client.access_secret_version(request={"name": secret_name})
