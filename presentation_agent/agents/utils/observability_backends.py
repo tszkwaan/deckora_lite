@@ -84,7 +84,7 @@ class FileBackend(ObservabilityBackend):
                 'output_key': execution.output_key,
                 'retry_count': execution.retry_count,
                 'start_time': datetime.now().isoformat()
-            })}
+            }, separators=(',', ':'))}
         )
     
     def log_agent_finish(self, execution: AgentExecution):
@@ -101,12 +101,12 @@ class FileBackend(ObservabilityBackend):
         if execution.status == AgentStatus.SUCCESS:
             self.logger.info(
                 f"Agent execution completed: {execution.agent_name}",
-                extra={'data': json.dumps(log_data)}
+                extra={'data': json.dumps(log_data, separators=(',', ':'))}
             )
         else:
             self.logger.warning(
                 f"Agent execution finished with status {execution.status.value}: {execution.agent_name}",
-                extra={'data': json.dumps(log_data)}
+                extra={'data': json.dumps(log_data, separators=(',', ':'))}
             )
     
     def log_retry(self, agent_name: str, attempt: int, reason: str):
@@ -117,7 +117,7 @@ class FileBackend(ObservabilityBackend):
                 'attempt': attempt,
                 'reason': reason,
                 'timestamp': datetime.now().isoformat()
-            })}
+            }, separators=(',', ':'))}
         )
     
     def log_pipeline_start(self, pipeline_name: str):
@@ -126,7 +126,7 @@ class FileBackend(ObservabilityBackend):
             extra={'data': json.dumps({
                 'pipeline_name': pipeline_name,
                 'start_time': datetime.now().isoformat()
-            })}
+            }, separators=(',', ':'))}
         )
     
     def log_pipeline_finish(self, metrics: PipelineMetrics):
@@ -139,7 +139,7 @@ class FileBackend(ObservabilityBackend):
                 'failed_agents': metrics.failed_agents,
                 'total_retries': metrics.total_retries,
                 'success_rate': metrics.get_success_rate()
-            })}
+            }, separators=(',', ':'))}
         )
     
     def save_trace_history(self, metrics: PipelineMetrics, trace_file: str):
@@ -160,7 +160,7 @@ class FileBackend(ObservabilityBackend):
         
         self.logger.info(
             f"Trace history saved to {trace_file}",
-            extra={'data': json.dumps({'trace_file': trace_file})}
+            extra={'data': json.dumps({'trace_file': trace_file}, separators=(',', ':'))}
         )
 
 

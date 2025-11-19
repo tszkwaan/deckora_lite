@@ -6,7 +6,6 @@ Exports slide deck and script to Google Slides using Google Slides API.
 import os
 import json
 import re
-import webbrowser
 import tempfile
 from pathlib import Path
 from typing import Dict, Optional, List, Tuple
@@ -821,34 +820,8 @@ def export_to_google_slides(
         print(f"   📝 IMPORTANT: Presentation is created in the Google account that authorized the OAuth token")
         print(f"   📝 Check the Google account used when generating token.json")
         
-        # Open URL in Chrome
-        try:
-            print(f"\n🌐 Opening presentation in Chrome...")
-            # Try to open in Chrome specifically
-            chrome_path = None
-            if os.name == 'nt':  # Windows
-                chrome_path = 'C:/Program Files/Google/Chrome/Application/chrome.exe %s'
-            elif os.name == 'posix':  # macOS/Linux
-                # Try common Chrome paths on macOS
-                chrome_paths = [
-                    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-                    '/usr/bin/google-chrome',
-                    '/usr/bin/chromium-browser'
-                ]
-                for path in chrome_paths:
-                    if os.path.exists(path):
-                        chrome_path = f'"{path}" %s'
-                        break
-            
-            if chrome_path:
-                webbrowser.get(chrome_path).open(shareable_url)
-            else:
-                # Fall back to default browser
-                webbrowser.open(shareable_url)
-            print(f"✅ Opened in browser")
-        except Exception as e:
-            print(f"⚠️  Could not open browser automatically: {e}")
-            print(f"   Please open manually: {shareable_url}")
+        # Note: Browser opening is handled by the caller (main.py) via open_browser parameter
+        # This allows the caller to control when/if the browser should be opened
         
         return {
             'status': 'success',
