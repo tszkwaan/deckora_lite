@@ -203,6 +203,68 @@ Your task:
             logger.info(f"🔍 Total events: {len(events)}")
             logger.info(f"🔍 Session state keys after pipeline: {list(session.state.keys())}")
             
+            # Detailed event inspection for debugging
+            logger.info("🕵️ DETAILED EVENT INSPECTION:")
+            slides_export_events = []
+            for i, event in enumerate(events):
+                agent_name = getattr(event, 'agent_name', None) or (event.agent.name if hasattr(event, 'agent') and hasattr(event.agent, 'name') else 'Unknown')
+                event_type = type(event).__name__
+                logger.info(f"   Event {i}: Type={event_type}, Agent={agent_name}")
+                
+                # Track SlidesExportAgent events specifically
+                if 'SlidesExport' in agent_name:
+                    slides_export_events.append(i)
+                    logger.info(f"      ⭐ SLIDES EXPORT EVENT DETECTED at index {i}")
+                
+                # Check state_delta
+                if hasattr(event, 'actions') and event.actions and hasattr(event.actions, 'state_delta') and event.actions.state_delta:
+                    delta_keys = list(event.actions.state_delta.keys())
+                    logger.info(f"      state_delta keys: {delta_keys}")
+                    if 'slides_export_result' in delta_keys:
+                        logger.info(f"      ✅✅✅ FOUND slides_export_result in state_delta!")
+                        result = event.actions.state_delta['slides_export_result']
+                        logger.info(f"         Result type: {type(result).__name__}")
+                        if isinstance(result, dict):
+                            logger.info(f"         Result keys: {list(result.keys())}")
+                            logger.info(f"         Status: {result.get('status', 'N/A')}")
+                            logger.info(f"         URL: {result.get('shareable_url', 'N/A')}")
+                    
+                # Check tool results
+                if hasattr(event, 'actions') and event.actions and hasattr(event.actions, 'tool_results') and event.actions.tool_results:
+                    logger.info(f"      tool_results found: {len(event.actions.tool_results)}")
+                    for j, tr in enumerate(event.actions.tool_results):
+                        if hasattr(tr, 'response') and isinstance(tr.response, dict):
+                            tr_keys = list(tr.response.keys())
+                            logger.info(f"         Result {j} keys: {tr_keys}")
+                            if 'slides_export_result' in tr_keys or 'status' in tr_keys:
+                                logger.info(f"         ✅✅✅ Found export-related data in tool_result {j}")
+                                logger.info(f"            Full response: {tr.response}")
+                        else:
+                            logger.info(f"         Result {j}: {type(tr.response).__name__ if hasattr(tr, 'response') else 'No response'}")
+                
+                # Check content.parts for tool calls
+                if hasattr(event, 'content') and event.content:
+                    if hasattr(event.content, 'parts') and event.content.parts:
+                        try:
+                            for part_idx, part in enumerate(event.content.parts):
+                                if hasattr(part, 'function_call'):
+                                    func_name = getattr(part.function_call, 'name', 'Unknown')
+                                    logger.info(f"      Part {part_idx}: function_call={func_name}")
+                                if hasattr(part, 'function_response'):
+                                    logger.info(f"      Part {part_idx}: function_response found")
+                                    if hasattr(part.function_response, 'response'):
+                                        resp = part.function_response.response
+                                        if isinstance(resp, dict):
+                                            logger.info(f"         Response keys: {list(resp.keys())}")
+                        except Exception as e:
+                            logger.debug(f"      Error checking content.parts: {e}")
+            
+            # Summary of SlidesExportAgent events
+            if slides_export_events:
+                logger.info(f"✅ Found {len(slides_export_events)} SlidesExportAgent event(s) at indices: {slides_export_events}")
+            else:
+                logger.warning(f"⚠️ NO SlidesExportAgent events found in {len(events)} total events!")
+            
             # Extract outputs from events (ADK stores outputs in events, not automatically in session.state)
             logger.info("🔍 Extracting outputs from events...")
             report_knowledge = extract_output_from_events(events, "report_knowledge")

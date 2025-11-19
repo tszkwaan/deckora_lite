@@ -93,6 +93,13 @@ def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: d
         ... )
         >>> print(result["shareable_url"])
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("🚀 export_slideshow_tool CALLED")
+    logger.info(f"   slide_deck type: {type(slide_deck).__name__}")
+    logger.info(f"   presentation_script type: {type(presentation_script).__name__}")
+    logger.info(f"   config type: {type(config).__name__}, keys: {list(config.keys()) if isinstance(config, dict) else 'N/A'}")
+    
     try:
         # Validate and normalize inputs to prevent MALFORMED_FUNCTION_CALL
         slide_deck = _validate_and_normalize_input(slide_deck, dict, "slide_deck")
@@ -125,8 +132,7 @@ def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: d
         }
     
     try:
-        import logging
-        logger = logging.getLogger(__name__)
+        # Logger already imported above
         logger.info("🚀 export_slideshow_tool called - starting Google Slides export")
         logger.info(f"   Slide deck has {len(slide_deck.get('slides', []))} slides")
         logger.info(f"   Script has {len(presentation_script.get('script_sections', []))} sections")

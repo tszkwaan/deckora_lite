@@ -20,56 +20,84 @@ def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
     Returns:
         Extracted value (dict if JSON, otherwise raw value)
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     if not events:
+        logger.warning(f"⚠️ extract_output_from_events: No events provided for key '{output_key}'")
         return None
+    
+    logger.info(f"🔍 extract_output_from_events: Searching for '{output_key}' in {len(events)} events")
     
     # Priority 1: Check state_delta in all events (not just last)
     raw = None
     
-    for event in reversed(events):  # Check from last to first
+    for i, event in enumerate(reversed(events)):  # Check from last to first
+        agent_name = getattr(event, 'agent_name', None) or (getattr(event, 'agent', None) and getattr(event.agent, 'name', None)) or 'Unknown'
         if hasattr(event, 'actions') and event.actions:
             if hasattr(event.actions, 'state_delta') and event.actions.state_delta:
-                raw = event.actions.state_delta.get(output_key, None)
-                if raw is not None:
+                delta_keys = list(event.actions.state_delta.keys())
+                logger.debug(f"   Event {len(events)-1-i} ({agent_name}): state_delta keys: {delta_keys}")
+                if output_key in delta_keys:
+                    raw = event.actions.state_delta.get(output_key, None)
+                    logger.info(f"✅ Found '{output_key}' in state_delta of Event {len(events)-1-i} ({agent_name})")
                     break
     
     # Priority 2: Check content.parts[].function_response.response (tool responses)
     if raw is None:
-        for event in reversed(events):  # Check from last to first
+        logger.debug(f"   Checking content.parts for '{output_key}'...")
+        for i, event in enumerate(reversed(events)):  # Check from last to first
+            agent_name = getattr(event, 'agent_name', None) or (getattr(event, 'agent', None) and getattr(event.agent, 'name', None)) or 'Unknown'
             if hasattr(event, 'content') and event.content:
                 if hasattr(event.content, 'parts') and event.content.parts:
                     try:
-                        for part in event.content.parts:
+                        for part_idx, part in enumerate(event.content.parts):
                             if hasattr(part, 'function_response') and part.function_response:
                                 if hasattr(part.function_response, 'response'):
                                     response = part.function_response.response
                                     if isinstance(response, dict):
+                                        response_keys = list(response.keys())
+                                        logger.debug(f"   Event {len(events)-1-i} ({agent_name}), part {part_idx}: function_response keys: {response_keys}")
                                         raw = response.get(output_key, None)
                                         if raw is not None:
+                                            logger.info(f"✅ Found '{output_key}' in function_response of Event {len(events)-1-i} ({agent_name})")
                                             break
                             if raw is not None:
                                 break
-                    except (TypeError, AttributeError):
-                        pass  # Skip if parts is not iterable
+                    except (TypeError, AttributeError) as e:
+                        logger.debug(f"   Event {len(events)-1-i} ({agent_name}): Error checking parts: {e}")
                 if raw is not None:
                     break
     
     # Priority 3: Check actions.tool_results
     if raw is None:
-        for event in reversed(events):  # Check from last to first
+        logger.debug(f"   Checking tool_results for '{output_key}'...")
+        for i, event in enumerate(reversed(events)):  # Check from last to first
+            agent_name = getattr(event, 'agent_name', None) or (getattr(event, 'agent', None) and getattr(event.agent, 'name', None)) or 'Unknown'
             if hasattr(event, 'actions') and event.actions:
                 if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
-                    for tool_result in event.actions.tool_results:
+                    logger.debug(f"   Event {len(events)-1-i} ({agent_name}): Found {len(event.actions.tool_results)} tool_results")
+                    for tr_idx, tool_result in enumerate(event.actions.tool_results):
                         if hasattr(tool_result, 'response'):
                             response = tool_result.response
                             if isinstance(response, dict):
+                                response_keys = list(response.keys())
+                                logger.debug(f"      Tool result {tr_idx} keys: {response_keys}")
                                 raw = response.get(output_key, None)
                                 if raw is not None:
+                                    logger.info(f"✅ Found '{output_key}' in tool_result {tr_idx} of Event {len(events)-1-i} ({agent_name})")
                                     break
                     if raw is not None:
                         break
     
     if raw is None:
+        logger.warning(f"⚠️ extract_output_from_events: '{output_key}' not found in any event")
+        # Log all agent names for debugging
+        agent_names = []
+        for event in events:
+            agent_name = getattr(event, 'agent_name', None) or (getattr(event, 'agent', None) and getattr(event.agent, 'name', None)) or 'Unknown'
+            agent_names.append(agent_name)
+        logger.debug(f"   Agents seen in events: {agent_names}")
         return None
     
     # If already a dict, return as is
