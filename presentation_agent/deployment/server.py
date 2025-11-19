@@ -45,6 +45,106 @@ except ImportError as e:
     root_agent = None
     PresentationConfig = None
 
+
+def setup_credentials_from_secret_manager():
+    """
+    Load credentials.json and token.json from Secret Manager and write them to the expected file paths.
+    This runs once at server startup, only if the files don't already exist.
+    """
+    logger = logging.getLogger(__name__)
+    
+    # Define expected file paths
+    credentials_dir = project_root / "presentation_agent" / "agents" / "credentials"
+    credentials_file = credentials_dir / "credentials.json"
+    token_file = credentials_dir / "token.json"
+    
+    # Create directory if it doesn't exist
+    credentials_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Only run in Cloud Run (when PORT env var is set) or if files don't exist locally
+    if not os.environ.get('PORT') and credentials_file.exists() and token_file.exists():
+        logger.info("✅ Credentials files already exist locally, skipping Secret Manager setup")
+        return
+    
+    logger.info("🔍 Setting up credentials from Secret Manager...")
+    
+    try:
+        from google.cloud import secretmanager
+        
+        # Get project NUMBER (required for Secret Manager API)
+        project_number = os.environ.get('GCP_PROJECT_NUMBER')
+        if not project_number:
+            try:
+                import requests
+                logger.info("🔍 Getting project NUMBER from metadata server...")
+                project_number = requests.get(
+                    'http://metadata.google.internal/computeMetadata/v1/project/numeric-project-id',
+                    headers={'Metadata-Flavor': 'Google'},
+                    timeout=2
+                ).text
+                logger.info(f"✅ Got project NUMBER: {project_number}")
+            except Exception as e:
+                logger.warning(f"⚠️  Could not get project number from metadata: {e}")
+                logger.info("⚠️  Skipping Secret Manager setup - not running in Cloud Run or metadata unavailable")
+                return
+        
+        client = secretmanager.SecretManagerServiceClient()
+        
+        # Load credentials.json from Secret Manager
+        if not credentials_file.exists():
+            try:
+                logger.info("🔍 Loading credentials.json from Secret Manager...")
+                secret_name = f"projects/{project_number}/secrets/google-credentials/versions/latest"
+                response = client.access_secret_version(request={"name": secret_name})
+                credentials_json = response.payload.data.decode('UTF-8')
+                
+                # Validate JSON
+                json.loads(credentials_json)
+                
+                # Write to file
+                with open(credentials_file, 'w') as f:
+                    f.write(credentials_json)
+                logger.info(f"✅ Successfully wrote credentials.json to {credentials_file}")
+            except Exception as e:
+                logger.error(f"❌ Failed to load credentials.json from Secret Manager: {e}")
+                # Don't raise - allow the app to start, but credentials will fail later
+        else:
+            logger.info(f"✅ credentials.json already exists at {credentials_file}")
+        
+        # Load token.json from Secret Manager
+        if not token_file.exists():
+            try:
+                logger.info("🔍 Loading token.json from Secret Manager...")
+                secret_name = f"projects/{project_number}/secrets/google-token/versions/latest"
+                response = client.access_secret_version(request={"name": secret_name})
+                token_json = response.payload.data.decode('UTF-8')
+                
+                # Validate JSON
+                json.loads(token_json)
+                
+                # Write to file
+                with open(token_file, 'w') as f:
+                    f.write(token_json)
+                logger.info(f"✅ Successfully wrote token.json to {token_file}")
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to load token.json from Secret Manager: {e}")
+                logger.info("   This is OK if token secret doesn't exist yet - OAuth flow will be needed")
+        else:
+            logger.info(f"✅ token.json already exists at {token_file}")
+        
+        logger.info("✅ Credentials setup complete")
+        
+    except ImportError:
+        logger.warning("⚠️  Secret Manager library not available - skipping credential setup")
+    except Exception as e:
+        logger.error(f"❌ Error setting up credentials from Secret Manager: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+# Setup credentials from Secret Manager before creating Flask app
+setup_credentials_from_secret_manager()
+
 app = Flask(__name__)
 
 
