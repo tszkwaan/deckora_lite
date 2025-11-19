@@ -131,7 +131,8 @@ jobs:
             --timeout 3600 \
             --max-instances 10 \
             --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" \
-            --set-secrets "GOOGLE_APPLICATION_CREDENTIALS=google-credentials:latest"
+            --update-secrets "/app/presentation_agent/agents/credentials/credentials.json=google-credentials:latest" \
+            --update-secrets "/app/presentation_agent/agents/credentials/token.json=google-token:latest"
 
       - name: Get service URL
         run: |
