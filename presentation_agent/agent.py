@@ -286,19 +286,18 @@ Return ONLY the dict returned by export_slideshow_tool, nothing else.
 )
 
 
-# Create a LoopAgent for slide generation with layout critic threshold-based looping
-# Loop: generate slides -> export -> review layout -> check threshold -> regenerate if threshold not met
-# Loop will stop when: (1) threshold passes, OR (2) max_iterations reached
-# If max_iterations reached without passing, loop exits but threshold_check indicates not passed
-slides_with_layout_critic_loop = LoopAgent(
-    name="SlidesWithLayoutCriticLoop",
+# Create a SequentialAgent for slide generation and export (layout critic commented out)
+# Flow: generate slides -> export to Google Slides
+# Layout critic and threshold checking are commented out for now
+slides_generation_sequence = SequentialAgent(
+    name="SlidesGenerationSequence",
     sub_agents=[
         slide_and_script_generator_agent,  # Generate slides and script
         slides_export_agent,                # Export to Google Slides
-        layout_critic_agent,                # Review layout using Vision API
-        layout_threshold_checker,           # Check if passes threshold (records passed/not passed status)
+        # layout_critic_agent,                # Review layout using Vision API (COMMENTED OUT)
+        # layout_threshold_checker,           # Check if passes threshold (COMMENTED OUT)
     ],
-    max_iterations=LAYOUT_MAX_RETRY_LOOPS + 1,  # Will exit after this many iterations even if threshold not met
+    description="Generates slides and exports them to Google Slides",
 )
 
 
@@ -309,7 +308,7 @@ root_agent = SequentialAgent(
         pdf_loader_agent,                    # Step 0: Load PDF if URL provided
         report_understanding_agent,           # Step 1: Extract report knowledge
         outline_with_critic_loop,              # Step 2: Generate outline with threshold-based critic loop
-        slides_with_layout_critic_loop,         # Step 3: Generate slides, export, and review layout with threshold-based loop
+        slides_generation_sequence,            # Step 3: Generate slides and export to Google Slides
     ],
     description="Generates presentations from research reports using a multi-agent pipeline with quality checks",
 )

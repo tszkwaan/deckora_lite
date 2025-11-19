@@ -214,8 +214,28 @@ Your task:
                 outputs["slide_and_script"] = session.state["slide_and_script"]
                 logger.info("✅ Found slide_and_script in session.state")
             if session.state.get("slides_export_result"):
-                outputs["slides_export_result"] = session.state["slides_export_result"]
+                slides_export_result = session.state["slides_export_result"]
+                outputs["slides_export_result"] = slides_export_result
                 logger.info("✅ Found slides_export_result in session.state")
+                
+                # Extract Google Slides URL from slides_export_result
+                if isinstance(slides_export_result, dict):
+                    shareable_url = slides_export_result.get("shareable_url")
+                    presentation_id = slides_export_result.get("presentation_id")
+                    status = slides_export_result.get("status", "unknown")
+                    
+                    if shareable_url:
+                        outputs["google_slides_url"] = shareable_url
+                        logger.info(f"✅ Google Slides URL: {shareable_url}")
+                    elif presentation_id:
+                        # Generate URL from ID if shareable_url not available
+                        generated_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+                        outputs["google_slides_url"] = generated_url
+                        logger.info(f"✅ Google Slides URL (generated from ID): {generated_url}")
+                    
+                    if status:
+                        outputs["export_status"] = status
+                        logger.info(f"✅ Export status: {status}")
             if session.state.get("layout_review"):
                 outputs["layout_review"] = session.state["layout_review"]
                 logger.info("✅ Found layout_review in session.state")
@@ -227,11 +247,27 @@ Your task:
         # Run async function
         outputs = asyncio.run(run_agent())
         
-        # Return results
-        return jsonify({
-            "status": "success",
-            "outputs": outputs
-        }), 200
+               # Extract Google Slides URL for easy access in response
+               google_slides_url = None
+               if outputs.get("slides_export_result"):
+                   slides_result = outputs["slides_export_result"]
+                   if isinstance(slides_result, dict):
+                       google_slides_url = slides_result.get("shareable_url")
+                       if not google_slides_url and slides_result.get("presentation_id"):
+                           google_slides_url = f"https://docs.google.com/presentation/d/{slides_result.get('presentation_id')}/edit"
+               
+               # Return results
+               response = {
+                   "status": "success",
+                   "outputs": outputs
+               }
+               
+               # Add Google Slides URL at top level for easy access
+               if google_slides_url:
+                   response["google_slides_url"] = google_slides_url
+                   logger.info(f"✅ Returning Google Slides URL in response: {google_slides_url}")
+               
+               return jsonify(response), 200
         
     except Exception as e:
         return jsonify({
