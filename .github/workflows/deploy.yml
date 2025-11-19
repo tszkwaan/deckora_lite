@@ -111,22 +111,58 @@ jobs:
           # Create credentials directory
           mkdir -p presentation_agent/agents/credentials
           
-          # Write credentials.json from GitHub Secret (using printf to avoid shell interpretation)
-          printf '%s\n' "${{ secrets.GOOGLE_CREDENTIALS_JSON }}" > presentation_agent/agents/credentials/credentials.json
+          # Use Python to write and validate JSON files (more reliable than shell)
+          python3 << 'EOF'
+          import json
+          import os
           
-          # Write token.json from GitHub Secret (using printf to avoid shell interpretation)
-          printf '%s\n' "${{ secrets.GOOGLE_TOKEN_JSON }}" > presentation_agent/agents/credentials/token.json
+          # Create directory
+          creds_dir = "presentation_agent/agents/credentials"
+          os.makedirs(creds_dir, exist_ok=True)
           
-          # Validate JSON files
-          echo "Validating credentials.json..."
-          python3 -m json.tool presentation_agent/agents/credentials/credentials.json > /dev/null && echo "✅ credentials.json is valid JSON" || (echo "❌ credentials.json is not valid JSON" && exit 1)
+          # Get secrets from environment (GitHub Actions will set these)
+          credentials_json = os.environ.get('GOOGLE_CREDENTIALS_JSON', '')
+          token_json = os.environ.get('GOOGLE_TOKEN_JSON', '')
           
-          echo "Validating token.json..."
-          python3 -m json.tool presentation_agent/agents/credentials/token.json > /dev/null && echo "✅ token.json is valid JSON" || (echo "❌ token.json is not valid JSON" && exit 1)
+          if not credentials_json:
+              print("❌ GOOGLE_CREDENTIALS_JSON secret is empty or not set")
+              exit(1)
+          
+          if not token_json:
+              print("❌ GOOGLE_TOKEN_JSON secret is empty or not set")
+              exit(1)
+          
+          # Parse and validate credentials.json
+          try:
+              creds_data = json.loads(credentials_json)
+              with open(f"{creds_dir}/credentials.json", 'w') as f:
+                  json.dump(creds_data, f, indent=2)
+              print("✅ credentials.json is valid JSON and written successfully")
+          except json.JSONDecodeError as e:
+              print(f"❌ credentials.json is not valid JSON: {e}")
+              print(f"First 200 chars: {credentials_json[:200]}")
+              exit(1)
+          
+          # Parse and validate token.json
+          try:
+              token_data = json.loads(token_json)
+              with open(f"{creds_dir}/token.json", 'w') as f:
+                  json.dump(token_data, f, indent=2)
+              print("✅ token.json is valid JSON and written successfully")
+          except json.JSONDecodeError as e:
+              print(f"❌ token.json is not valid JSON: {e}")
+              print(f"First 200 chars: {token_json[:200]}")
+              exit(1)
           
           # Verify files were created
-          ls -la presentation_agent/agents/credentials/
-          echo "✅ Credentials files created and validated from GitHub Secrets"
+          import subprocess
+          result = subprocess.run(['ls', '-la', creds_dir], capture_output=True, text=True)
+          print(result.stdout)
+          print("✅ Credentials files created and validated from GitHub Secrets")
+          EOF
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker
