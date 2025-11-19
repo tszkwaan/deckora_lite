@@ -248,17 +248,29 @@ def get_credentials() -> Credentials:
                     response = client.access_secret_version(request={"name": secret_name})
                     token_json = response.payload.data.decode('UTF-8')
                     
+                    # Validate JSON before writing
+                    try:
+                        import json
+                        token_data = json.loads(token_json)
+                        logger.info(f"✅ Token JSON is valid (has keys: {list(token_data.keys())[:3]}...)")
+                    except json.JSONDecodeError as e:
+                        logger.error(f"❌ Token JSON is invalid: {e}")
+                        logger.error(f"   First 200 chars: {token_json[:200]}")
+                        raise ValueError(f"Invalid JSON in token secret: {e}")
+                    
                     # Write to temporary file
                     import tempfile
                     temp_token_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
                     temp_token_file.write(token_json)
                     temp_token_file.close()
                     token_file_path = temp_token_file.name
-                    logger.info("✅ Loaded token from Secret Manager")
+                    logger.info(f"✅ Loaded token from Secret Manager and wrote to {token_file_path}")
                     print("✅ Loaded token from Secret Manager")
                 except Exception as e:
-                    # Token secret doesn't exist, that's OK
-                    logger.info(f"ℹ️  Token secret not found (this is OK if not uploaded yet): {e}")
+                    # Token secret doesn't exist or has issues
+                    logger.warning(f"⚠️  Token secret issue: {e}")
+                    import traceback
+                    logger.debug(traceback.format_exc())
                     pass
         except ImportError:
             pass
@@ -309,14 +321,14 @@ def get_credentials() -> Credentials:
                 raise RuntimeError(
                     "OAuth flow cannot run interactively in Cloud Run. "
                     "Please authenticate locally and upload token.json to Secret Manager."
-                )
+            )
             creds = flow.run_local_server(port=0)
         
         # Save token for future use (only if not using temp file and not in Cloud Run)
         if not temp_credentials_file and not os.environ.get('PORT'):
-            with open(TOKEN_FILE, 'w') as token:
-                token.write(creds.to_json())
-            print("✅ Credentials saved for future use")
+        with open(TOKEN_FILE, 'w') as token:
+            token.write(creds.to_json())
+        print("✅ Credentials saved for future use")
     
     # Clean up temp files if created
     if temp_credentials_file and os.path.exists(temp_credentials_file):

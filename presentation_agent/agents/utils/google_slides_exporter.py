@@ -228,16 +228,28 @@ def get_credentials() -> Credentials:
                     response = client.access_secret_version(request={"name": secret_name})
                     token_json = response.payload.data.decode('UTF-8')
                     
+                    # Validate JSON before writing
+                    try:
+                        import json
+                        token_data = json.loads(token_json)
+                        token_logger.info(f"✅ Token JSON is valid (has keys: {list(token_data.keys())[:3]}...)")
+                    except json.JSONDecodeError as e:
+                        token_logger.error(f"❌ Token JSON is invalid: {e}")
+                        token_logger.error(f"   First 200 chars: {token_json[:200]}")
+                        raise ValueError(f"Invalid JSON in token secret: {e}")
+                    
                     # Write to temporary file
                     temp_token_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
                     temp_token_file.write(token_json)
                     temp_token_file.close()
                     token_file_path = temp_token_file.name
-                    token_logger.info("✅ Loaded token from Secret Manager")
+                    token_logger.info(f"✅ Loaded token from Secret Manager and wrote to {token_file_path}")
                     print("✅ Loaded token from Secret Manager")
                 except Exception as e:
-                    # Token secret doesn't exist, that's OK
-                    token_logger.info(f"ℹ️  Token secret not found (this is OK if not uploaded yet): {e}")
+                    # Token secret doesn't exist or has issues
+                    token_logger.warning(f"⚠️  Token secret issue: {e}")
+                    import traceback
+                    token_logger.debug(traceback.format_exc())
                     pass
         except ImportError:
             pass
@@ -290,14 +302,14 @@ def get_credentials() -> Credentials:
                 raise RuntimeError(
                     "OAuth flow cannot run interactively in Cloud Run. "
                     "Please authenticate locally and upload token.json to Secret Manager."
-                )
+            )
             creds = flow.run_local_server(port=0)
         
         # Save token for future use (only if not using temp file and not in Cloud Run)
         if not temp_credentials_file and not os.environ.get('PORT'):
-            with open(TOKEN_FILE, 'w') as token:
-                token.write(creds.to_json())
-            print("✅ Credentials saved for future use")
+        with open(TOKEN_FILE, 'w') as token:
+            token.write(creds.to_json())
+        print("✅ Credentials saved for future use")
     
     # Clean up temp files if created
     if temp_credentials_file and os.path.exists(temp_credentials_file):
@@ -555,10 +567,10 @@ def export_to_google_slides(
         logger.info("📊 Creating Google Slides presentation...")
         print("📊 Creating Google Slides presentation...")
         try:
-            presentation = service.presentations().create(
-                body={'title': title}
-            ).execute()
-            presentation_id = presentation.get('presentationId')
+        presentation = service.presentations().create(
+            body={'title': title}
+        ).execute()
+        presentation_id = presentation.get('presentationId')
             
             # Validate presentation_id was actually created
             if not presentation_id:
@@ -569,7 +581,7 @@ def export_to_google_slides(
             
             logger.info(f"✅ Presentation created: {presentation_id}")
             logger.info(f"   Full API response keys: {list(presentation.keys())}")
-            print(f"✅ Presentation created: {presentation_id}")
+        print(f"✅ Presentation created: {presentation_id}")
             print(f"   Full API response keys: {list(presentation.keys())}")
             
             # Verify the presentation exists by trying to get it
