@@ -59,6 +59,9 @@ def _load_credentials_from_secret_manager() -> Optional[str]:
     Returns:
         Path to temporary credentials file, or None if not available
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         from google.cloud import secretmanager
         
@@ -66,46 +69,112 @@ def _load_credentials_from_secret_manager() -> Optional[str]:
         project_number = os.environ.get('GCP_PROJECT_NUMBER')
         project_id = os.environ.get('GCP_PROJECT') or os.environ.get('GOOGLE_CLOUD_PROJECT')
         
+        logger.info(f"🔍 Checking for project: GCP_PROJECT={project_id}, GCP_PROJECT_NUMBER={project_number}")
+        
         if not project_number:
             # Try to get project number from metadata server (required for Secret Manager API)
             try:
                 import requests
+                logger.info("🔍 Trying to get project NUMBER from metadata server...")
                 project_number = requests.get(
                     'http://metadata.google.internal/computeMetadata/v1/project/numeric-project-id',
                     headers={'Metadata-Flavor': 'Google'},
                     timeout=2
                 ).text
-            except:
-                # Fallback to project ID (may not work, but worth trying)
-                if project_id:
-                    project_number = project_id
+                logger.info(f"✅ Got project NUMBER from metadata: {project_number}")
+            except Exception as e:
+                logger.warning(f"⚠️  Could not get project number from metadata: {e}")
+                # Fallback: try to get project ID and convert (but this may not work)
+                if not project_id:
+                    try:
+                        project_id = requests.get(
+                            'http://metadata.google.internal/computeMetadata/v1/project/project-id',
+                            headers={'Metadata-Flavor': 'Google'},
+                            timeout=2
+                        ).text
+                        logger.info(f"✅ Got project ID from metadata: {project_id}")
+                    except:
+                        pass
+        
+        if not project_number and project_id:
+            # Last resort: try using project ID (may work in some cases, but not recommended)
+            logger.warning(f"⚠️  Project NUMBER not found, trying with project ID: {project_id}")
+            project_number = project_id
         
         if not project_number:
+            logger.error("❌ No project NUMBER found - cannot access Secret Manager")
             return None
+        
+        logger.info(f"🔍 Accessing Secret Manager for project NUMBER: {project_number}")
         
         # Access secret - MUST use project NUMBER, not project ID
         client = secretmanager.SecretManagerServiceClient()
         secret_name = f"projects/{project_number}/secrets/google-credentials/versions/latest"
+        logger.info(f"🔍 Secret name (using project NUMBER): {secret_name}")
         
         try:
             response = client.access_secret_version(request={"name": secret_name})
             credentials_json = response.payload.data.decode('UTF-8')
+            logger.info(f"✅ Successfully loaded credentials from Secret Manager ({len(credentials_json)} bytes)")
+            
+            # Validate it's valid JSON and looks like OAuth2 credentials
+            try:
+                import json
+                creds_dict = json.loads(credentials_json)
+                # Check if it has OAuth2 client credentials structure
+                if not isinstance(creds_dict, dict):
+                    raise ValueError("Credentials is not a JSON object")
+                if "installed" not in creds_dict and "web" not in creds_dict and "type" not in creds_dict:
+                    # Might be service account credentials - that's OK, but log it
+                    if creds_dict.get("type") == "service_account":
+                        logger.warning("⚠️  Secret contains service account credentials, not OAuth2 credentials")
+                        logger.warning("   OAuth2 credentials should have 'installed' or 'web' key")
+                    else:
+                        logger.warning("⚠️  Credentials format may be incorrect - missing 'installed' or 'web' key")
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ Secret content is not valid JSON: {e}")
+                return None
+            except Exception as e:
+                logger.warning(f"⚠️  Could not validate credentials format: {e}")
             
             # Write to temporary file
-            import tempfile
-            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
-            temp_file.write(credentials_json)
-            temp_file.close()
-            
-            return temp_file.name
+            try:
+                import tempfile
+                temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+                temp_file.write(credentials_json)
+                temp_file.close()
+                
+                logger.info(f"✅ Wrote credentials to temp file: {temp_file.name}")
+                return temp_file.name
+            except Exception as e:
+                error_msg = f"Failed to write credentials to temp file: {e}"
+                logger.error(f"❌ {error_msg}")
+                print(f"❌ {error_msg}")
+                return None
         except Exception as e:
-            print(f"⚠️  Warning: Could not load credentials from Secret Manager: {e}")
+            # Don't print the full exception message if it contains sensitive data
+            error_type = type(e).__name__
+            error_str = str(e)
+            # Truncate long error messages that might contain JSON
+            if len(error_str) > 500:
+                error_str = error_str[:500] + "... (truncated)"
+            error_msg = f"Could not load credentials from Secret Manager: {error_type}: {error_str}"
+            logger.error(f"❌ {error_msg}")
+            print(f"❌ {error_msg}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
-    except ImportError:
-        # Secret Manager library not available
+    except ImportError as e:
+        error_msg = f"Secret Manager library not available: {e}"
+        logger.error(f"❌ {error_msg}")
+        print(f"❌ {error_msg}")
         return None
     except Exception as e:
-        print(f"⚠️  Warning: Error accessing Secret Manager: {e}")
+        error_msg = f"Error accessing Secret Manager: {e}"
+        logger.error(f"❌ {error_msg}")
+        print(f"❌ {error_msg}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 
@@ -124,22 +193,87 @@ def get_credentials() -> Credentials:
     credentials_file_path = None
     temp_credentials_file = None
     
-    if not CREDENTIALS_FILE.exists():
-        # Try Secret Manager
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Always try Secret Manager first if running in Cloud Run (PORT env var indicates Cloud Run)
+    if os.environ.get('PORT') or not CREDENTIALS_FILE.exists():
+        logger.info("🔍 Running in Cloud Run or local file not found - trying Secret Manager...")
         temp_credentials_file = _load_credentials_from_secret_manager()
         if temp_credentials_file:
             credentials_file_path = temp_credentials_file
+            logger.info("✅ Loaded credentials from Secret Manager")
             print("✅ Loaded credentials from Secret Manager")
+        elif CREDENTIALS_FILE.exists():
+            # Fall back to local file if Secret Manager failed but local file exists
+            credentials_file_path = str(CREDENTIALS_FILE)
+            logger.info(f"⚠️  Secret Manager failed, using local file: {CREDENTIALS_FILE}")
     else:
         credentials_file_path = str(CREDENTIALS_FILE)
+        logger.info(f"Using local credentials file: {CREDENTIALS_FILE}")
     
     # Create credentials directory if it doesn't exist
     CREDENTIALS_DIR.mkdir(exist_ok=True)
     
-    # Load existing token if available
-    if TOKEN_FILE.exists():
+    # Try to load token from Secret Manager first (for Cloud Run)
+    token_file_path = None
+    temp_token_file = None
+    
+    if not TOKEN_FILE.exists():
+        # Try Secret Manager for token.json
         try:
-            creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+            from google.cloud import secretmanager
+            
+            # Get project NUMBER (required for Secret Manager API)
+            project_number = os.environ.get('GCP_PROJECT_NUMBER')
+            if not project_number:
+                try:
+                    import requests
+                    project_number = requests.get(
+                        'http://metadata.google.internal/computeMetadata/v1/project/numeric-project-id',
+                        headers={'Metadata-Flavor': 'Google'},
+                        timeout=2
+                    ).text
+                    logger.info(f"✅ Got project NUMBER for token: {project_number}")
+                except Exception as e:
+                    logger.warning(f"⚠️  Could not get project number: {e}")
+                    pass
+            
+            if project_number:
+                client = secretmanager.SecretManagerServiceClient()
+                try:
+                    # Try to get token.json from Secret Manager - use project NUMBER
+                    secret_name = f"projects/{project_number}/secrets/google-token/versions/latest"
+                    logger.info(f"🔍 Trying to load token from: {secret_name}")
+                    response = client.access_secret_version(request={"name": secret_name})
+                    token_json = response.payload.data.decode('UTF-8')
+                    
+                    # Write to temporary file
+                    import tempfile
+                    temp_token_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+                    temp_token_file.write(token_json)
+                    temp_token_file.close()
+                    token_file_path = temp_token_file.name
+                    logger.info("✅ Loaded token from Secret Manager")
+                    print("✅ Loaded token from Secret Manager")
+                except Exception as e:
+                    # Token secret doesn't exist, that's OK
+                    logger.info(f"ℹ️  Token secret not found (this is OK if not uploaded yet): {e}")
+                    pass
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning(f"⚠️  Warning: Could not load token from Secret Manager: {e}")
+            print(f"⚠️  Warning: Could not load token from Secret Manager: {e}")
+    
+    # Use local token file if available
+    if not token_file_path and TOKEN_FILE.exists():
+        token_file_path = str(TOKEN_FILE)
+    
+    # Load existing token if available
+    if token_file_path:
+        try:
+            creds = Credentials.from_authorized_user_file(token_file_path, SCOPES)
         except Exception as e:
             print(f"⚠️  Warning: Could not load token: {e}")
     
@@ -178,16 +312,21 @@ def get_credentials() -> Credentials:
                 )
             creds = flow.run_local_server(port=0)
         
-        # Save token for future use (only if not using temp file)
-        if not temp_credentials_file:
+        # Save token for future use (only if not using temp file and not in Cloud Run)
+        if not temp_credentials_file and not os.environ.get('PORT'):
             with open(TOKEN_FILE, 'w') as token:
                 token.write(creds.to_json())
             print("✅ Credentials saved for future use")
     
-    # Clean up temp file if created
+    # Clean up temp files if created
     if temp_credentials_file and os.path.exists(temp_credentials_file):
         try:
             os.unlink(temp_credentials_file)
+        except:
+            pass
+    if temp_token_file and os.path.exists(temp_token_file):
+        try:
+            os.unlink(temp_token_file)
         except:
             pass
     
