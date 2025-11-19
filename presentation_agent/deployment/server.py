@@ -247,6 +247,9 @@ Your task:
         # Run async function
         outputs = asyncio.run(run_agent())
         
+        # Get logger for response handling
+        logger = logging.getLogger(__name__)
+        
         # Extract Google Slides URL for easy access in response
         google_slides_url = None
         if outputs.get("slides_export_result"):
