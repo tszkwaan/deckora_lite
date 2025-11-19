@@ -70,6 +70,27 @@ def get_credentials() -> Credentials:
     if TOKEN_FILE.exists():
         token_file_path = str(TOKEN_FILE)
         logger.info(f"✅ Using local token file: {TOKEN_FILE}")
+        
+        # Validate token.json is valid JSON before trying to load
+        try:
+            import json
+            with open(TOKEN_FILE, 'r') as f:
+                token_content = f.read()
+                # Try to parse as JSON
+                json.loads(token_content)
+                logger.info("✅ Token file is valid JSON")
+        except json.JSONDecodeError as e:
+            error_msg = (
+                f"❌ Token file is not valid JSON: {e}\n"
+                f"File path: {TOKEN_FILE}\n"
+                f"First 200 chars: {token_content[:200] if 'token_content' in locals() else 'N/A'}\n"
+                f"Please check GitHub Secret GOOGLE_TOKEN_JSON contains valid JSON."
+            )
+            logger.error(error_msg)
+            print(error_msg)
+            token_file_path = None  # Don't try to load invalid JSON
+        except Exception as e:
+            logger.warning(f"⚠️  Could not validate token file: {e}")
     else:
         logger.warning(f"⚠️  Token file not found: {TOKEN_FILE}")
         logger.warning("   Please ensure GitHub Secret GOOGLE_TOKEN_JSON is set.")
@@ -78,8 +99,12 @@ def get_credentials() -> Credentials:
     if token_file_path:
         try:
             creds = Credentials.from_authorized_user_file(token_file_path, SCOPES)
+            logger.info("✅ Successfully loaded credentials from token file")
         except Exception as e:
-            print(f"⚠️  Warning: Could not load token: {e}")
+            error_msg = f"⚠️  Warning: Could not load token: {e}"
+            logger.error(error_msg)
+            print(error_msg)
+            creds = None
     
     # If no valid credentials, run OAuth flow
     if not creds or not creds.valid:
