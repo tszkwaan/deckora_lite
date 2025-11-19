@@ -567,10 +567,10 @@ def export_to_google_slides(
         logger.info("📊 Creating Google Slides presentation...")
         print("📊 Creating Google Slides presentation...")
         try:
-        presentation = service.presentations().create(
-            body={'title': title}
-        ).execute()
-        presentation_id = presentation.get('presentationId')
+            presentation = service.presentations().create(
+                body={'title': title}
+            ).execute()
+            presentation_id = presentation.get('presentationId')
             
             # Validate presentation_id was actually created
             if not presentation_id:
@@ -581,7 +581,7 @@ def export_to_google_slides(
             
             logger.info(f"✅ Presentation created: {presentation_id}")
             logger.info(f"   Full API response keys: {list(presentation.keys())}")
-        print(f"✅ Presentation created: {presentation_id}")
+            print(f"✅ Presentation created: {presentation_id}")
             print(f"   Full API response keys: {list(presentation.keys())}")
             
             # Verify the presentation exists by trying to get it
