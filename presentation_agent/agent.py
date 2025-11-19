@@ -253,21 +253,20 @@ Return ONLY this JSON, nothing else.""",
     output_key="slides_export_complete",
 )
 
-# Create a LoopAgent for slide generation and export (layout critic commented out)
+# Create a LoopAgent for slide generation and export with layout critic
 # Using LoopAgent instead of nested SequentialAgent to avoid execution issues
-# Flow: generate slides -> export to Google Slides -> confirm completion
+# Flow: generate slides -> export to Google Slides -> review layout -> check threshold -> regenerate if needed
 # Adding a completion checker ensures the loop runs all agents
-# max_iterations=1 ensures it runs once
+# max_iterations ensures it can loop if layout issues are found
 slides_generation_sequence = LoopAgent(
     name="SlidesGenerationSequence",
     sub_agents=[
         slide_and_script_generator_agent,  # Generate slides and script
         slides_export_agent,                # Export to Google Slides
-        slides_export_complete_checker,    # Confirm completion (ensures loop runs all agents)
-        # layout_critic_agent,                # Review layout using Vision API (COMMENTED OUT)
-        # layout_threshold_checker,           # Check if passes threshold (COMMENTED OUT)
+        layout_critic_agent,                # Review layout using Vision API
+        layout_threshold_checker,           # Check if passes threshold
     ],
-    max_iterations=1,  # Run once to execute all agents sequentially
+    max_iterations=LAYOUT_MAX_RETRY_LOOPS + 1,  # Allow looping if layout issues found
 )
 
 
