@@ -17,7 +17,7 @@ def review_layout_tool(presentation_id_or_url: str, output_dir: str = "presentat
         presentation_id_or_url: Google Slides presentation ID or shareable URL
             - ID format: "6701963407731676303"
             - URL format: "https://docs.google.com/presentation/d/6701963407731676303/edit"
-        output_dir: Output directory for saving PDFs (default: "output")
+        output_dir: Output directory for saving PDFs (default: "presentation_agent/output")
         
     Returns:
         Dict with layout review results including overlaps, overflow, and recommendations
@@ -89,7 +89,7 @@ def review_layout_tool(presentation_id_or_url: str, output_dir: str = "presentat
     
     # Validate output_dir
     if not isinstance(output_dir, str):
-        output_dir = str(output_dir) if output_dir else "output"
+        output_dir = str(output_dir) if output_dir else "presentation_agent/output"
     
     try:
         result = review_slides_layout(presentation_id, output_dir=output_dir)

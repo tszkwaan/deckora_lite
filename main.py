@@ -81,7 +81,7 @@ def parse_duration_to_seconds(duration_input) -> int:
 
 async def run_presentation_pipeline(
     config: PresentationConfig,
-    output_dir: str = "output",
+    output_dir: str = "presentation_agent/output",
     include_critics: bool = True,
     save_intermediate: bool = True,
     open_browser: bool = True,
@@ -111,7 +111,7 @@ async def run_presentation_pipeline(
     # Initialize observability
     trace_file = f"{output_dir}/trace_history.json"
     obs_logger = get_observability_logger(
-        log_file="observability.log",
+        log_file=f"{output_dir}/observability.log",
         trace_file=trace_file
     )
     obs_logger.start_pipeline("presentation_pipeline")
@@ -600,15 +600,24 @@ Extract the shareable_url from slides_export_result and call review_layout_tool 
 
 async def main():
     """Main function for local development."""
-    # Clean up any previous logs
+    # Clean up any previous logs (both old root location and new location)
+    output_dir = "presentation_agent/output"
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    
     for log_file in ["logger.log", "web.log", "tunnel.log", "observability.log"]:
+        # Clean up old root location
         if os.path.exists(log_file):
             os.remove(log_file)
             print(f"🧹 Cleaned up {log_file}")
+        # Clean up new location
+        new_log_path = f"{output_dir}/{log_file}"
+        if os.path.exists(new_log_path):
+            os.remove(new_log_path)
+            print(f"🧹 Cleaned up {new_log_path}")
 
     # Configure logging with DEBUG log level.
     logging.basicConfig(
-        filename="logger.log",
+        filename=f"{output_dir}/logger.log",
         level=logging.DEBUG,
         format="%(filename)s:%(lineno)s %(levelname)s:%(message)s",
     )
@@ -651,7 +660,7 @@ async def main():
         # Run pipeline
         outputs = await run_presentation_pipeline(
             config=config,
-            output_dir="output",
+            output_dir=output_dir,
             include_critics=True,
             save_intermediate=True,
             open_browser=True,  # Open Google Slides in browser after generation
@@ -660,7 +669,7 @@ async def main():
         print("\n" + "=" * 60)
         print("🎉 Pipeline completed successfully!")
         print("=" * 60)
-        print(f"\nGenerated outputs saved to 'output/' directory")
+        print(f"\nGenerated outputs saved to '{output_dir}/' directory")
         print(f"Total outputs: {len(outputs)}")
     except KeyboardInterrupt:
         print("\n\n⚠️  Pipeline aborted by user (KeyboardInterrupt)")

@@ -244,7 +244,7 @@ def export_slides_as_images(presentation_id: str, output_dir: str = "presentatio
     
     Args:
         presentation_id: Google Slides presentation ID
-        output_dir: Output directory (default: "output")
+        output_dir: Output directory (default: "presentation_agent/output")
         
     Returns:
         List of image bytes (one per slide)
@@ -972,7 +972,7 @@ def review_slides_layout(presentation_id: str, output_dir: str = "presentation_a
     
     Args:
         presentation_id: Google Slides presentation ID
-        output_dir: Output directory for saving PDFs (default: "output")
+        output_dir: Output directory for saving PDFs (default: "presentation_agent/output")
         
     Returns:
         Dict with layout review results
