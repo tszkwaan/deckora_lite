@@ -7,6 +7,7 @@ import os
 import json
 import re
 import webbrowser
+import tempfile
 from pathlib import Path
 from typing import Dict, Optional, List, Tuple
 
@@ -31,6 +32,58 @@ CREDENTIALS_FILE = CREDENTIALS_DIR / "credentials.json"
 TOKEN_FILE = CREDENTIALS_DIR / "token.json"
 
 
+def _load_credentials_from_secret_manager() -> Optional[str]:
+    """
+    Load credentials.json from Google Secret Manager (for Cloud Run).
+    
+    Returns:
+        Path to temporary credentials file, or None if not available
+    """
+    try:
+        from google.cloud import secretmanager
+        
+        # Get project ID from environment or metadata
+        project_id = os.environ.get('GCP_PROJECT') or os.environ.get('GOOGLE_CLOUD_PROJECT')
+        if not project_id:
+            # Try to get from metadata server
+            try:
+                import requests
+                project_id = requests.get(
+                    'http://metadata.google.internal/computeMetadata/v1/project/project-id',
+                    headers={'Metadata-Flavor': 'Google'},
+                    timeout=2
+                ).text
+            except:
+                return None
+        
+        if not project_id:
+            return None
+        
+        # Access secret
+        client = secretmanager.SecretManagerServiceClient()
+        secret_name = f"projects/{project_id}/secrets/google-credentials/versions/latest"
+        
+        try:
+            response = client.access_secret_version(request={"name": secret_name})
+            credentials_json = response.payload.data.decode('UTF-8')
+            
+            # Write to temporary file
+            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+            temp_file.write(credentials_json)
+            temp_file.close()
+            
+            return temp_file.name
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load credentials from Secret Manager: {e}")
+            return None
+    except ImportError:
+        # Secret Manager library not available
+        return None
+    except Exception as e:
+        print(f"⚠️  Warning: Error accessing Secret Manager: {e}")
+        return None
+
+
 def get_credentials() -> Credentials:
     """
     Get OAuth2 credentials for Google Slides API.
@@ -40,6 +93,19 @@ def get_credentials() -> Credentials:
         Credentials object for Google API
     """
     creds = None
+    
+    # Try to load credentials from Secret Manager first (for Cloud Run)
+    credentials_file_path = None
+    temp_credentials_file = None
+    
+    if not CREDENTIALS_FILE.exists():
+        # Try Secret Manager
+        temp_credentials_file = _load_credentials_from_secret_manager()
+        if temp_credentials_file:
+            credentials_file_path = temp_credentials_file
+            print("✅ Loaded credentials from Secret Manager")
+    else:
+        credentials_file_path = str(CREDENTIALS_FILE)
     
     # Create credentials directory if it doesn't exist
     CREDENTIALS_DIR.mkdir(exist_ok=True)
@@ -63,23 +129,41 @@ def get_credentials() -> Credentials:
         
         if not creds:
             # Run OAuth flow
-            if not CREDENTIALS_FILE.exists():
-                raise FileNotFoundError(
+            if not credentials_file_path:
+                error_msg = (
                     f"❌ Credentials file not found: {CREDENTIALS_FILE}\n"
                     f"Please download credentials.json from Google Cloud Console and place it in:\n"
                     f"{CREDENTIALS_DIR}\n"
-                    f"See SLIDESHOW_EXPORT_PLAN.md for setup instructions."
+                    f"Or ensure 'google-credentials' secret exists in Secret Manager.\n"
+                    f"See DEPLOYMENT_SETUP.md for setup instructions."
                 )
+                raise FileNotFoundError(error_msg)
             
             flow = InstalledAppFlow.from_client_secrets_file(
-                str(CREDENTIALS_FILE), SCOPES
+                credentials_file_path, SCOPES
             )
+            # In Cloud Run, we can't run local server, so use console flow
+            if os.environ.get('PORT'):  # Running in Cloud Run
+                print("⚠️  Running in Cloud Run - OAuth flow requires manual setup")
+                print("   Please run OAuth flow locally and upload token.json to Secret Manager")
+                raise RuntimeError(
+                    "OAuth flow cannot run interactively in Cloud Run. "
+                    "Please authenticate locally and upload token.json to Secret Manager."
+                )
             creds = flow.run_local_server(port=0)
         
-        # Save token for future use
-        with open(TOKEN_FILE, 'w') as token:
-            token.write(creds.to_json())
-        print("✅ Credentials saved for future use")
+        # Save token for future use (only if not using temp file)
+        if not temp_credentials_file:
+            with open(TOKEN_FILE, 'w') as token:
+                token.write(creds.to_json())
+            print("✅ Credentials saved for future use")
+    
+    # Clean up temp file if created
+    if temp_credentials_file and os.path.exists(temp_credentials_file):
+        try:
+            os.unlink(temp_credentials_file)
+        except:
+            pass
     
     return creds
 
