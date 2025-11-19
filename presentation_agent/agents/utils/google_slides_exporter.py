@@ -97,15 +97,47 @@ def _load_credentials_from_secret_manager() -> Optional[str]:
             credentials_json = response.payload.data.decode('UTF-8')
             logger.info(f"✅ Successfully loaded credentials from Secret Manager ({len(credentials_json)} bytes)")
             
-            # Write to temporary file
-            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
-            temp_file.write(credentials_json)
-            temp_file.close()
+            # Validate it's valid JSON and looks like OAuth2 credentials
+            try:
+                import json
+                creds_dict = json.loads(credentials_json)
+                # Check if it has OAuth2 client credentials structure
+                if not isinstance(creds_dict, dict):
+                    raise ValueError("Credentials is not a JSON object")
+                if "installed" not in creds_dict and "web" not in creds_dict and "type" not in creds_dict:
+                    # Might be service account credentials - that's OK, but log it
+                    if creds_dict.get("type") == "service_account":
+                        logger.warning("⚠️  Secret contains service account credentials, not OAuth2 credentials")
+                        logger.warning("   OAuth2 credentials should have 'installed' or 'web' key")
+                    else:
+                        logger.warning("⚠️  Credentials format may be incorrect - missing 'installed' or 'web' key")
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ Secret content is not valid JSON: {e}")
+                return None
+            except Exception as e:
+                logger.warning(f"⚠️  Could not validate credentials format: {e}")
             
-            logger.info(f"✅ Wrote credentials to temp file: {temp_file.name}")
-            return temp_file.name
+            # Write to temporary file
+            try:
+                temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+                temp_file.write(credentials_json)
+                temp_file.close()
+                
+                logger.info(f"✅ Wrote credentials to temp file: {temp_file.name}")
+                return temp_file.name
+            except Exception as e:
+                error_msg = f"Failed to write credentials to temp file: {e}"
+                logger.error(f"❌ {error_msg}")
+                print(f"❌ {error_msg}")
+                return None
         except Exception as e:
-            error_msg = f"Could not load credentials from Secret Manager: {e}"
+            # Don't print the full exception message if it contains sensitive data
+            error_type = type(e).__name__
+            error_str = str(e)
+            # Truncate long error messages that might contain JSON
+            if len(error_str) > 500:
+                error_str = error_str[:500] + "... (truncated)"
+            error_msg = f"Could not load credentials from Secret Manager: {error_type}: {error_str}"
             logger.error(f"❌ {error_msg}")
             print(f"❌ {error_msg}")
             import traceback
