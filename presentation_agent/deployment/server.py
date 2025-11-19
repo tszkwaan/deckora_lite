@@ -7,7 +7,14 @@ import os
 import sys
 import json
 import asyncio
+import logging
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.parent
@@ -142,18 +149,30 @@ Your task:
             runner = InMemoryRunner(agent=root_agent)
             events = await runner.run_debug(initial_message, session_id=session.id)
             
+            # Debug: Log all keys in session.state
+            logger = logging.getLogger(__name__)
+            logger.info(f"🔍 Session state keys after pipeline: {list(session.state.keys())}")
+            logger.info(f"🔍 Session state full content: {json.dumps(dict(session.state), indent=2, default=str)}")
+            
             # Extract outputs from session state
             outputs = {}
             if session.state.get("report_knowledge"):
                 outputs["report_knowledge"] = session.state["report_knowledge"]
+                logger.info("✅ Found report_knowledge in session.state")
             if session.state.get("presentation_outline"):
                 outputs["presentation_outline"] = session.state["presentation_outline"]
+                logger.info("✅ Found presentation_outline in session.state")
             if session.state.get("slide_and_script"):
                 outputs["slide_and_script"] = session.state["slide_and_script"]
+                logger.info("✅ Found slide_and_script in session.state")
             if session.state.get("slides_export_result"):
                 outputs["slides_export_result"] = session.state["slides_export_result"]
+                logger.info("✅ Found slides_export_result in session.state")
             if session.state.get("layout_review"):
                 outputs["layout_review"] = session.state["layout_review"]
+                logger.info("✅ Found layout_review in session.state")
+            
+            logger.info(f"🔍 Extracted outputs: {list(outputs.keys())}")
             
             return outputs
         
