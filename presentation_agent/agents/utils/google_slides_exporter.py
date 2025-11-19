@@ -96,10 +96,8 @@ def get_credentials() -> Credentials:
             if not credentials_file_path:
                 error_msg = (
                     f"❌ Credentials file not found: {CREDENTIALS_FILE}\n"
-                    f"Please download credentials.json from Google Cloud Console and place it in:\n"
-                    f"{CREDENTIALS_DIR}\n"
-                    f"Or ensure 'google-credentials' secret exists in Secret Manager.\n"
-                    f"See DEPLOYMENT_SETUP.md for setup instructions."
+                    f"Please ensure GitHub Secret GOOGLE_CREDENTIALS_JSON is set.\n"
+                    f"Files should be created during Docker build from GitHub Secrets."
                 )
                 raise FileNotFoundError(error_msg)
             
@@ -109,15 +107,15 @@ def get_credentials() -> Credentials:
             # In Cloud Run, we can't run local server, so use console flow
             if os.environ.get('PORT'):  # Running in Cloud Run
                 print("⚠️  Running in Cloud Run - OAuth flow requires manual setup")
-                print("   Please run OAuth flow locally and upload token.json to Secret Manager")
+                print("   Please ensure GitHub Secret GOOGLE_TOKEN_JSON is set.")
                 raise RuntimeError(
                     "OAuth flow cannot run interactively in Cloud Run. "
-                    "Please authenticate locally and upload token.json to Secret Manager."
+                    "Please ensure GitHub Secret GOOGLE_TOKEN_JSON is set and files are created during Docker build."
                 )
             creds = flow.run_local_server(port=0)
         
-        # Save token for future use (only if not using temp file and not in Cloud Run)
-        if not temp_credentials_file and not os.environ.get('PORT'):
+        # Save token for future use (only if not in Cloud Run)
+        if not os.environ.get('PORT'):
             with open(TOKEN_FILE, 'w') as token:
                 token.write(creds.to_json())
             print("✅ Credentials saved for future use")
