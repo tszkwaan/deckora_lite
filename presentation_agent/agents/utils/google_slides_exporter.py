@@ -122,14 +122,24 @@ def get_credentials() -> Credentials:
     credentials_file_path = None
     temp_credentials_file = None
     
-    if not CREDENTIALS_FILE.exists():
-        # Try Secret Manager
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Always try Secret Manager first if running in Cloud Run (PORT env var indicates Cloud Run)
+    if os.environ.get('PORT') or not CREDENTIALS_FILE.exists():
+        logger.info("🔍 Running in Cloud Run or local file not found - trying Secret Manager...")
         temp_credentials_file = _load_credentials_from_secret_manager()
         if temp_credentials_file:
             credentials_file_path = temp_credentials_file
+            logger.info("✅ Loaded credentials from Secret Manager")
             print("✅ Loaded credentials from Secret Manager")
+        elif CREDENTIALS_FILE.exists():
+            # Fall back to local file if Secret Manager failed but local file exists
+            credentials_file_path = str(CREDENTIALS_FILE)
+            logger.info(f"⚠️  Secret Manager failed, using local file: {CREDENTIALS_FILE}")
     else:
         credentials_file_path = str(CREDENTIALS_FILE)
+        logger.info(f"Using local credentials file: {CREDENTIALS_FILE}")
     
     # Create credentials directory if it doesn't exist
     CREDENTIALS_DIR.mkdir(exist_ok=True)
