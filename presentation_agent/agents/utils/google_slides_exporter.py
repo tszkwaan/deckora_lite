@@ -813,9 +813,13 @@ def export_to_google_slides(
         logger.info(f"✅ Google Slides export complete!")
         logger.info(f"   Presentation ID: {presentation_id}")
         logger.info(f"   🔗 Google Slides URL: {shareable_url}")
+        logger.info(f"   📝 IMPORTANT: Presentation is created in the Google account that authorized the OAuth token")
+        logger.info(f"   📝 Check the Google account used when generating token.json")
         print(f"✅ Google Slides export complete!")
         print(f"   Presentation ID: {presentation_id}")
         print(f"   🔗 Google Slides URL: {shareable_url}")
+        print(f"   📝 IMPORTANT: Presentation is created in the Google account that authorized the OAuth token")
+        print(f"   📝 Check the Google account used when generating token.json")
         
         # Open URL in Chrome
         try:
