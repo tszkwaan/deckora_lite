@@ -447,7 +447,109 @@ Extract the shareable_url from slides_export_result and call review_layout_tool 
                 
                 runner = InMemoryRunner(agent=layout_critic_agent)
                 events = await runner.run_debug(layout_input, session_id=session.id)
+                
+                # Extract layout_review - check multiple sources
+                layout_review = None
+                import logging
+                logger = logging.getLogger(__name__)
+                
+                # Priority 1: Check state_delta (agent's text output stored by output_key)
                 layout_review = extract_output_from_events(events, "layout_review")
+                
+                # Priority 2: Check tool_results directly - the tool returns the dict itself
+                if not layout_review:
+                    print("🔍 [DEBUG] Checking tool_results for layout_review in main.py...")
+                    print(f"   Total events: {len(events)}")
+                    
+                    for i, event in enumerate(reversed(events)):
+                        agent_name = getattr(event, 'agent_name', None) or (getattr(event, 'agent', None) and getattr(event.agent, 'name', None)) or 'Unknown'
+                        
+                        # Since we run this agent in isolation, we can check all events
+                        # regardless of whether the agent name is correctly populated
+                        print(f"   Event {len(events)-1-i} ({agent_name}): Checking actions...")
+                        
+                        if hasattr(event, 'actions') and event.actions:
+                            if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
+                                print(f"   Found {len(event.actions.tool_results)} tool_results")
+                                for j, tool_result in enumerate(event.actions.tool_results):
+                                    if hasattr(tool_result, 'response'):
+                                        response = tool_result.response
+                                        print(f"      Result {j} type: {type(response).__name__}")
+                                        
+                                        # Handle string response (often JSON string)
+                                        if isinstance(response, str):
+                                            try:
+                                                # Try to clean and parse JSON string
+                                                cleaned_response = response.strip()
+                                                if cleaned_response.startswith("```json"):
+                                                    cleaned_response = cleaned_response[7:].lstrip()
+                                                elif cleaned_response.startswith("```"):
+                                                    cleaned_response = cleaned_response[3:].lstrip()
+                                                if cleaned_response.endswith("```"):
+                                                    cleaned_response = cleaned_response[:-3].rstrip()
+                                                
+                                                parsed_response = json.loads(cleaned_response)
+                                                if isinstance(parsed_response, dict):
+                                                    response = parsed_response
+                                                    print(f"      Result {j} parsed from string to dict")
+                                            except json.JSONDecodeError:
+                                                print(f"      Result {j} string is not valid JSON")
+                                        
+                                        if isinstance(response, dict):
+                                            keys = list(response.keys())
+                                            print(f"      Result {j} keys: {keys}")
+                                            
+                                            # Check for layout review structure
+                                            if 'review_type' in response or 'total_slides_reviewed' in response or \
+                                               ('passed' in response and 'overall_quality' in response) or \
+                                               ('presentation_id' in response and ('issues_summary' in response or 'overall_quality' in response)):
+                                                layout_review = response
+                                                print("✅ [DEBUG] Found layout_review in tool_result.response!")
+                                                break
+                                    if layout_review:
+                                        break
+                        
+                        # Also check function_response in content parts
+                        if hasattr(event, 'content') and event.content:
+                            if hasattr(event.content, 'parts') and event.content.parts:
+                                for k, part in enumerate(event.content.parts):
+                                    if hasattr(part, 'function_response') and part.function_response:
+                                        print(f"      Part {k} has function_response")
+                                        if hasattr(part.function_response, 'response'):
+                                            response = part.function_response.response
+                                            print(f"      Part {k} response type: {type(response).__name__}")
+                                            
+                                            # Handle string response (often JSON string)
+                                            if isinstance(response, str):
+                                                try:
+                                                    # Try to clean and parse JSON string
+                                                    cleaned_response = response.strip()
+                                                    if cleaned_response.startswith("```json"):
+                                                        cleaned_response = cleaned_response[7:].lstrip()
+                                                    elif cleaned_response.startswith("```"):
+                                                        cleaned_response = cleaned_response[3:].lstrip()
+                                                    if cleaned_response.endswith("```"):
+                                                        cleaned_response = cleaned_response[:-3].rstrip()
+                                                    
+                                                    parsed_response = json.loads(cleaned_response)
+                                                    if isinstance(parsed_response, dict):
+                                                        response = parsed_response
+                                                        print(f"      Part {k} parsed from string to dict")
+                                                except json.JSONDecodeError:
+                                                    print(f"      Part {k} string is not valid JSON")
+
+                                            if isinstance(response, dict):
+                                                keys = list(response.keys())
+                                                print(f"      Part {k} response keys: {keys}")
+                                                if 'review_type' in response or 'total_slides_reviewed' in response:
+                                                    layout_review = response
+                                                    print("✅ [DEBUG] Found layout_review in function_response!")
+                                                    break
+                                    if layout_review:
+                                        break
+                        
+                        if layout_review:
+                            break
                 
                 if layout_review:
                     outputs["layout_review"] = layout_review
@@ -458,6 +560,21 @@ Extract the shareable_url from slides_export_result and call review_layout_tool 
                     obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
                 else:
                     obs_logger.finish_agent_execution(AgentStatus.FAILED, "No layout review generated", has_output=False)
+                    print(f"⚠️  Layout review not found in events or tool results")
+                    # Debug: log what we found
+                    logger.warning("   Debug: Checking all events for LayoutCriticAgent...")
+                    for i, event in enumerate(events):
+                        agent_name = getattr(event, 'agent_name', None) or (getattr(event, 'agent', None) and getattr(event.agent, 'name', None)) or 'Unknown'
+                        if agent_name == "LayoutCriticAgent":
+                            logger.warning(f"   Event {i}: LayoutCriticAgent found")
+                            if hasattr(event, 'actions') and event.actions:
+                                if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
+                                    logger.warning(f"      tool_results: {len(event.actions.tool_results)}")
+                                    for j, tr in enumerate(event.actions.tool_results):
+                                        if hasattr(tr, 'response'):
+                                            logger.warning(f"         tool_result {j} type: {type(tr.response).__name__}")
+                                            if isinstance(tr.response, dict):
+                                                logger.warning(f"         tool_result {j} keys: {list(tr.response.keys())[:10]}")
         
         # Save complete output
         if len(outputs) > 1:

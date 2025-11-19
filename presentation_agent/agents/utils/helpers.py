@@ -83,10 +83,24 @@ def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
                             if isinstance(response, dict):
                                 response_keys = list(response.keys())
                                 logger.debug(f"      Tool result {tr_idx} keys: {response_keys}")
+                                # First try: look for nested key (e.g., response["layout_review"])
                                 raw = response.get(output_key, None)
                                 if raw is not None:
-                                    logger.info(f"✅ Found '{output_key}' in tool_result {tr_idx} of Event {len(events)-1-i} ({agent_name})")
+                                    logger.info(f"✅ Found '{output_key}' nested in tool_result {tr_idx} of Event {len(events)-1-i} ({agent_name})")
                                     break
+                                # Second try: check if the response dict itself IS the output
+                                # This handles cases where tool returns the output directly (e.g., layout_review tool)
+                                # Check for common patterns that indicate this is the output dict itself
+                                if output_key == "layout_review":
+                                    # Layout review has specific keys: review_type, total_slides_reviewed, passed, overall_quality
+                                    # Be more permissive - check for any of these key patterns
+                                    if ('review_type' in response) or \
+                                       ('total_slides_reviewed' in response) or \
+                                       ('passed' in response and 'overall_quality' in response) or \
+                                       ('presentation_id' in response and ('issues_summary' in response or 'overall_quality' in response)):
+                                        raw = response
+                                        logger.info(f"✅ Found '{output_key}' as direct tool_result {tr_idx} of Event {len(events)-1-i} ({agent_name})")
+                                        break
                     if raw is not None:
                         break
     
