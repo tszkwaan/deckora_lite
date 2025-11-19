@@ -228,8 +228,6 @@ Your task:
                 outputs["slides_export_result"] = slides_export_result
                 session.state["slides_export_result"] = slides_export_result
                 logger.info("✅ Extracted slides_export_result from events")
-            else:
-                logger.warning("⚠️  No slides_export_result found in events - SlidesExportAgent may not have run")
                 
                 # Extract Google Slides URL from slides_export_result
                 if isinstance(slides_export_result, dict):
@@ -249,6 +247,8 @@ Your task:
                     if status:
                         outputs["export_status"] = status
                         logger.info(f"✅ Export status: {status}")
+            else:
+                logger.warning("⚠️  No slides_export_result found in events - SlidesExportAgent may not have run")
             if session.state.get("layout_review"):
                 outputs["layout_review"] = session.state["layout_review"]
                 logger.info("✅ Found layout_review in session.state")
