@@ -247,27 +247,27 @@ Your task:
         # Run async function
         outputs = asyncio.run(run_agent())
         
-               # Extract Google Slides URL for easy access in response
-               google_slides_url = None
-               if outputs.get("slides_export_result"):
-                   slides_result = outputs["slides_export_result"]
-                   if isinstance(slides_result, dict):
-                       google_slides_url = slides_result.get("shareable_url")
-                       if not google_slides_url and slides_result.get("presentation_id"):
-                           google_slides_url = f"https://docs.google.com/presentation/d/{slides_result.get('presentation_id')}/edit"
-               
-               # Return results
-               response = {
-                   "status": "success",
-                   "outputs": outputs
-               }
-               
-               # Add Google Slides URL at top level for easy access
-               if google_slides_url:
-                   response["google_slides_url"] = google_slides_url
-                   logger.info(f"✅ Returning Google Slides URL in response: {google_slides_url}")
-               
-               return jsonify(response), 200
+        # Extract Google Slides URL for easy access in response
+        google_slides_url = None
+        if outputs.get("slides_export_result"):
+            slides_result = outputs["slides_export_result"]
+            if isinstance(slides_result, dict):
+                google_slides_url = slides_result.get("shareable_url")
+                if not google_slides_url and slides_result.get("presentation_id"):
+                    google_slides_url = f"https://docs.google.com/presentation/d/{slides_result.get('presentation_id')}/edit"
+        
+        # Return results
+        response = {
+            "status": "success",
+            "outputs": outputs
+        }
+        
+        # Add Google Slides URL at top level for easy access
+        if google_slides_url:
+            response["google_slides_url"] = google_slides_url
+            logger.info(f"✅ Returning Google Slides URL in response: {google_slides_url}")
+        
+        return jsonify(response), 200
         
     except Exception as e:
         return jsonify({
