@@ -24,16 +24,18 @@ from presentation_agent.agents.utils.pdf_loader import load_pdf_from_url
 
 def load_pdf_from_url_tool(url: str) -> str:
     """
-    Tool function to load PDF content from a URL.
+    Tool function to load PDF content from a URL with compression.
     
     Args:
         url: URL to the PDF file (e.g., "https://arxiv.org/pdf/2511.08597")
         
     Returns:
-        Extracted text content from all pages of the PDF
+        Extracted and compressed text content from all pages of the PDF
     """
     try:
-        content = load_pdf_from_url(url)
+        from presentation_agent.agents.utils.pdf_loader import load_pdf
+        # Use load_pdf() which includes compression by default
+        content = load_pdf(report_url=url, compress=True)
         return f"Successfully loaded PDF from {url}. Content length: {len(content)} characters.\n\n[REPORT_CONTENT]\n{content}\n[END_REPORT_CONTENT]"
     except Exception as e:
         return f"Error loading PDF from {url}: {str(e)}"
