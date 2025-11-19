@@ -111,15 +111,22 @@ jobs:
           # Create credentials directory
           mkdir -p presentation_agent/agents/credentials
           
-          # Write credentials.json from GitHub Secret
-          echo "${{ secrets.GOOGLE_CREDENTIALS_JSON }}" > presentation_agent/agents/credentials/credentials.json
+          # Write credentials.json from GitHub Secret (using printf to avoid shell interpretation)
+          printf '%s\n' "${{ secrets.GOOGLE_CREDENTIALS_JSON }}" > presentation_agent/agents/credentials/credentials.json
           
-          # Write token.json from GitHub Secret
-          echo "${{ secrets.GOOGLE_TOKEN_JSON }}" > presentation_agent/agents/credentials/token.json
+          # Write token.json from GitHub Secret (using printf to avoid shell interpretation)
+          printf '%s\n' "${{ secrets.GOOGLE_TOKEN_JSON }}" > presentation_agent/agents/credentials/token.json
+          
+          # Validate JSON files
+          echo "Validating credentials.json..."
+          python3 -m json.tool presentation_agent/agents/credentials/credentials.json > /dev/null && echo "✅ credentials.json is valid JSON" || (echo "❌ credentials.json is not valid JSON" && exit 1)
+          
+          echo "Validating token.json..."
+          python3 -m json.tool presentation_agent/agents/credentials/token.json > /dev/null && echo "✅ token.json is valid JSON" || (echo "❌ token.json is not valid JSON" && exit 1)
           
           # Verify files were created
           ls -la presentation_agent/agents/credentials/
-          echo "✅ Credentials files created from GitHub Secrets"
+          echo "✅ Credentials files created and validated from GitHub Secrets"
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker
