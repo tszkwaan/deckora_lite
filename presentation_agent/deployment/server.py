@@ -80,7 +80,7 @@ def verify_credentials_files():
         
         logger.warning(f"⚠️  Missing credential files: {', '.join(missing)}")
         if os.environ.get('PORT'):
-            logger.warning("   In Cloud Run, ensure secrets are mounted via --update-secrets")
+            logger.warning("   In Cloud Run, credentials should be included in Docker image from GitHub Secrets")
             logger.warning("   Expected paths:")
             logger.warning(f"   - {credentials_file}")
             logger.warning(f"   - {token_file}")

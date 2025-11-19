@@ -106,6 +106,21 @@ jobs:
               gcloud services list --enabled --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com OR name:cloudbuild.googleapis.com OR name:containerregistry.googleapis.com OR name:secretmanager.googleapis.com"
             }
 
+      - name: Setup credentials files from GitHub Secrets
+        run: |
+          # Create credentials directory
+          mkdir -p presentation_agent/agents/credentials
+          
+          # Write credentials.json from GitHub Secret
+          echo "${{ secrets.GOOGLE_CREDENTIALS_JSON }}" > presentation_agent/agents/credentials/credentials.json
+          
+          # Write token.json from GitHub Secret
+          echo "${{ secrets.GOOGLE_TOKEN_JSON }}" > presentation_agent/agents/credentials/token.json
+          
+          # Verify files were created
+          ls -la presentation_agent/agents/credentials/
+          echo "✅ Credentials files created from GitHub Secrets"
+
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker
 
@@ -121,13 +136,6 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
-          # First, clear any existing secrets to avoid conflicts
-          gcloud run services update $SERVICE_NAME \
-            --region $REGION \
-            --clear-secrets \
-            --quiet || echo "Service might not exist yet, continuing..."
-          
-          # Deploy with new secret mounts
           gcloud run deploy $SERVICE_NAME \
             --image gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }} \
             --platform managed \
@@ -137,9 +145,7 @@ jobs:
             --cpu 2 \
             --timeout 3600 \
             --max-instances 10 \
-            --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" \
-            --update-secrets "/app/presentation_agent/agents/credentials/credentials.json=google-credentials:latest" \
-            --update-secrets "/app/presentation_agent/agents/credentials/token.json=google-token:latest"
+            --set-env-vars "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}"
 
       - name: Get service URL
         run: |

@@ -56,10 +56,13 @@ presentation_agent/deployment/SERVICE_ACCOUNT_PERMISSIONS.md
 presentation_agent/deployment/create-gcr-repo.sh
 presentation_agent/deployment/deploy_to_agent_engine.py
 
-# Credentials (should use Secret Manager)
-credentials/
+# Credentials (included from GitHub Secrets during build)
+# Allow credentials.json and token.json in presentation_agent/agents/credentials/
+!presentation_agent/agents/credentials/*.json
+# Exclude other JSON files
 *.json
 !requirements.txt
+!presentation_agent/agents/credentials/*.json
 
 # Jupyter
 .ipynb_checkpoints/
