@@ -244,8 +244,14 @@ Your task:
             
             return outputs
         
-        # Run async function
-        outputs = asyncio.run(run_agent())
+        # Run async function (use get_event_loop for compatibility with nest-asyncio)
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        outputs = loop.run_until_complete(run_agent())
         
         # Get logger for response handling
         logger = logging.getLogger(__name__)
