@@ -110,10 +110,56 @@ def get_credentials() -> Credentials:
     # Create credentials directory if it doesn't exist
     CREDENTIALS_DIR.mkdir(exist_ok=True)
     
-    # Load existing token if available
-    if TOKEN_FILE.exists():
+    # Try to load token from Secret Manager first (for Cloud Run)
+    token_file_path = None
+    temp_token_file = None
+    
+    if not TOKEN_FILE.exists():
+        # Try Secret Manager for token.json
         try:
-            creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+            from google.cloud import secretmanager
+            project_id = os.environ.get('GCP_PROJECT') or os.environ.get('GOOGLE_CLOUD_PROJECT')
+            if not project_id:
+                try:
+                    import requests
+                    project_id = requests.get(
+                        'http://metadata.google.internal/computeMetadata/v1/project/project-id',
+                        headers={'Metadata-Flavor': 'Google'},
+                        timeout=2
+                    ).text
+                except:
+                    pass
+            
+            if project_id:
+                client = secretmanager.SecretManagerServiceClient()
+                try:
+                    # Try to get token.json from Secret Manager
+                    secret_name = f"projects/{project_id}/secrets/google-token/versions/latest"
+                    response = client.access_secret_version(request={"name": secret_name})
+                    token_json = response.payload.data.decode('UTF-8')
+                    
+                    # Write to temporary file
+                    temp_token_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+                    temp_token_file.write(token_json)
+                    temp_token_file.close()
+                    token_file_path = temp_token_file.name
+                    print("✅ Loaded token from Secret Manager")
+                except Exception:
+                    # Token secret doesn't exist, that's OK
+                    pass
+        except ImportError:
+            pass
+        except Exception as e:
+            print(f"⚠️  Warning: Could not load token from Secret Manager: {e}")
+    
+    # Use local token file if available
+    if not token_file_path and TOKEN_FILE.exists():
+        token_file_path = str(TOKEN_FILE)
+    
+    # Load existing token if available
+    if token_file_path:
+        try:
+            creds = Credentials.from_authorized_user_file(token_file_path, SCOPES)
         except Exception as e:
             print(f"⚠️  Warning: Could not load token: {e}")
     
@@ -152,16 +198,21 @@ def get_credentials() -> Credentials:
                 )
             creds = flow.run_local_server(port=0)
         
-        # Save token for future use (only if not using temp file)
-        if not temp_credentials_file:
+        # Save token for future use (only if not using temp file and not in Cloud Run)
+        if not temp_credentials_file and not os.environ.get('PORT'):
             with open(TOKEN_FILE, 'w') as token:
                 token.write(creds.to_json())
             print("✅ Credentials saved for future use")
     
-    # Clean up temp file if created
+    # Clean up temp files if created
     if temp_credentials_file and os.path.exists(temp_credentials_file):
         try:
             os.unlink(temp_credentials_file)
+        except:
+            pass
+    if temp_token_file and os.path.exists(temp_token_file):
+        try:
+            os.unlink(temp_token_file)
         except:
             pass
     
