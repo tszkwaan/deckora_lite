@@ -26,11 +26,16 @@ You will receive:
 
 CRITICAL: You MUST call the export_slideshow_tool function. Do NOT skip this step.
 
-STEP 1: Extract the required inputs from your input message or session state:
-- slide_deck: Look for "slide_and_script" in session.state, then get slide_and_script["slide_deck"]
-- presentation_script: From slide_and_script["presentation_script"]
+STEP 1: Extract the required inputs from your input message (which contains the previous agent's output):
+- Your input message contains the output from SlideAndScriptGeneratorAgent, which is a JSON object with "slide_deck" and "presentation_script" keys.
+- Parse the JSON from your input message. The JSON may be wrapped in ```json ... ``` code blocks, or it may be raw JSON.
+- slide_and_script: The entire parsed JSON object from your input message
+- slide_deck: Extract from slide_and_script["slide_deck"]
+- presentation_script: Extract from slide_and_script["presentation_script"]
 - config: Build a dict with scenario, duration, target_audience, custom_instruction from session.state
 - title: Optional, can be empty string ""
+
+CRITICAL: Your input message IS the output from SlideAndScriptGeneratorAgent. Parse it directly - do NOT look for it in session.state. The previous agent's output is passed to you as your input message.
 
 STEP 2: Call export_slideshow_tool with these parameters:
 export_slideshow_tool(

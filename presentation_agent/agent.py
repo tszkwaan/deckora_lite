@@ -232,19 +232,42 @@ outline_with_critic_loop = LoopAgent(
 
 # slides_export_agent is now imported from presentation_agent.agents.slides_export_agent.agent
 
+# Create a simple pass-through agent to ensure LoopAgent completes properly
+# This agent just confirms the slides export completed successfully
+slides_export_complete_checker = LlmAgent(
+    name="SlidesExportCompleteChecker",
+    model=Gemini(
+        model=DEFAULT_MODEL,
+        retry_options=RETRY_CONFIG,
+    ),
+    instruction="""You are a simple completion checker. Your role is to confirm that the slides export completed.
 
-# Create a SequentialAgent for slide generation and export (layout critic commented out)
-# Flow: generate slides -> export to Google Slides
-# Layout critic and threshold checking are commented out for now
-slides_generation_sequence = SequentialAgent(
+You will receive the output from SlidesExportAgent in your input message. Simply return a JSON object:
+{
+    "status": "complete",
+    "message": "Slides export process completed"
+}
+
+Return ONLY this JSON, nothing else.""",
+    tools=[],
+    output_key="slides_export_complete",
+)
+
+# Create a LoopAgent for slide generation and export (layout critic commented out)
+# Using LoopAgent instead of nested SequentialAgent to avoid execution issues
+# Flow: generate slides -> export to Google Slides -> confirm completion
+# Adding a completion checker ensures the loop runs all agents
+# max_iterations=1 ensures it runs once
+slides_generation_sequence = LoopAgent(
     name="SlidesGenerationSequence",
     sub_agents=[
         slide_and_script_generator_agent,  # Generate slides and script
         slides_export_agent,                # Export to Google Slides
+        slides_export_complete_checker,    # Confirm completion (ensures loop runs all agents)
         # layout_critic_agent,                # Review layout using Vision API (COMMENTED OUT)
         # layout_threshold_checker,           # Check if passes threshold (COMMENTED OUT)
     ],
-    description="Generates slides and exports them to Google Slides",
+    max_iterations=1,  # Run once to execute all agents sequentially
 )
 
 
