@@ -302,14 +302,14 @@ def get_credentials() -> Credentials:
                 raise RuntimeError(
                     "OAuth flow cannot run interactively in Cloud Run. "
                     "Please authenticate locally and upload token.json to Secret Manager."
-            )
+                )
             creds = flow.run_local_server(port=0)
         
         # Save token for future use (only if not using temp file and not in Cloud Run)
         if not temp_credentials_file and not os.environ.get('PORT'):
-        with open(TOKEN_FILE, 'w') as token:
-            token.write(creds.to_json())
-        print("✅ Credentials saved for future use")
+            with open(TOKEN_FILE, 'w') as token:
+                token.write(creds.to_json())
+            print("✅ Credentials saved for future use")
     
     # Clean up temp files if created
     if temp_credentials_file and os.path.exists(temp_credentials_file):
