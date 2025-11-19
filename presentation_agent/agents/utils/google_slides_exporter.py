@@ -380,12 +380,41 @@ def export_to_google_slides(
         # Get credentials
         creds = get_credentials()
         
+        # Log which account is being used
+        import logging
+        logger = logging.getLogger(__name__)
+        if hasattr(creds, 'token') and 'email' in creds.token:
+            account_email = creds.token.get('email', 'unknown')
+            logger.info(f"📧 Using Google account: {account_email}")
+            print(f"📧 Using Google account: {account_email}")
+        elif hasattr(creds, 'id_token') and creds.id_token:
+            # Try to extract email from id_token
+            try:
+                import base64
+                import json
+                # id_token is a JWT, decode the payload (second part)
+                parts = creds.id_token.split('.')
+                if len(parts) >= 2:
+                    payload = parts[1]
+                    # Add padding if needed
+                    padding = 4 - len(payload) % 4
+                    if padding != 4:
+                        payload += '=' * padding
+                    decoded = json.loads(base64.urlsafe_b64decode(payload))
+                    account_email = decoded.get('email', 'unknown')
+                    logger.info(f"📧 Using Google account: {account_email}")
+                    print(f"📧 Using Google account: {account_email}")
+            except:
+                logger.info("📧 Using Google account: (could not determine email)")
+                print("📧 Using Google account: (could not determine email)")
+        else:
+            logger.info("📧 Using Google account: (could not determine email)")
+            print("📧 Using Google account: (could not determine email)")
+        
         # Build service
         service = build('slides', 'v1', credentials=creds)
         
         # Create presentation
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info("📊 Creating Google Slides presentation...")
         print("📊 Creating Google Slides presentation...")
         try:
