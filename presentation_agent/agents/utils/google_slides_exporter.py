@@ -39,48 +39,72 @@ def _load_credentials_from_secret_manager() -> Optional[str]:
     Returns:
         Path to temporary credentials file, or None if not available
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         from google.cloud import secretmanager
         
         # Get project ID from environment or metadata
         project_id = os.environ.get('GCP_PROJECT') or os.environ.get('GOOGLE_CLOUD_PROJECT')
+        logger.info(f"🔍 Checking for project ID: GCP_PROJECT={os.environ.get('GCP_PROJECT')}, GOOGLE_CLOUD_PROJECT={os.environ.get('GOOGLE_CLOUD_PROJECT')}")
+        
         if not project_id:
             # Try to get from metadata server
             try:
                 import requests
+                logger.info("🔍 Trying to get project ID from metadata server...")
                 project_id = requests.get(
                     'http://metadata.google.internal/computeMetadata/v1/project/project-id',
                     headers={'Metadata-Flavor': 'Google'},
                     timeout=2
                 ).text
-            except:
+                logger.info(f"✅ Got project ID from metadata: {project_id}")
+            except Exception as e:
+                logger.warning(f"⚠️  Could not get project ID from metadata: {e}")
                 return None
         
         if not project_id:
+            logger.error("❌ No project ID found - cannot access Secret Manager")
             return None
+        
+        logger.info(f"🔍 Accessing Secret Manager for project: {project_id}")
         
         # Access secret
         client = secretmanager.SecretManagerServiceClient()
         secret_name = f"projects/{project_id}/secrets/google-credentials/versions/latest"
+        logger.info(f"🔍 Secret name: {secret_name}")
         
         try:
             response = client.access_secret_version(request={"name": secret_name})
             credentials_json = response.payload.data.decode('UTF-8')
+            logger.info(f"✅ Successfully loaded credentials from Secret Manager ({len(credentials_json)} bytes)")
             
             # Write to temporary file
             temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
             temp_file.write(credentials_json)
             temp_file.close()
             
+            logger.info(f"✅ Wrote credentials to temp file: {temp_file.name}")
             return temp_file.name
         except Exception as e:
-            print(f"⚠️  Warning: Could not load credentials from Secret Manager: {e}")
+            error_msg = f"Could not load credentials from Secret Manager: {e}"
+            logger.error(f"❌ {error_msg}")
+            print(f"❌ {error_msg}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
-    except ImportError:
-        # Secret Manager library not available
+    except ImportError as e:
+        error_msg = f"Secret Manager library not available: {e}"
+        logger.error(f"❌ {error_msg}")
+        print(f"❌ {error_msg}")
         return None
     except Exception as e:
-        print(f"⚠️  Warning: Error accessing Secret Manager: {e}")
+        error_msg = f"Error accessing Secret Manager: {e}"
+        logger.error(f"❌ {error_msg}")
+        print(f"❌ {error_msg}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 
