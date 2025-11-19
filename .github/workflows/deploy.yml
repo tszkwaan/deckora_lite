@@ -121,6 +121,13 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
+          # First, clear any existing secrets to avoid conflicts
+          gcloud run services update $SERVICE_NAME \
+            --region $REGION \
+            --clear-secrets \
+            --quiet || echo "Service might not exist yet, continuing..."
+          
+          # Deploy with new secret mounts
           gcloud run deploy $SERVICE_NAME \
             --image gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }} \
             --platform managed \
