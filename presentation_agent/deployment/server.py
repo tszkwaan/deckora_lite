@@ -88,7 +88,17 @@ def setup_credentials_from_secret_manager():
                 logger.info("⚠️  Skipping Secret Manager setup - not running in Cloud Run or metadata unavailable")
                 return
         
-        client = secretmanager.SecretManagerServiceClient()
+        # Use default credentials (Cloud Run provides these automatically via metadata server)
+        # Don't use GOOGLE_APPLICATION_CREDENTIALS env var as it might point to OAuth credentials, not service account
+        try:
+            from google.auth import default as get_default_credentials
+            credentials, _ = get_default_credentials()
+            client = secretmanager.SecretManagerServiceClient(credentials=credentials)
+            logger.info("✅ Using default Cloud Run credentials for Secret Manager access")
+        except Exception as e:
+            logger.warning(f"⚠️  Could not get default credentials, trying without explicit credentials: {e}")
+            # Fallback: try without explicit credentials (should work in Cloud Run)
+            client = secretmanager.SecretManagerServiceClient()
         
         # Load credentials.json from Secret Manager
         if not credentials_file.exists():
