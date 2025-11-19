@@ -189,38 +189,42 @@ def get_credentials() -> Credentials:
     """
     creds = None
     
-    # Try to load credentials from Secret Manager first (for Cloud Run)
+    # Prioritize local files (from GitHub Secrets baked into Docker image)
     credentials_file_path = None
     temp_credentials_file = None
     
     import logging
     logger = logging.getLogger(__name__)
     
-    # Always try Secret Manager first if running in Cloud Run (PORT env var indicates Cloud Run)
-    if os.environ.get('PORT') or not CREDENTIALS_FILE.exists():
-        logger.info("🔍 Running in Cloud Run or local file not found - trying Secret Manager...")
+    # Check for local file first (files are baked into Docker image from GitHub Secrets)
+    if CREDENTIALS_FILE.exists():
+        credentials_file_path = str(CREDENTIALS_FILE)
+        logger.info(f"✅ Using local credentials file (from GitHub Secrets): {CREDENTIALS_FILE}")
+    else:
+        # Fallback: Try Secret Manager only if local file doesn't exist (for backward compatibility)
+        logger.info("⚠️  Local credentials file not found, trying Secret Manager as fallback...")
         temp_credentials_file = _load_credentials_from_secret_manager()
         if temp_credentials_file:
             credentials_file_path = temp_credentials_file
-            logger.info("✅ Loaded credentials from Secret Manager")
-            print("✅ Loaded credentials from Secret Manager")
-        elif CREDENTIALS_FILE.exists():
-            # Fall back to local file if Secret Manager failed but local file exists
-            credentials_file_path = str(CREDENTIALS_FILE)
-            logger.info(f"⚠️  Secret Manager failed, using local file: {CREDENTIALS_FILE}")
-    else:
-        credentials_file_path = str(CREDENTIALS_FILE)
-        logger.info(f"Using local credentials file: {CREDENTIALS_FILE}")
+            logger.info("✅ Loaded credentials from Secret Manager (fallback)")
+            print("✅ Loaded credentials from Secret Manager (fallback)")
+        else:
+            logger.warning(f"❌ Credentials file not found locally and Secret Manager failed")
     
     # Create credentials directory if it doesn't exist
     CREDENTIALS_DIR.mkdir(exist_ok=True)
     
-    # Try to load token from Secret Manager first (for Cloud Run)
+    # Prioritize local token file (from GitHub Secrets baked into Docker image)
     token_file_path = None
     temp_token_file = None
     
-    if not TOKEN_FILE.exists():
-        # Try Secret Manager for token.json
+    # Check for local file first (file is baked into Docker image from GitHub Secrets)
+    if TOKEN_FILE.exists():
+        token_file_path = str(TOKEN_FILE)
+        logger.info(f"✅ Using local token file (from GitHub Secrets): {TOKEN_FILE}")
+    else:
+        # Fallback: Try Secret Manager only if local file doesn't exist (for backward compatibility)
+        logger.info("⚠️  Local token file not found, trying Secret Manager as fallback...")
         try:
             from google.cloud import secretmanager
             
@@ -264,8 +268,8 @@ def get_credentials() -> Credentials:
                     temp_token_file.write(token_json)
                     temp_token_file.close()
                     token_file_path = temp_token_file.name
-                    logger.info(f"✅ Loaded token from Secret Manager and wrote to {token_file_path}")
-                    print("✅ Loaded token from Secret Manager")
+                    logger.info(f"✅ Loaded token from Secret Manager (fallback) and wrote to {token_file_path}")
+                    print("✅ Loaded token from Secret Manager (fallback)")
                 except Exception as e:
                     # Token secret doesn't exist or has issues
                     logger.warning(f"⚠️  Token secret issue: {e}")
@@ -277,10 +281,6 @@ def get_credentials() -> Credentials:
         except Exception as e:
             logger.warning(f"⚠️  Warning: Could not load token from Secret Manager: {e}")
             print(f"⚠️  Warning: Could not load token from Secret Manager: {e}")
-    
-    # Use local token file if available
-    if not token_file_path and TOKEN_FILE.exists():
-        token_file_path = str(TOKEN_FILE)
     
     # Load existing token if available
     if token_file_path:
