@@ -28,6 +28,7 @@ nest_asyncio.apply()
 from flask import Flask, request, jsonify
 from google.adk.runners import InMemoryRunner
 from google.adk.sessions import InMemorySessionService
+from presentation_agent.agents.utils.helpers import extract_output_from_events
 
 # Import with error handling for missing dependencies
 try:
@@ -199,24 +200,36 @@ Your task:
             
             # Debug: Log all keys in session.state
             logger = logging.getLogger(__name__)
+            logger.info(f"🔍 Total events: {len(events)}")
             logger.info(f"🔍 Session state keys after pipeline: {list(session.state.keys())}")
-            logger.info(f"🔍 Session state full content: {json.dumps(dict(session.state), indent=2, default=str)}")
             
-            # Extract outputs from session state
+            # Extract outputs from events (ADK stores outputs in events, not automatically in session.state)
+            logger.info("🔍 Extracting outputs from events...")
+            report_knowledge = extract_output_from_events(events, "report_knowledge")
+            presentation_outline = extract_output_from_events(events, "presentation_outline")
+            slide_and_script = extract_output_from_events(events, "slide_and_script")
+            slides_export_result = extract_output_from_events(events, "slides_export_result")
+            
+            # Update session.state with extracted outputs
             outputs = {}
-            if session.state.get("report_knowledge"):
-                outputs["report_knowledge"] = session.state["report_knowledge"]
-                logger.info("✅ Found report_knowledge in session.state")
-            if session.state.get("presentation_outline"):
-                outputs["presentation_outline"] = session.state["presentation_outline"]
-                logger.info("✅ Found presentation_outline in session.state")
-            if session.state.get("slide_and_script"):
-                outputs["slide_and_script"] = session.state["slide_and_script"]
-                logger.info("✅ Found slide_and_script in session.state")
-            if session.state.get("slides_export_result"):
-                slides_export_result = session.state["slides_export_result"]
+            if report_knowledge:
+                outputs["report_knowledge"] = report_knowledge
+                session.state["report_knowledge"] = report_knowledge
+                logger.info("✅ Extracted report_knowledge from events")
+            if presentation_outline:
+                outputs["presentation_outline"] = presentation_outline
+                session.state["presentation_outline"] = presentation_outline
+                logger.info("✅ Extracted presentation_outline from events")
+            if slide_and_script:
+                outputs["slide_and_script"] = slide_and_script
+                session.state["slide_and_script"] = slide_and_script
+                logger.info("✅ Extracted slide_and_script from events")
+            if slides_export_result:
                 outputs["slides_export_result"] = slides_export_result
-                logger.info("✅ Found slides_export_result in session.state")
+                session.state["slides_export_result"] = slides_export_result
+                logger.info("✅ Extracted slides_export_result from events")
+            else:
+                logger.warning("⚠️  No slides_export_result found in events - SlidesExportAgent may not have run")
                 
                 # Extract Google Slides URL from slides_export_result
                 if isinstance(slides_export_result, dict):

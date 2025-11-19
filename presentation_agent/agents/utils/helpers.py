@@ -23,29 +23,34 @@ def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
     if not events:
         return None
     
-    # Priority 1: Check state_delta in last event
-    last_event = events[-1]
+    # Priority 1: Check state_delta in all events (not just last)
     raw = None
     
-    if hasattr(last_event, 'actions') and last_event.actions:
-        if hasattr(last_event.actions, 'state_delta') and last_event.actions.state_delta:
-            raw = last_event.actions.state_delta.get(output_key, None)
+    for event in reversed(events):  # Check from last to first
+        if hasattr(event, 'actions') and event.actions:
+            if hasattr(event.actions, 'state_delta') and event.actions.state_delta:
+                raw = event.actions.state_delta.get(output_key, None)
+                if raw is not None:
+                    break
     
     # Priority 2: Check content.parts[].function_response.response (tool responses)
     if raw is None:
         for event in reversed(events):  # Check from last to first
             if hasattr(event, 'content') and event.content:
-                if hasattr(event.content, 'parts'):
-                    for part in event.content.parts:
-                        if hasattr(part, 'function_response') and part.function_response:
-                            if hasattr(part.function_response, 'response'):
-                                response = part.function_response.response
-                                if isinstance(response, dict):
-                                    raw = response.get(output_key, None)
-                                    if raw is not None:
-                                        break
-                        if raw is not None:
-                            break
+                if hasattr(event.content, 'parts') and event.content.parts:
+                    try:
+                        for part in event.content.parts:
+                            if hasattr(part, 'function_response') and part.function_response:
+                                if hasattr(part.function_response, 'response'):
+                                    response = part.function_response.response
+                                    if isinstance(response, dict):
+                                        raw = response.get(output_key, None)
+                                        if raw is not None:
+                                            break
+                            if raw is not None:
+                                break
+                    except (TypeError, AttributeError):
+                        pass  # Skip if parts is not iterable
                 if raw is not None:
                     break
     
