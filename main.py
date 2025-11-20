@@ -25,7 +25,7 @@ from presentation_agent.agents.layout_critic_agent.agent import agent as layout_
 # Import tools and utilities
 from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool
 from presentation_agent.agents.utils.pdf_loader import load_pdf
-from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, extract_relevant_knowledge, preview_json
+from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, extract_relevant_knowledge, preview_json, compress_outline
 from presentation_agent.agents.utils.observability import (
     get_observability_logger,
     AgentStatus
@@ -308,14 +308,23 @@ Note: Full data is automatically available in your instructions via session.stat
         # Extract only relevant knowledge for SlideAndScriptGeneratorAgent (filtered by outline)
         # This reduces token usage by filtering sections based on outline topics
         relevant_knowledge = extract_relevant_knowledge(report_knowledge, "SlideAndScriptGeneratorAgent", presentation_outline)
-        original_size = len(json.dumps(report_knowledge))
-        filtered_size = len(json.dumps(relevant_knowledge))
-        reduction = (1 - filtered_size / original_size) * 100 if original_size > 0 else 0
-        print(f"📦 Context compaction: {original_size:,} → {filtered_size:,} chars ({reduction:.1f}% reduction) for SlideAndScriptGeneratorAgent")
+        original_knowledge_size = len(json.dumps(report_knowledge))
+        filtered_knowledge_size = len(json.dumps(relevant_knowledge))
+        knowledge_reduction = (1 - filtered_knowledge_size / original_knowledge_size) * 100 if original_knowledge_size > 0 else 0
+        print(f"📦 Context compaction (knowledge): {original_knowledge_size:,} → {filtered_knowledge_size:,} chars ({knowledge_reduction:.1f}% reduction) for SlideAndScriptGeneratorAgent")
+        
+        # ✅ BEST PRACTICE: Context compaction - compress outline
+        # SlideAndScriptGeneratorAgent only needs slides and total_slides, not metadata
+        compressed_outline = compress_outline(presentation_outline)
+        original_outline_size = len(json.dumps(presentation_outline))
+        compressed_outline_size = len(json.dumps(compressed_outline))
+        outline_reduction = (1 - compressed_outline_size / original_outline_size) * 100 if original_outline_size > 0 else 0
+        print(f"📦 Context compaction (outline): {original_outline_size:,} → {compressed_outline_size:,} chars ({outline_reduction:.1f}% reduction) for SlideAndScriptGeneratorAgent")
+        
         # ✅ BEST PRACTICE: Reference-based data access
         # Full report_knowledge and presentation_outline are stored in session.state
         # ADK automatically injects {{report_knowledge}}, {{presentation_outline}}, etc. from session.state into agent instructions
-        # We pass filtered knowledge in message to reduce token usage
+        # We pass filtered/compressed data in message to reduce token usage
         # Note: {{variable}} syntax only works in agent instructions, not in user messages
         message = f"""✅ BEST PRACTICE: Reference-based data access
 Full data is stored in session.state and automatically available in your instructions:
@@ -323,10 +332,10 @@ Full data is stored in session.state and automatically available in your instruc
 - Full presentation_outline: session.state['presentation_outline']
 - Configuration: session.state['scenario'], session.state['duration'], etc.
 
-Below is filtered report_knowledge relevant to the outline (to reduce token usage).
+Below is filtered report_knowledge and compressed outline (to reduce token usage).
 
 [PRESENTATION_OUTLINE]
-{json.dumps(presentation_outline, indent=2)}
+{json.dumps(compressed_outline, indent=2)}
 [END_PRESENTATION_OUTLINE]
 
 [REPORT_KNOWLEDGE_SUBSET]

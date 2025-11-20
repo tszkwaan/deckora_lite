@@ -305,6 +305,36 @@ def extract_relevant_knowledge(
         return report_knowledge
 
 
+def compress_outline(presentation_outline: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    ✅ BEST PRACTICE: Context compaction - compress presentation outline.
+    Extracts only essential fields needed by SlideAndScriptGeneratorAgent:
+    - slides: The actual slide content
+    - total_slides: Total number of slides
+    
+    Removes metadata like:
+    - presentation_title (can be inferred)
+    - estimated_duration (already in session.state)
+    - time_allocation (not needed for generation)
+    - outline_notes (not needed for generation)
+    
+    Args:
+        presentation_outline: Full presentation outline dictionary
+        
+    Returns:
+        Compressed outline dictionary with only slides and total_slides
+    """
+    if not isinstance(presentation_outline, dict):
+        return presentation_outline
+    
+    compressed = {
+        "slides": presentation_outline.get("slides", []),
+        "total_slides": presentation_outline.get("total_slides", len(presentation_outline.get("slides", [])))
+    }
+    
+    return compressed
+
+
 def compress_slide_and_script(slide_and_script: Dict[str, Any]) -> Dict[str, Any]:
     """
     Compress slide_and_script by extracting only slide_deck.
