@@ -144,6 +144,7 @@ When scenario == "academic_teaching":
   - conceptual intuition
   - motivating examples
   - step-by-step explanation
+- **IMPORTANT: For academic settings, it is critical to present experiment results in numbers (quantitative data). Include specific metrics, percentages, accuracy scores, performance improvements, etc. when available in the report.**
 - Heavy mathematical or implementation details should be placed in
   presentation_focus.depth_guidance.high_level_only.
 

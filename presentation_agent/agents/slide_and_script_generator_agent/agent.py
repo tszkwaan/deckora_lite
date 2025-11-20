@@ -138,6 +138,7 @@ CRITICAL REQUIREMENTS
    - Follow custom_instruction (e.g., "point form only", "keep slides clean")
    - Ensure content depth matches audience level from report_knowledge
    - Include speaker notes that provide context not on slides
+   - **IMPORTANT: For academic settings (scenario == "academic_teaching" or "academic_student_presentation"), it is critical to present experiment results in numbers. Include specific metrics, percentages, accuracy scores, performance improvements, and other quantitative data from the report when generating slides about experimental results.**
 
 2. **Script Content:**
    - Write in a natural, conversational tone suitable for speaking
