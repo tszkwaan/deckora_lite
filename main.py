@@ -198,7 +198,9 @@ Your task:
             # Outline Generator
             obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline", retry_count=outline_retries)
             runner = InMemoryRunner(agent=outline_generator_agent)
+            # ✅ BEST PRACTICE: Context compaction at orchestration layer
             # Extract only relevant knowledge for OutlineGeneratorAgent
+            # This reduces token usage while keeping full report_knowledge in session.state
             relevant_knowledge = extract_relevant_knowledge(report_knowledge, "OutlineGeneratorAgent")
             original_size = len(json.dumps(report_knowledge))
             filtered_size = len(json.dumps(relevant_knowledge))
@@ -284,7 +286,9 @@ Review this outline for quality, hallucination, and safety."""
         print("\n🎨 Step 3: Slide and Script Generation")
         obs_logger.start_agent_execution("SlideAndScriptGeneratorAgent", output_key="slide_and_script")
         runner = InMemoryRunner(agent=slide_and_script_generator_agent)
+        # ✅ BEST PRACTICE: Context compaction at orchestration layer
         # Extract only relevant knowledge for SlideAndScriptGeneratorAgent (filtered by outline)
+        # This reduces token usage by filtering sections based on outline topics
         relevant_knowledge = extract_relevant_knowledge(report_knowledge, "SlideAndScriptGeneratorAgent", presentation_outline)
         original_size = len(json.dumps(report_knowledge))
         filtered_size = len(json.dumps(relevant_knowledge))

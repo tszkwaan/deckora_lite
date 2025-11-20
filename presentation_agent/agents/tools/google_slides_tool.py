@@ -59,7 +59,13 @@ def _validate_and_normalize_input(value: Any, expected_type: type, param_name: s
         raise TypeError(f"{param_name} must be {expected_type.__name__}, got {type(value).__name__}. Error: {e}")
 
 
-def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: dict, title: str = "") -> dict:
+def export_slideshow_tool(
+    slide_deck: dict, 
+    presentation_script: dict = None, 
+    config: dict = None, 
+    title: str = "",
+    use_state_for_script: bool = False
+) -> dict:
     """
     Tool function to export slide deck and script to Google Slides.
     
@@ -97,13 +103,29 @@ def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: d
     logger = logging.getLogger(__name__)
     logger.info("🚀 export_slideshow_tool CALLED")
     logger.info(f"   slide_deck type: {type(slide_deck).__name__}")
-    logger.info(f"   presentation_script type: {type(presentation_script).__name__}")
-    logger.info(f"   config type: {type(config).__name__}, keys: {list(config.keys()) if isinstance(config, dict) else 'N/A'}")
+    logger.info(f"   presentation_script type: {type(presentation_script).__name__ if presentation_script else 'None'}")
+    logger.info(f"   config type: {type(config).__name__ if config else 'None'}, keys: {list(config.keys()) if isinstance(config, dict) else 'N/A'}")
+    logger.info(f"   use_state_for_script: {use_state_for_script}")
+    
+    # If use_state_for_script=True, try to read from session.state
+    # Note: This requires access to the current invocation context, which may not be available
+    # For now, we'll require agents to pass presentation_script explicitly
+    # Future: Could use a context manager or thread-local storage to access session.state
     
     try:
         # Validate and normalize inputs to prevent MALFORMED_FUNCTION_CALL
         slide_deck = _validate_and_normalize_input(slide_deck, dict, "slide_deck")
-        presentation_script = _validate_and_normalize_input(presentation_script, dict, "presentation_script")
+        
+        # If presentation_script is None and use_state_for_script is True, we'd need to read from state
+        # For now, require explicit passing (agents can read from state themselves)
+        if presentation_script is None and not use_state_for_script:
+            raise ValueError("presentation_script is required unless use_state_for_script=True")
+        
+        if presentation_script:
+            presentation_script = _validate_and_normalize_input(presentation_script, dict, "presentation_script")
+        
+        if config is None:
+            config = {}
         config = _validate_and_normalize_input(config, dict, "config")
         title = _validate_and_normalize_input(title if title else "", str, "title")
         
@@ -111,9 +133,10 @@ def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: d
         if not isinstance(slide_deck, dict) or "slides" not in slide_deck:
             raise ValueError("slide_deck must be a dict with 'slides' key")
         
-        # Validate required keys in presentation_script
-        if not isinstance(presentation_script, dict) or "script_sections" not in presentation_script:
-            raise ValueError("presentation_script must be a dict with 'script_sections' key")
+        # Validate required keys in presentation_script (if provided)
+        if presentation_script is not None:
+            if not isinstance(presentation_script, dict) or "script_sections" not in presentation_script:
+                raise ValueError("presentation_script must be a dict with 'script_sections' key")
         
         # Validate required keys in config
         if not isinstance(config, dict):
@@ -135,7 +158,10 @@ def export_slideshow_tool(slide_deck: dict, presentation_script: dict, config: d
         # Logger already imported above
         logger.info("🚀 export_slideshow_tool called - starting Google Slides export")
         logger.info(f"   Slide deck has {len(slide_deck.get('slides', []))} slides")
-        logger.info(f"   Script has {len(presentation_script.get('script_sections', []))} sections")
+        if presentation_script:
+            logger.info(f"   Script has {len(presentation_script.get('script_sections', []))} sections")
+        else:
+            logger.warning("   ⚠️ presentation_script is None - speaker notes will not be added")
         print(f"🚀 export_slideshow_tool called - starting Google Slides export")
         
         # Create a simple config object-like structure for compatibility

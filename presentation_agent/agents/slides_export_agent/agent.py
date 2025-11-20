@@ -203,8 +203,10 @@ def log_slides_export_start(callback_context):
         logger.debug(f"   Could not access input message: {e}")
 
 
-# Callback to call export tool directly after agent runs (bypasses ADK tool calling mechanism)
-def call_export_tool_after_agent(callback_context):
+# NOTE: This callback is DEPRECATED and kept only for backward compatibility.
+# The agent now uses standard tool calling (best practice).
+# This callback is no longer used but kept for reference.
+def call_export_tool_after_agent_deprecated(callback_context):
     """
     After SlidesExportAgent runs, extract slide_and_script from multiple sources
     and call export_slideshow_tool directly.
@@ -255,6 +257,11 @@ def call_export_tool_after_agent(callback_context):
                     if slide_and_script:
                         source_used = "input_message"
                         logger.info("   ✅ Found slide_and_script in input message (Priority 1)")
+                        
+                        # Check if it's compressed format (only slide_deck, no presentation_script)
+                        if isinstance(slide_and_script, dict) and 'slide_deck' in slide_and_script and 'presentation_script' not in slide_and_script:
+                            logger.info("   📦 Detected compressed format (slide_deck only) - will get presentation_script from state")
+                            # Don't break here - we'll handle it later when extracting
         
         # ========================================================================
         # PRIORITY 2: Try to get from session.state['slide_and_script']
@@ -334,14 +341,37 @@ def call_export_tool_after_agent(callback_context):
             return None
         
         # Extract slide_deck and presentation_script
-        slide_deck = slide_and_script.get('slide_deck')
-        presentation_script = slide_and_script.get('presentation_script')
+        # Support both full format (slide_deck + presentation_script) and compressed format (slide_deck only)
+        slide_deck = slide_and_script.get('slide_deck') if slide_and_script else None
+        presentation_script = slide_and_script.get('presentation_script') if slide_and_script else None
         
-        if not slide_deck or not presentation_script:
-            logger.error(f"   ❌ Missing slide_deck or presentation_script in slide_and_script")
+        # If compressed format (only slide_deck), get presentation_script from session.state
+        if slide_deck and not presentation_script:
+            logger.info("   📦 Compressed format detected - getting presentation_script from session.state...")
+            state = _get_state_from_context(callback_context)
+            if state:
+                # Try to get presentation_script from session.state
+                presentation_script = _get_from_state(state, 'presentation_script', logger)
+                if presentation_script:
+                    logger.info("   ✅ Found presentation_script in session.state['presentation_script']")
+                else:
+                    # Also try to get full slide_and_script from state
+                    full_slide_and_script = _get_from_state(state, 'slide_and_script', logger)
+                    if full_slide_and_script and isinstance(full_slide_and_script, dict):
+                        presentation_script = full_slide_and_script.get('presentation_script')
+                        if presentation_script:
+                            logger.info("   ✅ Found presentation_script in session.state['slide_and_script']")
+        
+        if not slide_deck:
+            logger.error(f"   ❌ Missing slide_deck")
+            logger.error(f"      slide_and_script keys: {list(slide_and_script.keys()) if slide_and_script else 'None'}")
+            return None
+        
+        if not presentation_script:
+            logger.error(f"   ❌ Missing presentation_script (needed for speaker notes)")
             logger.error(f"      slide_deck: {'Found' if slide_deck else 'Missing'}")
-            logger.error(f"      presentation_script: {'Found' if presentation_script else 'Missing'}")
-            logger.error(f"      slide_and_script keys: {list(slide_and_script.keys())}")
+            logger.error(f"      presentation_script: Missing")
+            logger.error(f"      Checked: slide_and_script, session.state['presentation_script'], session.state['slide_and_script']")
             return None
         
         logger.info("   ✅ Extracted slide_deck and presentation_script")
@@ -421,24 +451,30 @@ agent = LlmAgent(
     instruction="""You are a Slides Export Agent. Your role is to export generated slides to Google Slides.
 
 You will receive:
-- slide_deck: The generated slide deck JSON (from slide_and_script_generator_agent)
-- presentation_script: The generated presentation script JSON (from slide_and_script_generator_agent)
-- scenario, duration, target_audience, custom_instruction: Presentation configuration
+- slide_and_script: JSON object from SlideAndScriptGeneratorAgent containing:
+  - slide_deck: The generated slide deck JSON
+  - presentation_script: The generated presentation script JSON (required for speaker notes)
+- Config values: scenario, duration, target_audience, custom_instruction (in your input message or from previous context)
 
 CRITICAL: You MUST call the export_slideshow_tool function. Do NOT skip this step.
 
-STEP 1: Extract the required inputs from your input message (which contains the previous agent's output):
-- Your input message contains the output from SlideAndScriptGeneratorAgent, which is a JSON object with "slide_deck" and "presentation_script" keys.
-- Parse the JSON from your input message. The JSON may be wrapped in ```json ... ``` code blocks, or it may be raw JSON.
-- slide_and_script: The entire parsed JSON object from your input message
-- slide_deck: Extract from slide_and_script["slide_deck"]
-- presentation_script: Extract from slide_and_script["presentation_script"]
-- config: Build a dict with scenario, duration, target_audience, custom_instruction from session.state
-- title: Optional, can be empty string ""
+STEP 1: Parse your input message:
+- Your input message contains the output from SlideAndScriptGeneratorAgent
+- The input is a JSON object with "slide_deck" and "presentation_script" keys
+- Parse the JSON from your input message (may be wrapped in ```json ... ``` or raw JSON)
+- Extract:
+  - slide_deck: from parsed JSON["slide_deck"]
+  - presentation_script: from parsed JSON["presentation_script"]
 
-CRITICAL: Your input message IS the output from SlideAndScriptGeneratorAgent. Parse it directly - do NOT look for it in session.state. The previous agent's output is passed to you as your input message.
+STEP 2: Extract config values from your input message or use defaults:
+- Look for config values in your input message (they may be provided separately)
+- If not found, use these defaults:
+  - scenario: 'presentation'
+  - duration: '20 minutes'
+  - target_audience: None (optional)
+  - custom_instruction: '' (empty string)
 
-STEP 2: Call export_slideshow_tool with these parameters:
+STEP 3: Call export_slideshow_tool with these parameters:
 export_slideshow_tool(
     slide_deck=slide_deck,
     presentation_script=presentation_script,
@@ -446,7 +482,7 @@ export_slideshow_tool(
     title=""
 )
 
-STEP 3: The tool returns a dict with this structure:
+STEP 4: The tool returns a dict with this structure:
 {
     "status": "success" or "partial_success" or "error",
     "presentation_id": "<presentation_id_string>",  # Present if status is "success" or "partial_success"
@@ -455,28 +491,19 @@ STEP 3: The tool returns a dict with this structure:
     "error": "<error_description>"  # Present if status is "error" or "partial_success"
 }
 
+STEP 5: Return the tool's output dict AS-IS. Do NOT convert to string. Do NOT add text. Do NOT modify it.
+
 IMPORTANT: 
 - If status="success": Presentation created successfully, use shareable_url
 - If status="partial_success": Presentation created but encountered errors, STILL use shareable_url (presentation exists and can be accessed)
 - If status="error": Presentation was NOT created, return the error dict as-is
 
-STEP 4: Return the tool's output dict AS-IS. Do NOT convert to string. Do NOT add text. Do NOT modify it.
-
 The shareable_url is ALWAYS present when status="success" OR status="partial_success".
 
-IMPORTANT: The export tool will be called automatically via an after_agent_callback to bypass ADK's tool calling mechanism.
-You do NOT need to call export_slideshow_tool yourself. Just ensure slide_and_script is available in session.state.
-
-Your role is to:
-1. Extract slide_and_script from your input message (previous agent's output)
-2. Save it to session.state so the callback can access it
-3. Return a simple confirmation message
-
-The actual Google Slides export will happen automatically after you complete.
+NOTE: Both slide_deck and presentation_script are required. The presentation_script is used to generate speaker notes in Google Slides.
 """,
-    tools=[],  # Remove tool - will be called directly via callback
-    # Don't use output_key - callback will store the result directly to avoid conflicts
-    before_agent_callback=log_slides_export_start,
-    after_agent_callback=call_export_tool_after_agent,
+    tools=[export_slideshow_tool],  # ✅ BEST PRACTICE: Use standard tool calling mechanism
+    output_key="slides_export_result",
+    before_agent_callback=log_slides_export_start,  # ✅ BEST PRACTICE: Callbacks only for observability/logging
 )
 

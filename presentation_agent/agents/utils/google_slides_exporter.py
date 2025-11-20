@@ -354,8 +354,8 @@ def find_text_shape_id(slide: Dict, shape_type: str = "TITLE") -> Optional[str]:
 
 def export_to_google_slides(
     slide_deck: Dict,
-    presentation_script: Dict,
-    config,
+    presentation_script: Dict = None,
+    config = None,
     title: str = "Generated Presentation"
 ) -> Dict[str, str]:
     """
@@ -462,10 +462,13 @@ def export_to_google_slides(
         # Build batch update requests
         requests = []
         
-        # Create a mapping of slide_number to script section
+        # Create a mapping of slide_number to script section (if presentation_script is provided)
         script_map = {}
-        for section in presentation_script.get('script_sections', []):
-            script_map[section.get('slide_number')] = section
+        if presentation_script:
+            for section in presentation_script.get('script_sections', []):
+                script_map[section.get('slide_number')] = section
+        else:
+            print("⚠️  No presentation_script provided - speaker notes will not be added")
         
         # Process each slide - create slides and add content in one pass
         slides = slide_deck.get('slides', [])

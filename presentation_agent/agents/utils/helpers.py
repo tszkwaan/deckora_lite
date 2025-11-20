@@ -192,8 +192,11 @@ def extract_relevant_knowledge(
     """
     Extract only the relevant parts of report_knowledge for a specific agent.
     
-    This reduces token usage by passing only necessary data to each agent.
-    Full report_knowledge should remain in session.state for reference.
+    ✅ BEST PRACTICE: Context compaction at orchestration layer
+    - This function is called in main.py (orchestration layer) before passing data to agents
+    - Reduces token usage by passing only necessary data to each agent
+    - Full report_knowledge remains in session.state for reference
+    - This follows ADK best practices: data preprocessing at orchestration level, not in agents
     
     Args:
         report_knowledge: Full report_knowledge dictionary
@@ -300,6 +303,34 @@ def extract_relevant_knowledge(
     else:
         # Unknown agent - return full knowledge (safe default)
         return report_knowledge
+
+
+def compress_slide_and_script(slide_and_script: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Compress slide_and_script by extracting only slide_deck.
+    
+    This reduces token usage when passing data to SlidesExportAgent.
+    The presentation_script should be stored separately in session.state.
+    
+    Args:
+        slide_and_script: Full slide_and_script dictionary with slide_deck and presentation_script
+        
+    Returns:
+        Compressed dictionary containing only slide_deck and config
+    """
+    if not isinstance(slide_and_script, dict):
+        return slide_and_script
+    
+    # Extract only slide_deck (presentation_script will be read from session.state)
+    compressed = {
+        'slide_deck': slide_and_script.get('slide_deck'),
+    }
+    
+    # Optionally include config if present
+    if 'config' in slide_and_script:
+        compressed['config'] = slide_and_script.get('config')
+    
+    return compressed
 
 
 def build_initial_message(config: Dict[str, Any], report_content: str) -> str:

@@ -57,6 +57,12 @@ def compress_report_content(
     """
     Compress report content by removing boilerplate and extracting main sections.
     
+    ✅ BEST PRACTICE: Context compaction at data loading stage
+    - This function is called during PDF loading (data ingestion phase)
+    - Reduces token usage before data enters the pipeline
+    - Follows industry best practices: rule-based preprocessing before LLM processing
+    - This is the optimal place for compression: at the data boundary
+    
     This function:
     1. Extracts main sections (Introduction, Methods, Findings/Results, Discussion)
     2. Removes boilerplate (headers, footers, TOC, references, appendices)
