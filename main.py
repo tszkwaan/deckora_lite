@@ -25,7 +25,7 @@ from presentation_agent.agents.layout_critic_agent.agent import agent as layout_
 # Import tools and utilities
 from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool
 from presentation_agent.agents.utils.pdf_loader import load_pdf
-from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, preview_json
+from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, extract_relevant_knowledge, preview_json
 from presentation_agent.agents.utils.observability import (
     get_observability_logger,
     AgentStatus
@@ -198,8 +198,14 @@ Your task:
             # Outline Generator
             obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline", retry_count=outline_retries)
             runner = InMemoryRunner(agent=outline_generator_agent)
+            # Extract only relevant knowledge for OutlineGeneratorAgent
+            relevant_knowledge = extract_relevant_knowledge(report_knowledge, "OutlineGeneratorAgent")
+            original_size = len(json.dumps(report_knowledge))
+            filtered_size = len(json.dumps(relevant_knowledge))
+            reduction = (1 - filtered_size / original_size) * 100 if original_size > 0 else 0
+            print(f"📦 Context compaction: {original_size:,} → {filtered_size:,} chars ({reduction:.1f}% reduction) for OutlineGeneratorAgent")
             events = await runner.run_debug(
-                f"Based on the report knowledge:\n{json.dumps(report_knowledge, indent=2)}\n\nGenerate a presentation outline.",
+                f"[REPORT_KNOWLEDGE]\n{json.dumps(relevant_knowledge, indent=2)}\n[END_REPORT_KNOWLEDGE]\n\n[SCENARIO]\n{config.scenario}\n\n[DURATION]\n{config.duration}\n\n[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n\n[CUSTOM_INSTRUCTION]\n{config.custom_instruction}\n\nGenerate a presentation outline based on the report knowledge above.",
                 session_id=session.id
             )
             presentation_outline = extract_output_from_events(events, "presentation_outline")
@@ -278,8 +284,14 @@ Review this outline for quality, hallucination, and safety."""
         print("\n🎨 Step 3: Slide and Script Generation")
         obs_logger.start_agent_execution("SlideAndScriptGeneratorAgent", output_key="slide_and_script")
         runner = InMemoryRunner(agent=slide_and_script_generator_agent)
+        # Extract only relevant knowledge for SlideAndScriptGeneratorAgent (filtered by outline)
+        relevant_knowledge = extract_relevant_knowledge(report_knowledge, "SlideAndScriptGeneratorAgent", presentation_outline)
+        original_size = len(json.dumps(report_knowledge))
+        filtered_size = len(json.dumps(relevant_knowledge))
+        reduction = (1 - filtered_size / original_size) * 100 if original_size > 0 else 0
+        print(f"📦 Context compaction: {original_size:,} → {filtered_size:,} chars ({reduction:.1f}% reduction) for SlideAndScriptGeneratorAgent")
         events = await runner.run_debug(
-            f"Generate slides and script based on:\nOutline: {json.dumps(presentation_outline, indent=2)}\nReport Knowledge: {json.dumps(report_knowledge, indent=2)}",
+            f"[PRESENTATION_OUTLINE]\n{json.dumps(presentation_outline, indent=2)}\n[END_PRESENTATION_OUTLINE]\n\n[REPORT_KNOWLEDGE]\n{json.dumps(relevant_knowledge, indent=2)}\n[END_REPORT_KNOWLEDGE]\n\n[SCENARIO]\n{config.scenario}\n\n[DURATION]\n{config.duration}\n\n[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n\n[CUSTOM_INSTRUCTION]\n{config.custom_instruction}\n\nGenerate slides and script based on the outline and report knowledge above.",
             session_id=session.id
         )
         slide_and_script = extract_output_from_events(events, "slide_and_script")

@@ -184,6 +184,124 @@ def preview_json(data: Any, max_chars: int = 2000) -> str:
     return preview
 
 
+def extract_relevant_knowledge(
+    report_knowledge: Dict[str, Any],
+    agent_name: str,
+    presentation_outline: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Extract only the relevant parts of report_knowledge for a specific agent.
+    
+    This reduces token usage by passing only necessary data to each agent.
+    Full report_knowledge should remain in session.state for reference.
+    
+    Args:
+        report_knowledge: Full report_knowledge dictionary
+        agent_name: Name of the agent requesting the knowledge
+        presentation_outline: Optional outline to filter sections (for SlideAndScriptGeneratorAgent)
+        
+    Returns:
+        Filtered report_knowledge dictionary with only relevant fields
+    """
+    if not isinstance(report_knowledge, dict):
+        return report_knowledge
+    
+    # Base fields that all agents might need
+    base_fields = {
+        'scenario': report_knowledge.get('scenario'),
+        'duration': report_knowledge.get('duration'),
+        'report_url': report_knowledge.get('report_url'),
+        'report_title': report_knowledge.get('report_title'),
+        'one_sentence_summary': report_knowledge.get('one_sentence_summary'),
+    }
+    
+    if agent_name == "OutlineGeneratorAgent":
+        # Only needs: sections, key_takeaways, presentation_focus
+        return {
+            **base_fields,
+            'sections': report_knowledge.get('sections', []),
+            'key_takeaways': report_knowledge.get('key_takeaways', []),
+            'presentation_focus': report_knowledge.get('presentation_focus', {}),
+            'figures': report_knowledge.get('figures', []),  # For figure references
+        }
+    
+    elif agent_name == "OutlineCriticAgent":
+        # Needs FULL report_knowledge for hallucination checking
+        return report_knowledge
+    
+    elif agent_name == "SlideAndScriptGeneratorAgent":
+        # Only needs sections that match the outline topics
+        if presentation_outline:
+            # Extract topics from outline
+            outline_topics = set()
+            slides = presentation_outline.get('slides', [])
+            for slide in slides:
+                # Extract key points and titles
+                key_points = slide.get('key_points', [])
+                title = slide.get('title', '')
+                content_notes = slide.get('content_notes', '')
+                
+                # Add keywords from these fields
+                all_text = f"{title} {content_notes} {' '.join(key_points)}".lower()
+                outline_topics.add(all_text)
+            
+            # Filter sections based on relevance to outline topics
+            all_sections = report_knowledge.get('sections', [])
+            relevant_sections = []
+            
+            for section in all_sections:
+                section_label = section.get('label', '').lower()
+                section_summary = section.get('summary', '').lower()
+                section_key_points = ' '.join(section.get('key_points', [])).lower()
+                section_text = f"{section_label} {section_summary} {section_key_points}"
+                
+                # Check if section is relevant to any outline topic
+                is_relevant = False
+                for topic_text in outline_topics:
+                    # Simple keyword matching (can be improved with semantic similarity)
+                    common_words = set(section_text.split()) & set(topic_text.split())
+                    if len(common_words) >= 3:  # At least 3 common words
+                        is_relevant = True
+                        break
+                
+                if is_relevant:
+                    relevant_sections.append(section)
+            
+            # If no relevant sections found, include all sections (fallback)
+            if not relevant_sections:
+                relevant_sections = all_sections
+            
+            # Log filtering results
+            import logging
+            logger = logging.getLogger(__name__)
+            if len(all_sections) > 0:
+                filter_ratio = len(relevant_sections) / len(all_sections)
+                logger.info(f"📊 Section filtering: {len(relevant_sections)}/{len(all_sections)} sections relevant ({filter_ratio:.1%})")
+            
+            return {
+                **base_fields,
+                'sections': relevant_sections,
+                'key_takeaways': report_knowledge.get('key_takeaways', []),
+                'presentation_focus': report_knowledge.get('presentation_focus', {}),
+                'figures': report_knowledge.get('figures', []),
+                'audience_profile': report_knowledge.get('audience_profile', {}),
+            }
+        else:
+            # No outline available, return essential fields only
+            return {
+                **base_fields,
+                'sections': report_knowledge.get('sections', []),
+                'key_takeaways': report_knowledge.get('key_takeaways', []),
+                'presentation_focus': report_knowledge.get('presentation_focus', {}),
+                'figures': report_knowledge.get('figures', []),
+                'audience_profile': report_knowledge.get('audience_profile', {}),
+            }
+    
+    else:
+        # Unknown agent - return full knowledge (safe default)
+        return report_knowledge
+
+
 def build_initial_message(config: Dict[str, Any], report_content: str) -> str:
     """
     Build the initial message for agents that need all context upfront.
