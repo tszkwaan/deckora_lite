@@ -154,7 +154,7 @@ class ObservabilityLogger:
         self.metrics = PipelineMetrics(pipeline_start_time=time.time())
         self.logger.info(
             f"Pipeline started: {pipeline_name}",
-            extra={'data': json.dumps({'pipeline_name': pipeline_name, 'start_time': datetime.now().isoformat()}, separators=(',', ':'))}
+            extra={'data': json.dumps({'pipeline_name': pipeline_name, 'start_time': datetime.now().isoformat()})}
         )
     
     def start_agent_execution(self, agent_name: str, output_key: Optional[str] = None, retry_count: int = 0):
@@ -187,7 +187,7 @@ class ObservabilityLogger:
                 'output_key': output_key,
                 'retry_count': retry_count,
                 'start_time': datetime.now().isoformat()
-            }, separators=(',', ':'))}
+            })}
         )
         
         return self.current_execution
@@ -209,7 +209,7 @@ class ObservabilityLogger:
         if not self.current_execution:
             self.logger.warning(
                 "Attempted to finish agent execution but none is active",
-                extra={'data': json.dumps({}, separators=(',', ':'))}
+                extra={'data': json.dumps({})}
             )
             return
         
@@ -234,12 +234,12 @@ class ObservabilityLogger:
         if status == AgentStatus.SUCCESS:
             self.logger.info(
                 f"Agent execution completed: {self.current_execution.agent_name}",
-                extra={'data': json.dumps(log_data, separators=(',', ':'))}
+                extra={'data': json.dumps(log_data)}
             )
         else:
             self.logger.warning(
                 f"Agent execution finished with status {status.value}: {self.current_execution.agent_name}",
-                extra={'data': json.dumps(log_data, separators=(',', ':'))}
+                extra={'data': json.dumps(log_data)}
             )
         
         self.current_execution = None
@@ -253,7 +253,7 @@ class ObservabilityLogger:
                 'attempt': attempt,
                 'reason': reason,
                 'timestamp': datetime.now().isoformat()
-            }, separators=(',', ':'))}
+            })}
         )
     
     def finish_pipeline(self, save_trace: bool = True):
@@ -269,7 +269,7 @@ class ObservabilityLogger:
         if not self.metrics:
             self.logger.warning(
                 "Attempted to finish pipeline but none was started",
-                extra={'data': json.dumps({}, separators=(',', ':'))}
+                extra={'data': json.dumps({})}
             )
             return None
         
@@ -290,7 +290,7 @@ class ObservabilityLogger:
                 'failed_agents': self.metrics.failed_agents,
                 'total_retries': self.metrics.total_retries,
                 'success_rate': self.metrics.get_success_rate()
-            }, separators=(',', ':'))}
+            })}
         )
         
         # Save trace history if requested
@@ -323,7 +323,7 @@ class ObservabilityLogger:
         
         self.logger.info(
             f"Trace history saved to {self.trace_file}",
-            extra={'data': json.dumps({'trace_file': self.trace_file}, separators=(',', ':'))}
+            extra={'data': json.dumps({'trace_file': self.trace_file})}
         )
     
     def print_metrics_summary(self):

@@ -11,140 +11,6 @@ from config import RETRY_CONFIG, DEFAULT_MODEL
 # Import Google Slides export tool
 from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool
 
-# Helper function to safely access state from callback context
-def _get_state_from_context(callback_context):
-    """Try multiple methods to access state from callback context."""
-    state = None
-    
-    # Method 1: Try invocation_context.state (most common in ADK)
-    if hasattr(callback_context, 'invocation_context') and callback_context.invocation_context:
-        if hasattr(callback_context.invocation_context, 'state'):
-            state = callback_context.invocation_context.state
-    
-    # Method 2: Try direct state attribute
-    if state is None and hasattr(callback_context, 'state'):
-        state = callback_context.state
-    
-    # Method 3: Try session.state
-    if state is None and hasattr(callback_context, 'session'):
-        if hasattr(callback_context.session, 'state'):
-            state = callback_context.session.state
-    
-    return state
-
-
-# Helper function to safely get value from state
-def _get_from_state(state, key, logger=None):
-    """Try multiple methods to get a value from state."""
-    if state is None:
-        return None
-    
-    try:
-        # Method 1: Dict-like access
-        if hasattr(state, 'get'):
-            value = state.get(key)
-            if value is not None:
-                return value
-        
-        # Method 2: Attribute access
-        if hasattr(state, key):
-            return getattr(state, key)
-        
-        # Method 3: __dict__ access
-        if hasattr(state, '__dict__'):
-            return state.__dict__.get(key)
-        
-        # Method 4: Direct dict access (if state is a dict)
-        if isinstance(state, dict):
-            return state.get(key)
-            
-    except Exception as e:
-        if logger:
-            logger.debug(f"   Error accessing state['{key}']: {e}")
-    
-    return None
-
-
-# Helper function to extract JSON from text (handles multiple formats)
-def _extract_json_from_text(text, logger=None):
-    """Extract JSON object from text, handling code blocks, escaped JSON, etc."""
-    import json
-    import re
-    
-    if not text:
-        return None
-    
-    # Try 1: Direct JSON parse (if text is pure JSON)
-    try:
-        parsed = json.loads(text.strip())
-        if isinstance(parsed, dict) and 'slide_deck' in parsed:
-            if logger:
-                logger.debug("   ✅ Found JSON via direct parse")
-            return parsed
-    except (json.JSONDecodeError, AttributeError):
-        pass
-    
-    # Try 2: Extract JSON from markdown code blocks (```json ... ```)
-    code_block_patterns = [
-        r'```json\s*(\{[\s\S]*?\})\s*```',  # ```json {...} ```
-        r'```\s*(\{[\s\S]*?\})\s*```',      # ``` {...} ```
-        r'```json\s*([\s\S]*?)\s*```',       # ```json ... ``` (no braces requirement)
-    ]
-    
-    for pattern in code_block_patterns:
-        match = re.search(pattern, text, re.DOTALL)
-        if match:
-            try:
-                parsed = json.loads(match.group(1).strip())
-                if isinstance(parsed, dict) and 'slide_deck' in parsed:
-                    if logger:
-                        logger.debug(f"   ✅ Found JSON in code block (pattern: {pattern[:20]}...)")
-                    return parsed
-            except json.JSONDecodeError:
-                continue
-    
-    # Try 3: Find JSON object containing "slide_deck" key (greedy match)
-    # Match from first { before "slide_deck" to last } after it
-    json_match = re.search(r'\{[\s\S]*?"slide_deck"[\s\S]*?\}', text, re.DOTALL)
-    if json_match:
-        try:
-            parsed = json.loads(json_match.group(0))
-            if isinstance(parsed, dict) and 'slide_deck' in parsed:
-                if logger:
-                    logger.debug("   ✅ Found JSON via regex match (slide_deck key)")
-                return parsed
-        except json.JSONDecodeError:
-            pass
-    
-    # Try 4: Find balanced braces containing "slide_deck"
-    # This handles cases where JSON might be embedded in other text
-    start_idx = text.find('"slide_deck"')
-    if start_idx != -1:
-        # Find opening brace before "slide_deck"
-        brace_start = text.rfind('{', 0, start_idx)
-        if brace_start != -1:
-            # Find matching closing brace
-            brace_count = 0
-            for i in range(brace_start, len(text)):
-                if text[i] == '{':
-                    brace_count += 1
-                elif text[i] == '}':
-                    brace_count -= 1
-                    if brace_count == 0:
-                        try:
-                            json_str = text[brace_start:i+1]
-                            parsed = json.loads(json_str)
-                            if isinstance(parsed, dict) and 'slide_deck' in parsed:
-                                if logger:
-                                    logger.debug("   ✅ Found JSON via balanced brace matching")
-                                return parsed
-                        except json.JSONDecodeError:
-                            pass
-                        break
-    
-    return None
-
-
 # Callback to log when SlidesExportAgent starts
 def log_slides_export_start(callback_context):
     """Log when SlidesExportAgent starts execution."""
@@ -152,248 +18,189 @@ def log_slides_export_start(callback_context):
     logger.info("🚀🚀🚀 SlidesExportAgent STARTED - callback triggered")
     logger.info(f"   Callback context type: {type(callback_context).__name__}")
     
-    # Try to access state using multiple methods
-    state = _get_state_from_context(callback_context)
-    if state:
+    # Try to access state (State object, not dict)
+    if hasattr(callback_context, 'state'):
         try:
-            # Log available state keys
-            state_keys = []
-            if hasattr(state, 'keys'):
-                state_keys = list(state.keys())
-            elif hasattr(state, '__dict__'):
-                state_keys = [k for k in state.__dict__.keys() if not k.startswith('_')]
-            elif isinstance(state, dict):
-                state_keys = list(state.keys())
-            
-            logger.info(f"   📊 Session state keys ({len(state_keys)}): {state_keys[:10]}{'...' if len(state_keys) > 10 else ''}")
-            
-            # Check for slide_and_script
-            slide_and_script = _get_from_state(state, 'slide_and_script', logger)
-            if slide_and_script:
-                logger.info("   ✅ slide_and_script found in session.state")
+            # State object might be dict-like or have different access methods
+            if hasattr(callback_context.state, '__dict__'):
+                state_dict = callback_context.state.__dict__
+                logger.info(f"   Session state keys: {list(state_dict.keys())}")
+                if 'slide_and_script' in state_dict:
+                    logger.info("   ✅ slide_and_script found in session.state")
+                else:
+                    logger.warning("   ⚠️ slide_and_script NOT found in session.state")
+            elif hasattr(callback_context.state, 'get'):
+                # Try dict-like access
+                state_keys = list(callback_context.state.keys()) if hasattr(callback_context.state, 'keys') else 'N/A'
+                logger.info(f"   Session state keys: {state_keys}")
+                if callback_context.state.get('slide_and_script'):
+                    logger.info("   ✅ slide_and_script found in session.state")
+                else:
+                    logger.warning("   ⚠️ slide_and_script NOT found in session.state")
             else:
-                logger.warning("   ⚠️ slide_and_script NOT found in session.state")
+                logger.info(f"   State object: {type(callback_context.state).__name__}")
         except Exception as e:
             logger.warning(f"   ⚠️ Error accessing state: {e}")
     else:
-        logger.warning("   ⚠️ Could not access state from callback context")
+        logger.warning("   ⚠️ callback_context.state not available")
     
     # Log input message preview
     try:
         if hasattr(callback_context, 'invocation_context') and callback_context.invocation_context:
             if hasattr(callback_context.invocation_context, 'input_message'):
-                input_msg = callback_context.invocation_context.input_message
-                # Extract text from message parts
-                if hasattr(input_msg, 'parts') and input_msg.parts:
-                    text_parts = []
-                    for part in input_msg.parts:
-                        if hasattr(part, 'text') and part.text:
-                            text_parts.append(part.text)
-                    if text_parts:
-                        full_text = ''.join(text_parts)
-                        preview = full_text[:300] + ('...' if len(full_text) > 300 else '')
-                        logger.info(f"   📝 Input message preview ({len(full_text)} chars): {preview}")
-                        # Check if it contains JSON
-                        if '"slide_deck"' in full_text or 'slide_deck' in full_text:
-                            logger.info("   ✅ Input message contains 'slide_deck' - JSON likely present")
-                else:
-                    msg_str = str(input_msg)[:300]
-                    logger.info(f"   📝 Input message: {msg_str}...")
+                msg_preview = str(callback_context.invocation_context.input_message)[:200]
+                logger.info(f"   Input message preview: {msg_preview}...")
     except Exception as e:
         logger.debug(f"   Could not access input message: {e}")
 
 
-# NOTE: This callback is DEPRECATED and kept only for backward compatibility.
-# The agent now uses standard tool calling (best practice).
-# This callback is no longer used but kept for reference.
-def call_export_tool_after_agent_deprecated(callback_context):
+# Callback to call export tool directly after agent runs (bypasses ADK tool calling mechanism)
+def call_export_tool_after_agent(callback_context):
     """
-    After SlidesExportAgent runs, extract slide_and_script from multiple sources
+    After SlidesExportAgent runs, extract slide_and_script from session.state
     and call export_slideshow_tool directly.
     
     This bypasses ADK's tool calling mechanism to avoid potential issues with large parameters
     (slide_deck and presentation_script can be very large JSON objects).
-    
-    Priority order:
-    1. Input message (most reliable - ADK passes previous agent's output here)
-    2. session.state['slide_and_script'] (if stored by previous agent)
-    3. Alternative state keys (slide_deck, presentation_script)
     """
     logger = logging.getLogger(__name__)
     logger.info("🔧🔧🔧 SlidesExportAgent AFTER callback - calling export tool directly")
     
     try:
+        # Get slide_and_script from multiple sources (priority order)
         slide_and_script = None
-        source_used = None
         
-        # ========================================================================
-        # PRIORITY 1: Extract from input message (most reliable for ADK orchestrator)
-        # ========================================================================
-        logger.info("   🔍 Priority 1: Checking input message (previous agent's output)...")
-        if hasattr(callback_context, 'invocation_context') and callback_context.invocation_context:
-            if hasattr(callback_context.invocation_context, 'input_message'):
-                input_msg = callback_context.invocation_context.input_message
-                
-                # Extract text from message parts
-                full_text = ""
-                if hasattr(input_msg, 'parts') and input_msg.parts:
-                    text_parts = []
-                    for part in input_msg.parts:
-                        if hasattr(part, 'text') and part.text:
-                            text_parts.append(part.text)
-                    full_text = ''.join(text_parts)
-                elif hasattr(input_msg, 'text'):
-                    full_text = input_msg.text
+        # Priority 1: Try to get from session.state['slide_and_script']
+        if hasattr(callback_context, 'state'):
+            try:
+                if hasattr(callback_context.state, '__dict__'):
+                    state_dict = callback_context.state.__dict__
+                    slide_and_script = state_dict.get('slide_and_script')
+                elif hasattr(callback_context.state, 'get'):
+                    slide_and_script = callback_context.state.get('slide_and_script')
                 else:
-                    # Try string conversion as fallback
-                    full_text = str(input_msg)
+                    slide_and_script = getattr(callback_context.state, 'slide_and_script', None)
+            except Exception as e:
+                logger.debug(f"   Could not access slide_and_script from state: {e}")
+        
+        # Priority 2: Try to get from previous agent's output stored in state
+        # Check if slide_and_script_generator_agent stored it under a different key
+        if not slide_and_script and hasattr(callback_context, 'state'):
+            try:
+                state_dict = {}
+                if hasattr(callback_context.state, '__dict__'):
+                    state_dict = callback_context.state.__dict__
+                elif hasattr(callback_context.state, 'get'):
+                    # Convert to dict for easier checking
+                    state_dict = {k: callback_context.state.get(k) for k in dir(callback_context.state) if not k.startswith('_')}
                 
-                if full_text:
-                    logger.info(f"   📝 Input message length: {len(full_text)} characters")
-                    logger.debug(f"   📝 Input message preview: {full_text[:200]}...")
-                    
-                    # Use improved JSON extraction
-                    slide_and_script = _extract_json_from_text(full_text, logger)
-                    if slide_and_script:
-                        source_used = "input_message"
-                        logger.info("   ✅ Found slide_and_script in input message (Priority 1)")
-                        
-                        # Check if it's compressed format (only slide_deck, no presentation_script)
-                        if isinstance(slide_and_script, dict) and 'slide_deck' in slide_and_script and 'presentation_script' not in slide_and_script:
-                            logger.info("   📦 Detected compressed format (slide_deck only) - will get presentation_script from state")
-                            # Don't break here - we'll handle it later when extracting
-        
-        # ========================================================================
-        # PRIORITY 2: Try to get from session.state['slide_and_script']
-        # ========================================================================
-        if not slide_and_script:
-            logger.info("   🔍 Priority 2: Checking session.state['slide_and_script']...")
-            state = _get_state_from_context(callback_context)
-            if state:
-                slide_and_script = _get_from_state(state, 'slide_and_script', logger)
-                if slide_and_script:
-                    source_used = "session.state['slide_and_script']"
-                    logger.info("   ✅ Found slide_and_script in session.state (Priority 2)")
-        
-        # ========================================================================
-        # PRIORITY 3: Try alternative state keys
-        # ========================================================================
-        if not slide_and_script:
-            logger.info("   🔍 Priority 3: Checking alternative state keys...")
-            state = _get_state_from_context(callback_context)
-            if state:
                 # Check common keys where slide_and_script might be stored
                 for key in ['slide_and_script', 'slide_deck', 'presentation_script']:
-                    value = _get_from_state(state, key, logger)
+                    value = state_dict.get(key)
                     if isinstance(value, dict) and 'slide_deck' in value:
                         slide_and_script = value
-                        source_used = f"session.state['{key}']"
-                        logger.info(f"   ✅ Found slide_and_script in state['{key}'] (Priority 3)")
+                        logger.info(f"   ✅ Found slide_and_script in state['{key}']")
                         break
+            except Exception as e:
+                logger.debug(f"   Could not check alternative state keys: {e}")
         
-        # ========================================================================
-        # VALIDATION: Check if we found slide_and_script
-        # ========================================================================
+        # Priority 3: Try to get from invocation_context input message (most reliable - previous agent's output)
+        if not slide_and_script and hasattr(callback_context, 'invocation_context'):
+            try:
+                if hasattr(callback_context.invocation_context, 'input_message'):
+                    input_msg = callback_context.invocation_context.input_message
+                    # Extract text from message
+                    if hasattr(input_msg, 'parts') and input_msg.parts:
+                        import json
+                        import re
+                        full_text = ""
+                        for part in input_msg.parts:
+                            if hasattr(part, 'text') and part.text:
+                                full_text += part.text
+                        
+                        if full_text:
+                            # Try to find JSON object in the text (look for slide_deck key)
+                            # Match from first { to last } that contains "slide_deck"
+                            json_match = re.search(r'\{[\s\S]*?"slide_deck"[\s\S]*?\}', full_text, re.DOTALL)
+                            if json_match:
+                                try:
+                                    slide_and_script = json.loads(json_match.group(0))
+                                    if isinstance(slide_and_script, dict) and 'slide_deck' in slide_and_script:
+                                        logger.info("   ✅ Found slide_and_script in input message (parsed JSON)")
+                                except json.JSONDecodeError:
+                                    # Try to find JSON wrapped in code blocks
+                                    code_block_match = re.search(r'```(?:json)?\s*(\{[\s\S]*?"slide_deck"[\s\S]*?\})\s*```', full_text, re.DOTALL)
+                                    if code_block_match:
+                                        try:
+                                            slide_and_script = json.loads(code_block_match.group(1))
+                                            if isinstance(slide_and_script, dict) and 'slide_deck' in slide_and_script:
+                                                logger.info("   ✅ Found slide_and_script in input message (parsed from code block)")
+                                        except json.JSONDecodeError:
+                                            pass
+            except Exception as e:
+                logger.debug(f"   Could not access input message: {e}")
+        
         if not slide_and_script:
             logger.error("   ❌ slide_and_script not found in any source - cannot export")
-            logger.error("   Checked sources:")
-            logger.error("     1. Input message (invocation_context.input_message)")
-            logger.error("     2. session.state['slide_and_script']")
-            logger.error("     3. Alternative state keys (slide_deck, presentation_script)")
-            
-            # Debug: Log what we actually have access to
-            logger.error("   🔍 DEBUG: Available context attributes:")
-            logger.error(f"      - callback_context type: {type(callback_context).__name__}")
-            logger.error(f"      - Has invocation_context: {hasattr(callback_context, 'invocation_context')}")
-            if hasattr(callback_context, 'invocation_context') and callback_context.invocation_context:
-                logger.error(f"      - Has input_message: {hasattr(callback_context.invocation_context, 'input_message')}")
-            
-            state = _get_state_from_context(callback_context)
-            if state:
-                try:
-                    state_keys = []
-                    if hasattr(state, 'keys'):
-                        state_keys = list(state.keys())
-                    elif hasattr(state, '__dict__'):
-                        state_keys = [k for k in state.__dict__.keys() if not k.startswith('_')]
-                    logger.error(f"      - State keys available: {state_keys}")
-                except Exception as e:
-                    logger.error(f"      - Error listing state keys: {e}")
-            
+            logger.error("   Checked: session.state['slide_and_script'], session.state['slides_export_result'], input_message")
             return None
         
-        logger.info(f"   ✅ Found slide_and_script from: {source_used}")
+        logger.info("   ✅ Found slide_and_script")
         
-        # Parse if it's a string (shouldn't happen with improved extraction, but handle it)
+        # Parse if it's a string
         if isinstance(slide_and_script, str):
-            logger.info("   🔄 Parsing slide_and_script from string...")
-            parsed = _extract_json_from_text(slide_and_script, logger)
-            if parsed:
-                slide_and_script = parsed
+            try:
+                import json
+                cleaned = slide_and_script.strip()
+                if cleaned.startswith("```json"):
+                    cleaned = cleaned[7:].lstrip()
+                elif cleaned.startswith("```"):
+                    cleaned = cleaned[3:].lstrip()
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3].rstrip()
+                slide_and_script = json.loads(cleaned)
                 logger.info("   ✅ Parsed slide_and_script from JSON string")
-            else:
-                logger.error(f"   ❌ Failed to parse slide_and_script from string")
+            except Exception as e:
+                logger.error(f"   ❌ Failed to parse slide_and_script: {e}")
                 return None
         
-        # Validate slide_and_script structure
+        # Extract slide_deck and presentation_script
         if not isinstance(slide_and_script, dict):
             logger.error(f"   ❌ slide_and_script is not a dict: {type(slide_and_script).__name__}")
             return None
         
-        # Extract slide_deck and presentation_script
-        # Support both full format (slide_deck + presentation_script) and compressed format (slide_deck only)
-        slide_deck = slide_and_script.get('slide_deck') if slide_and_script else None
-        presentation_script = slide_and_script.get('presentation_script') if slide_and_script else None
+        slide_deck = slide_and_script.get('slide_deck')
+        presentation_script = slide_and_script.get('presentation_script')
         
-        # If compressed format (only slide_deck), get presentation_script from session.state
-        if slide_deck and not presentation_script:
-            logger.info("   📦 Compressed format detected - getting presentation_script from session.state...")
-            state = _get_state_from_context(callback_context)
-            if state:
-                # Try to get presentation_script from session.state
-                presentation_script = _get_from_state(state, 'presentation_script', logger)
-                if presentation_script:
-                    logger.info("   ✅ Found presentation_script in session.state['presentation_script']")
-                else:
-                    # Also try to get full slide_and_script from state
-                    full_slide_and_script = _get_from_state(state, 'slide_and_script', logger)
-                    if full_slide_and_script and isinstance(full_slide_and_script, dict):
-                        presentation_script = full_slide_and_script.get('presentation_script')
-                        if presentation_script:
-                            logger.info("   ✅ Found presentation_script in session.state['slide_and_script']")
-        
-        if not slide_deck:
-            logger.error(f"   ❌ Missing slide_deck")
-            logger.error(f"      slide_and_script keys: {list(slide_and_script.keys()) if slide_and_script else 'None'}")
-            return None
-        
-        if not presentation_script:
-            logger.error(f"   ❌ Missing presentation_script (needed for speaker notes)")
+        if not slide_deck or not presentation_script:
+            logger.error(f"   ❌ Missing slide_deck or presentation_script in slide_and_script")
             logger.error(f"      slide_deck: {'Found' if slide_deck else 'Missing'}")
-            logger.error(f"      presentation_script: Missing")
-            logger.error(f"      Checked: slide_and_script, session.state['presentation_script'], session.state['slide_and_script']")
+            logger.error(f"      presentation_script: {'Found' if presentation_script else 'Missing'}")
             return None
         
         logger.info("   ✅ Extracted slide_deck and presentation_script")
         
-        # Get config from session.state using helper function
+        # Get config from session.state
         config_dict = {}
-        state = _get_state_from_context(callback_context)
-        if state:
-            config_dict = {
-                'scenario': _get_from_state(state, 'scenario', logger) or 'presentation',
-                'duration': _get_from_state(state, 'duration', logger) or '20 minutes',
-                'target_audience': _get_from_state(state, 'target_audience', logger),
-                'custom_instruction': _get_from_state(state, 'custom_instruction', logger) or ''
-            }
-        else:
-            logger.warning("   ⚠️ Could not access state for config, using defaults")
-            config_dict = {
-                'scenario': 'presentation',
-                'duration': '20 minutes',
-                'target_audience': None,
-                'custom_instruction': ''
-            }
+        if hasattr(callback_context, 'state'):
+            try:
+                if hasattr(callback_context.state, '__dict__'):
+                    state_dict = callback_context.state.__dict__
+                    config_dict = {
+                        'scenario': state_dict.get('scenario', 'presentation'),
+                        'duration': state_dict.get('duration', '20 minutes'),
+                        'target_audience': state_dict.get('target_audience'),
+                        'custom_instruction': state_dict.get('custom_instruction', '')
+                    }
+                elif hasattr(callback_context.state, 'get'):
+                    config_dict = {
+                        'scenario': callback_context.state.get('scenario', 'presentation'),
+                        'duration': callback_context.state.get('duration', '20 minutes'),
+                        'target_audience': callback_context.state.get('target_audience'),
+                        'custom_instruction': callback_context.state.get('custom_instruction', '')
+                    }
+            except Exception as e:
+                logger.warning(f"   ⚠️ Error accessing config from state: {e}")
         
         # Call the tool directly (bypassing ADK's tool calling mechanism)
         logger.info("   🚀 Calling export_slideshow_tool directly (bypassing ADK tool calling)...")
@@ -411,29 +218,20 @@ def call_export_tool_after_agent_deprecated(callback_context):
             logger.info(f"   🔗 Google Slides URL: {export_result.get('shareable_url')}")
         
         # Save result to session.state (overwrites agent's text output stored by output_key)
-        state = _get_state_from_context(callback_context)
-        if state:
+        if hasattr(callback_context, 'state'):
             try:
-                # Try multiple methods to save to state
-                if hasattr(state, '__setitem__'):
-                    state['slides_export_result'] = export_result
-                elif hasattr(state, '__dict__'):
-                    state.__dict__['slides_export_result'] = export_result
-                elif hasattr(state, 'update'):
-                    state.update({'slides_export_result': export_result})
+                if hasattr(callback_context.state, '__dict__'):
+                    callback_context.state.__dict__['slides_export_result'] = export_result
+                elif hasattr(callback_context.state, '__setitem__'):
+                    callback_context.state['slides_export_result'] = export_result
                 else:
-                    setattr(state, 'slides_export_result', export_result)
-                logger.info("   ✅ Saved slides_export_result to session.state")
+                    setattr(callback_context.state, 'slides_export_result', export_result)
+                logger.info("   ✅ Saved slides_export_result to session.state (overwrote agent output)")
                 logger.info(f"   📊 Export result keys: {list(export_result.keys()) if isinstance(export_result, dict) else 'N/A'}")
             except Exception as e:
                 logger.warning(f"   ⚠️ Error saving result to state: {e}")
-        else:
-            logger.warning("   ⚠️ Could not access state to save export result")
         
-        # Return None - ADK will try to create an Event from the return value,
-        # but we've already saved the result to session.state, so we don't need to return it.
-        # Returning None prevents ADK from trying to create an Event with invalid fields.
-        return None
+        return export_result
         
     except Exception as e:
         logger.error(f"   ❌ Error in after_agent callback: {e}")
@@ -451,30 +249,24 @@ agent = LlmAgent(
     instruction="""You are a Slides Export Agent. Your role is to export generated slides to Google Slides.
 
 You will receive:
-- slide_and_script: JSON object from SlideAndScriptGeneratorAgent containing:
-  - slide_deck: The generated slide deck JSON
-  - presentation_script: The generated presentation script JSON (required for speaker notes)
-- Config values: scenario, duration, target_audience, custom_instruction (in your input message or from previous context)
+- slide_deck: The generated slide deck JSON (from slide_and_script_generator_agent)
+- presentation_script: The generated presentation script JSON (from slide_and_script_generator_agent)
+- scenario, duration, target_audience, custom_instruction: Presentation configuration
 
 CRITICAL: You MUST call the export_slideshow_tool function. Do NOT skip this step.
 
-STEP 1: Parse your input message:
-- Your input message contains the output from SlideAndScriptGeneratorAgent
-- The input is a JSON object with "slide_deck" and "presentation_script" keys
-- Parse the JSON from your input message (may be wrapped in ```json ... ``` or raw JSON)
-- Extract:
-  - slide_deck: from parsed JSON["slide_deck"]
-  - presentation_script: from parsed JSON["presentation_script"]
+STEP 1: Extract the required inputs from your input message (which contains the previous agent's output):
+- Your input message contains the output from SlideAndScriptGeneratorAgent, which is a JSON object with "slide_deck" and "presentation_script" keys.
+- Parse the JSON from your input message. The JSON may be wrapped in ```json ... ``` code blocks, or it may be raw JSON.
+- slide_and_script: The entire parsed JSON object from your input message
+- slide_deck: Extract from slide_and_script["slide_deck"]
+- presentation_script: Extract from slide_and_script["presentation_script"]
+- config: Build a dict with scenario, duration, target_audience, custom_instruction from session.state
+- title: Optional, can be empty string ""
 
-STEP 2: Extract config values from your input message or use defaults:
-- Look for config values in your input message (they may be provided separately)
-- If not found, use these defaults:
-  - scenario: 'presentation'
-  - duration: '20 minutes'
-  - target_audience: None (optional)
-  - custom_instruction: '' (empty string)
+CRITICAL: Your input message IS the output from SlideAndScriptGeneratorAgent. Parse it directly - do NOT look for it in session.state. The previous agent's output is passed to you as your input message.
 
-STEP 3: Call export_slideshow_tool with these parameters:
+STEP 2: Call export_slideshow_tool with these parameters:
 export_slideshow_tool(
     slide_deck=slide_deck,
     presentation_script=presentation_script,
@@ -482,7 +274,7 @@ export_slideshow_tool(
     title=""
 )
 
-STEP 4: The tool returns a dict with this structure:
+STEP 3: The tool returns a dict with this structure:
 {
     "status": "success" or "partial_success" or "error",
     "presentation_id": "<presentation_id_string>",  # Present if status is "success" or "partial_success"
@@ -491,19 +283,28 @@ STEP 4: The tool returns a dict with this structure:
     "error": "<error_description>"  # Present if status is "error" or "partial_success"
 }
 
-STEP 5: Return the tool's output dict AS-IS. Do NOT convert to string. Do NOT add text. Do NOT modify it.
-
 IMPORTANT: 
 - If status="success": Presentation created successfully, use shareable_url
 - If status="partial_success": Presentation created but encountered errors, STILL use shareable_url (presentation exists and can be accessed)
 - If status="error": Presentation was NOT created, return the error dict as-is
 
+STEP 4: Return the tool's output dict AS-IS. Do NOT convert to string. Do NOT add text. Do NOT modify it.
+
 The shareable_url is ALWAYS present when status="success" OR status="partial_success".
 
-NOTE: Both slide_deck and presentation_script are required. The presentation_script is used to generate speaker notes in Google Slides.
+IMPORTANT: The export tool will be called automatically via an after_agent_callback to bypass ADK's tool calling mechanism.
+You do NOT need to call export_slideshow_tool yourself. Just ensure slide_and_script is available in session.state.
+
+Your role is to:
+1. Extract slide_and_script from your input message (previous agent's output)
+2. Save it to session.state so the callback can access it
+3. Return a simple confirmation message
+
+The actual Google Slides export will happen automatically after you complete.
 """,
-    tools=[export_slideshow_tool],  # ✅ BEST PRACTICE: Use standard tool calling mechanism
-    output_key="slides_export_result",
-    before_agent_callback=log_slides_export_start,  # ✅ BEST PRACTICE: Callbacks only for observability/logging
+    tools=[],  # Remove tool - will be called directly via callback
+    # Don't use output_key - callback will store the result directly to avoid conflicts
+    before_agent_callback=log_slides_export_start,
+    after_agent_callback=call_export_tool_after_agent,
 )
 

@@ -6,6 +6,7 @@ Exports slide deck and script to Google Slides using Google Slides API.
 import os
 import json
 import re
+import webbrowser
 import tempfile
 from pathlib import Path
 from typing import Dict, Optional, List, Tuple
@@ -354,8 +355,8 @@ def find_text_shape_id(slide: Dict, shape_type: str = "TITLE") -> Optional[str]:
 
 def export_to_google_slides(
     slide_deck: Dict,
-    presentation_script: Dict = None,
-    config = None,
+    presentation_script: Dict,
+    config,
     title: str = "Generated Presentation"
 ) -> Dict[str, str]:
     """
@@ -462,13 +463,10 @@ def export_to_google_slides(
         # Build batch update requests
         requests = []
         
-        # Create a mapping of slide_number to script section (if presentation_script is provided)
+        # Create a mapping of slide_number to script section
         script_map = {}
-        if presentation_script:
-            for section in presentation_script.get('script_sections', []):
-                script_map[section.get('slide_number')] = section
-        else:
-            print("⚠️  No presentation_script provided - speaker notes will not be added")
+        for section in presentation_script.get('script_sections', []):
+            script_map[section.get('slide_number')] = section
         
         # Process each slide - create slides and add content in one pass
         slides = slide_deck.get('slides', [])
@@ -719,28 +717,21 @@ def export_to_google_slides(
             # Add speaker notes from script
             script_section = script_map.get(slide_number)
             if script_section:
-                # ✅ BEST PRACTICE: Support both compressed and full script formats
-                # Compressed format: {"speaker_notes": "...", "estimated_time": 60}
-                # Full format: {"opening_line": "...", "main_content": [...], ...}
-                if 'speaker_notes' in script_section:
-                    # Compressed format - use speaker_notes directly
-                    notes_text = script_section.get('speaker_notes', '').strip()
-                else:
-                    # Full format - build notes from components
-                    notes_parts = []
-                    opening_line = script_section.get('opening_line', '')
-                    if opening_line:
-                        notes_parts.append(opening_line)
-                    
-                    for content_item in script_section.get('main_content', []):
-                        point = content_item.get('point', '')
-                        explanation = content_item.get('explanation', '')
-                        if point:
-                            notes_parts.append(f"\n\n{point}")
-                        if explanation:
-                            notes_parts.append(f"\n{explanation}")
-                    
-                    notes_text = ''.join(notes_parts).strip()
+                # Build notes text from script
+                notes_parts = []
+                opening_line = script_section.get('opening_line', '')
+                if opening_line:
+                    notes_parts.append(opening_line)
+                
+                for content_item in script_section.get('main_content', []):
+                    point = content_item.get('point', '')
+                    explanation = content_item.get('explanation', '')
+                    if point:
+                        notes_parts.append(f"\n\n{point}")
+                    if explanation:
+                        notes_parts.append(f"\n{explanation}")
+                
+                notes_text = ''.join(notes_parts).strip()
                 
                 if notes_text:
                     # Get notes page from slide properties
@@ -830,8 +821,34 @@ def export_to_google_slides(
         print(f"   📝 IMPORTANT: Presentation is created in the Google account that authorized the OAuth token")
         print(f"   📝 Check the Google account used when generating token.json")
         
-        # Note: Browser opening is handled by the caller (main.py) via open_browser parameter
-        # This allows the caller to control when/if the browser should be opened
+        # Open URL in Chrome
+        try:
+            print(f"\n🌐 Opening presentation in Chrome...")
+            # Try to open in Chrome specifically
+            chrome_path = None
+            if os.name == 'nt':  # Windows
+                chrome_path = 'C:/Program Files/Google/Chrome/Application/chrome.exe %s'
+            elif os.name == 'posix':  # macOS/Linux
+                # Try common Chrome paths on macOS
+                chrome_paths = [
+                    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                    '/usr/bin/google-chrome',
+                    '/usr/bin/chromium-browser'
+                ]
+                for path in chrome_paths:
+                    if os.path.exists(path):
+                        chrome_path = f'"{path}" %s'
+                        break
+            
+            if chrome_path:
+                webbrowser.get(chrome_path).open(shareable_url)
+            else:
+                # Fall back to default browser
+                webbrowser.open(shareable_url)
+            print(f"✅ Opened in browser")
+        except Exception as e:
+            print(f"⚠️  Could not open browser automatically: {e}")
+            print(f"   Please open manually: {shareable_url}")
         
         return {
             'status': 'success',

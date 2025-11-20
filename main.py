@@ -25,7 +25,7 @@ from presentation_agent.agents.layout_critic_agent.agent import agent as layout_
 # Import tools and utilities
 from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool
 from presentation_agent.agents.utils.pdf_loader import load_pdf
-from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, extract_relevant_knowledge, preview_json, compress_outline, compress_layout_review, compress_critic_review, compress_presentation_script, compute_incremental_updates
+from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, preview_json
 from presentation_agent.agents.utils.observability import (
     get_observability_logger,
     AgentStatus
@@ -129,10 +129,8 @@ async def run_presentation_pipeline(
         user_id="user"
     )
     
-    # ✅ BEST PRACTICE: Set up session.state for {{variable}} injection
-    # All data stored here will be automatically available via {{variable}} syntax in agent instructions
+    # Set up session state
     session.state.update(config.to_dict())
-    # Note: report_knowledge, presentation_outline, etc. will be added as they are generated
     
     # Build initial message (same format as server.py)
     target_audience_section = (
@@ -200,22 +198,10 @@ Your task:
             # Outline Generator
             obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline", retry_count=outline_retries)
             runner = InMemoryRunner(agent=outline_generator_agent)
-            # ✅ BEST PRACTICE: Context compaction at orchestration layer
-            # Extract only relevant knowledge for OutlineGeneratorAgent
-            # This reduces token usage while keeping full report_knowledge in session.state
-            relevant_knowledge = extract_relevant_knowledge(report_knowledge, "OutlineGeneratorAgent")
-            original_size = len(json.dumps(report_knowledge))
-            filtered_size = len(json.dumps(relevant_knowledge))
-            reduction = (1 - filtered_size / original_size) * 100 if original_size > 0 else 0
-            print(f"📦 Context compaction: {original_size:,} → {filtered_size:,} chars ({reduction:.1f}% reduction) for OutlineGeneratorAgent")
-            # ✅ BEST PRACTICE: Reference-based data access + Message template optimization
-            # Full report_knowledge is stored in session.state and automatically available in agent instructions
-            message = f"""[REPORT_KNOWLEDGE_SUBSET]
-{json.dumps(relevant_knowledge, indent=2)}
-[END_REPORT_KNOWLEDGE_SUBSET]
-
-Generate a presentation outline based on the report knowledge subset above."""
-            events = await runner.run_debug(message, session_id=session.id)
+            events = await runner.run_debug(
+                f"Based on the report knowledge:\n{json.dumps(report_knowledge, indent=2)}\n\nGenerate a presentation outline.",
+                session_id=session.id
+            )
             presentation_outline = extract_output_from_events(events, "presentation_outline")
             
             if not presentation_outline:
@@ -223,15 +209,13 @@ Generate a presentation outline based on the report knowledge subset above."""
                 outline_retries += 1
                 continue
             
-            # ✅ BEST PRACTICE: Store in session.state for {{presentation_outline}} injection
             session.state["presentation_outline"] = presentation_outline
             
             # Outline Critic (if enabled)
             if include_critics:
                 obs_logger.start_agent_execution("OutlineCriticAgent", output_key="critic_review_outline")
                 runner = InMemoryRunner(agent=outline_critic_agent)
-                # ✅ BEST PRACTICE: Reference-based data access + Message template optimization
-                # OutlineCriticAgent needs FULL report_knowledge for hallucination checking
+                # Build proper input message with all required context
                 critic_input = f"""[PRESENTATION_OUTLINE]
 {json.dumps(presentation_outline, indent=2)}
 [END_PRESENTATION_OUTLINE]
@@ -240,14 +224,23 @@ Generate a presentation outline based on the report knowledge subset above."""
 {json.dumps(report_knowledge, indent=2)}
 [END_REPORT_KNOWLEDGE]
 
+[SCENARIO]
+{config.scenario}
+
+[DURATION]
+{config.duration}
+
+[TARGET_AUDIENCE]
+{config.target_audience}
+
+[CUSTOM_INSTRUCTION]
+{config.custom_instruction}
+
 Review this outline for quality, hallucination, and safety."""
                 events = await runner.run_debug(critic_input, session_id=session.id)
                 critic_review = extract_output_from_events(events, "critic_review_outline")
                 
                 if critic_review:
-                    # ✅ BEST PRACTICE: Store critic_review in session.state for retry compression
-                    session.state["critic_review_outline"] = critic_review
-                    
                     passed, quality_details = check_outline_quality(critic_review)
                     obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
                     
@@ -285,35 +278,10 @@ Review this outline for quality, hallucination, and safety."""
         print("\n🎨 Step 3: Slide and Script Generation")
         obs_logger.start_agent_execution("SlideAndScriptGeneratorAgent", output_key="slide_and_script")
         runner = InMemoryRunner(agent=slide_and_script_generator_agent)
-        # ✅ BEST PRACTICE: Context compaction at orchestration layer
-        # Extract only relevant knowledge for SlideAndScriptGeneratorAgent (filtered by outline)
-        # This reduces token usage by filtering sections based on outline topics
-        relevant_knowledge = extract_relevant_knowledge(report_knowledge, "SlideAndScriptGeneratorAgent", presentation_outline)
-        original_knowledge_size = len(json.dumps(report_knowledge))
-        filtered_knowledge_size = len(json.dumps(relevant_knowledge))
-        knowledge_reduction = (1 - filtered_knowledge_size / original_knowledge_size) * 100 if original_knowledge_size > 0 else 0
-        print(f"📦 Context compaction (knowledge): {original_knowledge_size:,} → {filtered_knowledge_size:,} chars ({knowledge_reduction:.1f}% reduction) for SlideAndScriptGeneratorAgent")
-        
-        # ✅ BEST PRACTICE: Context compaction - compress outline
-        # SlideAndScriptGeneratorAgent only needs slides and total_slides, not metadata
-        compressed_outline = compress_outline(presentation_outline)
-        original_outline_size = len(json.dumps(presentation_outline))
-        compressed_outline_size = len(json.dumps(compressed_outline))
-        outline_reduction = (1 - compressed_outline_size / original_outline_size) * 100 if original_outline_size > 0 else 0
-        print(f"📦 Context compaction (outline): {original_outline_size:,} → {compressed_outline_size:,} chars ({outline_reduction:.1f}% reduction) for SlideAndScriptGeneratorAgent")
-        
-        # ✅ BEST PRACTICE: Reference-based data access + Message template optimization
-        # Full data is stored in session.state and automatically available in agent instructions
-        message = f"""[PRESENTATION_OUTLINE]
-{json.dumps(compressed_outline, indent=2)}
-[END_PRESENTATION_OUTLINE]
-
-[REPORT_KNOWLEDGE_SUBSET]
-{json.dumps(relevant_knowledge, indent=2)}
-[END_REPORT_KNOWLEDGE_SUBSET]
-
-Generate slides and script based on the outline and report knowledge subset above."""
-        events = await runner.run_debug(message, session_id=session.id)
+        events = await runner.run_debug(
+            f"Generate slides and script based on:\nOutline: {json.dumps(presentation_outline, indent=2)}\nReport Knowledge: {json.dumps(report_knowledge, indent=2)}",
+            session_id=session.id
+        )
         slide_and_script = extract_output_from_events(events, "slide_and_script")
         
         if not slide_and_script:
@@ -409,17 +377,10 @@ Generate slides and script based on the outline and report knowledge subset abov
             'custom_instruction': config.custom_instruction
         }
         
-        # ✅ BEST PRACTICE: Compress presentation_script before passing to export tool
-        compressed_script = compress_presentation_script(presentation_script)
-        original_script_size = len(json.dumps(presentation_script))
-        compressed_script_size = len(json.dumps(compressed_script))
-        script_reduction = (1 - compressed_script_size / original_script_size) * 100 if original_script_size > 0 else 0
-        print(f"📦 Context compaction (presentation_script): {original_script_size:,} → {compressed_script_size:,} chars ({script_reduction:.1f}% reduction) for SlidesExportAgent")
-        
         print("   🚀 Calling export_slideshow_tool directly...")
         export_result = export_slideshow_tool(
             slide_deck=slide_deck,
-            presentation_script=compressed_script,  # ✅ BEST PRACTICE: Use compressed script
+            presentation_script=presentation_script,
             config=config_dict,
             title=""
         )

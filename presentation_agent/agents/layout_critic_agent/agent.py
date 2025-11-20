@@ -141,9 +141,9 @@ agent = LlmAgent(
 
 ⚠️ CRITICAL: Extract the shareable_url from the JSON in your input message and call review_layout_tool immediately.
 
-------------------------------------------------------------
+---
 YOUR TASK (3 SIMPLE STEPS)
-------------------------------------------------------------
+---
 
 **STEP 1: Find the JSON in your input**
 Your input message contains slides_export_result as JSON. Look for it - it contains a "shareable_url" field.

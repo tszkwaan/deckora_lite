@@ -24,18 +24,16 @@ from presentation_agent.agents.utils.pdf_loader import load_pdf_from_url
 
 def load_pdf_from_url_tool(url: str) -> str:
     """
-    Tool function to load PDF content from a URL with compression.
+    Tool function to load PDF content from a URL.
     
     Args:
         url: URL to the PDF file (e.g., "https://arxiv.org/pdf/2511.08597")
         
     Returns:
-        Extracted and compressed text content from all pages of the PDF
+        Extracted text content from all pages of the PDF
     """
     try:
-        from presentation_agent.agents.utils.pdf_loader import load_pdf
-        # Use load_pdf() which includes compression by default
-        content = load_pdf(report_url=url, compress=True)
+        content = load_pdf_from_url(url)
         return f"Successfully loaded PDF from {url}. Content length: {len(content)} characters.\n\n[REPORT_CONTENT]\n{content}\n[END_REPORT_CONTENT]"
     except Exception as e:
         return f"Error loading PDF from {url}: {str(e)}"
@@ -255,20 +253,21 @@ Return ONLY this JSON, nothing else.""",
     output_key="slides_export_complete",
 )
 
-# Create a LoopAgent for slide generation and export with layout critic
+# Create a LoopAgent for slide generation and export (layout critic commented out)
 # Using LoopAgent instead of nested SequentialAgent to avoid execution issues
-# Flow: generate slides -> export to Google Slides -> review layout -> check threshold -> regenerate if needed
+# Flow: generate slides -> export to Google Slides -> confirm completion
 # Adding a completion checker ensures the loop runs all agents
-# max_iterations ensures it can loop if layout issues are found
+# max_iterations=1 ensures it runs once
 slides_generation_sequence = LoopAgent(
     name="SlidesGenerationSequence",
     sub_agents=[
         slide_and_script_generator_agent,  # Generate slides and script
         slides_export_agent,                # Export to Google Slides
-        layout_critic_agent,                # Review layout using Vision API
-        layout_threshold_checker,           # Check if passes threshold
+        slides_export_complete_checker,    # Confirm completion (ensures loop runs all agents)
+        # layout_critic_agent,                # Review layout using Vision API (COMMENTED OUT)
+        # layout_threshold_checker,           # Check if passes threshold (COMMENTED OUT)
     ],
-    max_iterations=LAYOUT_MAX_RETRY_LOOPS + 1,  # Allow looping if layout issues found
+    max_iterations=1,  # Run once to execute all agents sequentially
 )
 
 

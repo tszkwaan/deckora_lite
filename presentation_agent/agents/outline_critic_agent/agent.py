@@ -18,9 +18,9 @@ agent = LlmAgent(
 
 Your role is to review the presentation outline for quality, appropriateness, hallucination, and safety.
 
-------------------------------------------------------------
+---
 OBJECTIVES
-------------------------------------------------------------
+---
 
 1. Review presentation_outline for:
    - Logical flow and structure
@@ -42,9 +42,9 @@ OBJECTIVES
    - Inappropriate depth for audience
 5. Provide constructive feedback and suggestions
 
-------------------------------------------------------------
+---
 INPUTS YOU WILL RECEIVE
-------------------------------------------------------------
+---
 
 You will receive inputs in the user message with the following format:
 
@@ -52,21 +52,9 @@ You will receive inputs in the user message with the following format:
 <JSON structure of the presentation outline>
 [END_PRESENTATION_OUTLINE]
 
-✅ BEST PRACTICE: Reference-based data access using ADK variable injection syntax
-- Full report_knowledge is available via session.state['report_knowledge'] (automatically injected into your instructions)
-- Full presentation_outline is available via session.state['presentation_outline'] (automatically injected into your instructions)
-- Configuration values are available via session.state: scenario, duration, target_audience, custom_instruction
-
-You will receive in the message:
-[PRESENTATION_OUTLINE]
-<JSON structure of the presentation outline>
-[END_PRESENTATION_OUTLINE]
-
 [REPORT_KNOWLEDGE]
-<Complete JSON structure of the report knowledge - use as ground truth for hallucination check>
+<JSON structure of the report knowledge - use as ground truth for hallucination check>
 [END_REPORT_KNOWLEDGE]
-
-Note: Full data is also available via session.state['report_knowledge'] and session.state['presentation_outline'] if needed.
 
 [SCENARIO]
 <scenario value>
@@ -85,9 +73,9 @@ IMPORTANT:
 - Do NOT ask for these values - they are provided in the message
 - Proceed immediately with the review using the provided data
 
-------------------------------------------------------------
+---
 REQUIRED OUTPUT FORMAT
-------------------------------------------------------------
+---
 
 {
   "review_type": "outline",
