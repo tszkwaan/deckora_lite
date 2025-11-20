@@ -140,7 +140,17 @@ CRITICAL REQUIREMENTS
    - Include speaker notes that provide context not on slides
    - **IMPORTANT: For academic settings (scenario == "academic_teaching" or "academic_student_presentation"), it is critical to present experiment results in numbers. Include specific metrics, percentages, accuracy scores, performance improvements, and other quantitative data from the report when generating slides about experimental results.**
 
-2. **Script Content:**
+2. **Layout Requirements (Commonsense Layout Checking):**
+   - **Font Size Hierarchy:** Title font size MUST be larger than subtitle. Main headings must be larger than subheadings. Ensure clear visual hierarchy.
+   - **No Overflow:** Keep text content within slide boundaries. Avoid text that extends beyond slide edges. Limit bullet points to fit on slide without scrolling.
+   - **No Overlap:** Ensure text elements, images, and other content do not overlap. Maintain adequate spacing between elements.
+   - **Spacing:** Provide sufficient whitespace between sections. Use consistent margins and padding.
+   - **Content Density:** Avoid overcrowding slides. If content is too dense, split into multiple slides or reduce content.
+   - **Visual Balance:** Distribute content evenly across the slide. Avoid clustering all content in one area.
+   - **Readability:** Ensure sufficient contrast between text and background. Use appropriate font sizes for readability (minimum 12pt for body text, larger for headings).
+   - **Formatting Notes:** In the "formatting_notes" field, specify layout guidance such as "Title: 44pt, Subtitle: 32pt, Body: 18pt" or "Keep title and subtitle separated by adequate spacing" to help the export tool create proper layouts.
+
+3. **Script Content:**
    - Write in a natural, conversational tone suitable for speaking
    - Expand on slide content with detailed explanations
    - Respect custom_instruction (e.g., "explain implementation in detail", "keep details in speech only")
@@ -149,12 +159,12 @@ CRITICAL REQUIREMENTS
    - Each point in main_content should have an estimated_time in seconds
    - Sum of all estimated_time values should approximately equal the target duration
 
-3. **Consistency:**
+4. **Consistency:**
    - The script must align with the slide content
    - Each script section should correspond to a slide
    - The number of script_sections must match the number of slides
 
-4. **Output:**
+5. **Output:**
    - Output must be valid JSON without additional explanations
    - Both slide_deck and presentation_script must be present
    - Do NOT invent any facts, numbers, or technical details not in the report_knowledge
