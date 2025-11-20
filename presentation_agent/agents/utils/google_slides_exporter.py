@@ -719,21 +719,28 @@ def export_to_google_slides(
             # Add speaker notes from script
             script_section = script_map.get(slide_number)
             if script_section:
-                # Build notes text from script
-                notes_parts = []
-                opening_line = script_section.get('opening_line', '')
-                if opening_line:
-                    notes_parts.append(opening_line)
-                
-                for content_item in script_section.get('main_content', []):
-                    point = content_item.get('point', '')
-                    explanation = content_item.get('explanation', '')
-                    if point:
-                        notes_parts.append(f"\n\n{point}")
-                    if explanation:
-                        notes_parts.append(f"\n{explanation}")
-                
-                notes_text = ''.join(notes_parts).strip()
+                # ✅ BEST PRACTICE: Support both compressed and full script formats
+                # Compressed format: {"speaker_notes": "...", "estimated_time": 60}
+                # Full format: {"opening_line": "...", "main_content": [...], ...}
+                if 'speaker_notes' in script_section:
+                    # Compressed format - use speaker_notes directly
+                    notes_text = script_section.get('speaker_notes', '').strip()
+                else:
+                    # Full format - build notes from components
+                    notes_parts = []
+                    opening_line = script_section.get('opening_line', '')
+                    if opening_line:
+                        notes_parts.append(opening_line)
+                    
+                    for content_item in script_section.get('main_content', []):
+                        point = content_item.get('point', '')
+                        explanation = content_item.get('explanation', '')
+                        if point:
+                            notes_parts.append(f"\n\n{point}")
+                        if explanation:
+                            notes_parts.append(f"\n{explanation}")
+                    
+                    notes_text = ''.join(notes_parts).strip()
                 
                 if notes_text:
                     # Get notes page from slide properties

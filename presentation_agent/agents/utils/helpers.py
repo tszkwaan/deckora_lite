@@ -399,7 +399,7 @@ def extract_relevant_knowledge(
             'sections': report_knowledge.get('sections', []),
             'key_takeaways': report_knowledge.get('key_takeaways', []),
             'presentation_focus': report_knowledge.get('presentation_focus', {}),
-            'figures': report_knowledge.get('figures', []),  # For figure references
+            'figures': compress_figure_metadata(report_knowledge.get('figures', [])),  # ✅ BEST PRACTICE: Compressed figure metadata
         }
     
     elif agent_name == "OutlineCriticAgent":
@@ -420,7 +420,7 @@ def extract_relevant_knowledge(
                 'sections': relevant_sections,
                 'key_takeaways': report_knowledge.get('key_takeaways', []),
                 'presentation_focus': report_knowledge.get('presentation_focus', {}),
-                'figures': report_knowledge.get('figures', []),
+                'figures': compress_figure_metadata(report_knowledge.get('figures', [])),  # ✅ BEST PRACTICE: Compressed figure metadata
                 'audience_profile': report_knowledge.get('audience_profile', {}),
             }
         else:
@@ -430,7 +430,7 @@ def extract_relevant_knowledge(
                 'sections': report_knowledge.get('sections', []),
                 'key_takeaways': report_knowledge.get('key_takeaways', []),
                 'presentation_focus': report_knowledge.get('presentation_focus', {}),
-                'figures': report_knowledge.get('figures', []),
+                'figures': compress_figure_metadata(report_knowledge.get('figures', [])),  # ✅ BEST PRACTICE: Compressed figure metadata
                 'audience_profile': report_knowledge.get('audience_profile', {}),
             }
     
@@ -589,6 +589,136 @@ def compress_layout_review(layout_review: Dict[str, Any]) -> Dict[str, Any]:
     return compressed
 
 
+def compute_incremental_updates(
+    old_version: Dict[str, Any],
+    new_version: Dict[str, Any],
+    version_type: str = "outline"  # "outline" or "slide_and_script"
+) -> Dict[str, Any]:
+    """
+    ✅ BEST PRACTICE: Context compaction - compute incremental updates for retry.
+    Compares old and new versions to extract only the changes (delta).
+    
+    Args:
+        old_version: Previous version (e.g., old presentation_outline or slide_and_script)
+        new_version: New version to compare against
+        version_type: Type of version ("outline" or "slide_and_script")
+        
+    Returns:
+        Incremental update dictionary:
+        {
+            "slides_to_update": [1, 4],
+            "changes": {
+                "slide_1": {...},  # Only changed fields
+                "slide_4": {...}
+            }
+        }
+    """
+    if not isinstance(old_version, dict) or not isinstance(new_version, dict):
+        return {"slides_to_update": [], "changes": {}}
+    
+    slides_to_update = []
+    changes = {}
+    
+    if version_type == "outline":
+        old_slides = old_version.get("slides", [])
+        new_slides = new_version.get("slides", [])
+        
+        # Create maps by slide_number
+        old_slide_map = {slide.get("slide_number"): slide for slide in old_slides if slide.get("slide_number")}
+        new_slide_map = {slide.get("slide_number"): slide for slide in new_slides if slide.get("slide_number")}
+        
+        # Find changed slides
+        all_slide_numbers = set(old_slide_map.keys()) | set(new_slide_map.keys())
+        
+        for slide_num in all_slide_numbers:
+            old_slide = old_slide_map.get(slide_num, {})
+            new_slide = new_slide_map.get(slide_num, {})
+            
+            # Compare slides (simple deep comparison)
+            if old_slide != new_slide:
+                slides_to_update.append(slide_num)
+                # Only include changed fields
+                slide_changes = {}
+                for key in new_slide:
+                    if new_slide.get(key) != old_slide.get(key):
+                        slide_changes[key] = new_slide[key]
+                if slide_changes:
+                    changes[f"slide_{slide_num}"] = slide_changes
+    
+    elif version_type == "slide_and_script":
+        # Compare slide_deck slides
+        old_slide_deck = old_version.get("slide_deck", {})
+        new_slide_deck = new_version.get("slide_deck", {})
+        
+        old_slides = old_slide_deck.get("slides", [])
+        new_slides = new_slide_deck.get("slides", [])
+        
+        old_slide_map = {slide.get("slide_number"): slide for slide in old_slides if slide.get("slide_number")}
+        new_slide_map = {slide.get("slide_number"): slide for slide in new_slides if slide.get("slide_number")}
+        
+        all_slide_numbers = set(old_slide_map.keys()) | set(new_slide_map.keys())
+        
+        for slide_num in all_slide_numbers:
+            old_slide = old_slide_map.get(slide_num, {})
+            new_slide = new_slide_map.get(slide_num, {})
+            
+            if old_slide != new_slide:
+                slides_to_update.append(slide_num)
+                slide_changes = {}
+                for key in new_slide:
+                    if new_slide.get(key) != old_slide.get(key):
+                        slide_changes[key] = new_slide[key]
+                if slide_changes:
+                    changes[f"slide_{slide_num}"] = slide_changes
+    
+    return {
+        "slides_to_update": sorted(slides_to_update),
+        "changes": changes
+    }
+
+
+def compress_figure_metadata(figures: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    ✅ BEST PRACTICE: Context compaction - compress figure metadata.
+    Extracts only essential fields needed by agents:
+    - id: Figure identifier
+    - importance: Importance score (for prioritization)
+    
+    Removes metadata like:
+    - caption (not needed for outline/slide generation)
+    - inferred_role (not needed)
+    - recommended_use (not needed)
+    
+    Args:
+        figures: List of figure dictionaries with full metadata
+        
+    Returns:
+        Compressed list of figures with only id and importance:
+        [
+            {"id": "fig1", "importance": 1},
+            {"id": "fig2", "importance": 2}
+        ]
+    """
+    if not isinstance(figures, list):
+        return figures
+    
+    compressed = []
+    for figure in figures:
+        if not isinstance(figure, dict):
+            continue
+        
+        compressed_figure = {
+            "id": figure.get("id"),
+            "importance": figure.get("importance_score") or figure.get("importance", 1)
+        }
+        
+        # Only include if we have an id
+        if compressed_figure.get("id"):
+            compressed.append(compressed_figure)
+    
+    return compressed
+
+
 def compress_outline(presentation_outline: Dict[str, Any]) -> Dict[str, Any]:
     """
     ✅ BEST PRACTICE: Context compaction - compress presentation outline.
@@ -614,6 +744,98 @@ def compress_outline(presentation_outline: Dict[str, Any]) -> Dict[str, Any]:
     compressed = {
         "slides": presentation_outline.get("slides", []),
         "total_slides": presentation_outline.get("total_slides", len(presentation_outline.get("slides", [])))
+    }
+    
+    return compressed
+
+
+def compress_presentation_script(presentation_script: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    ✅ BEST PRACTICE: Context compaction - compress presentation script for export.
+    Extracts only essential fields needed by SlidesExportAgent for speaker notes:
+    - script_sections with only slide_number, speaker_notes (condensed), and estimated_time
+    - total_estimated_time
+    
+    Removes metadata like:
+    - opening_line (not needed for speaker notes)
+    - transitions (from_previous, to_next) (not needed for speaker notes)
+    - key_phrases (not needed for speaker notes)
+    - main_content (detailed explanations) (not needed, condensed into speaker_notes)
+    - notes (redundant with speaker_notes)
+    - script_metadata (tone, language_level) (not needed for export)
+    - opening_remarks, closing_remarks (not needed for speaker notes)
+    
+    Args:
+        presentation_script: Full presentation script dictionary
+        
+    Returns:
+        Compressed presentation script dictionary with only essential fields:
+        {
+            "script_sections": [
+                {
+                    "slide_number": 1,
+                    "speaker_notes": "<condensed notes>",
+                    "estimated_time": 60
+                }
+            ],
+            "total_estimated_time": 300
+        }
+    """
+    if not isinstance(presentation_script, dict):
+        return presentation_script
+    
+    script_sections = presentation_script.get("script_sections", [])
+    compressed_sections = []
+    
+    for section in script_sections:
+        if not isinstance(section, dict):
+            continue
+        
+        slide_number = section.get("slide_number")
+        estimated_time = section.get("estimated_time")
+        
+        # Condense speaker notes from multiple sources
+        speaker_notes_parts = []
+        
+        # Get opening_line if present
+        opening_line = section.get("opening_line", "")
+        if opening_line:
+            speaker_notes_parts.append(opening_line)
+        
+        # Get main_content explanations (condensed)
+        main_content = section.get("main_content", [])
+        if main_content:
+            for content_item in main_content:
+                if isinstance(content_item, dict):
+                    point = content_item.get("point", "")
+                    explanation = content_item.get("explanation", "")
+                    if explanation:
+                        speaker_notes_parts.append(f"{point}: {explanation}")
+                    elif point:
+                        speaker_notes_parts.append(point)
+        
+        # Get notes if present
+        notes = section.get("notes", "")
+        if notes:
+            speaker_notes_parts.append(notes)
+        
+        # Combine into single speaker_notes string
+        speaker_notes = " | ".join(speaker_notes_parts) if speaker_notes_parts else ""
+        
+        compressed_section = {
+            "slide_number": slide_number,
+            "speaker_notes": speaker_notes,
+            "estimated_time": estimated_time
+        }
+        
+        # Only include if we have essential data
+        if slide_number is not None:
+            compressed_sections.append(compressed_section)
+    
+    compressed = {
+        "script_sections": compressed_sections,
+        "total_estimated_time": presentation_script.get("script_metadata", {}).get("total_estimated_time") or 
+                                presentation_script.get("total_estimated_time")
     }
     
     return compressed

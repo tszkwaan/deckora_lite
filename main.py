@@ -25,7 +25,7 @@ from presentation_agent.agents.layout_critic_agent.agent import agent as layout_
 # Import tools and utilities
 from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool
 from presentation_agent.agents.utils.pdf_loader import load_pdf
-from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, extract_relevant_knowledge, preview_json, compress_outline, compress_layout_review, compress_critic_review
+from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, extract_relevant_knowledge, preview_json, compress_outline, compress_layout_review, compress_critic_review, compress_presentation_script, compute_incremental_updates
 from presentation_agent.agents.utils.observability import (
     get_observability_logger,
     AgentStatus
@@ -208,21 +208,13 @@ Your task:
             filtered_size = len(json.dumps(relevant_knowledge))
             reduction = (1 - filtered_size / original_size) * 100 if original_size > 0 else 0
             print(f"📦 Context compaction: {original_size:,} → {filtered_size:,} chars ({reduction:.1f}% reduction) for OutlineGeneratorAgent")
-            # ✅ BEST PRACTICE: Reference-based data access
-            # Full report_knowledge is stored in session.state['report_knowledge']
-            # ADK automatically injects {{report_knowledge}}, {{scenario}}, etc. from session.state into agent instructions
-            # We pass filtered knowledge in message to reduce token usage
-            # Note: {{variable}} syntax only works in agent instructions, not in user messages
-            message = f"""✅ BEST PRACTICE: Reference-based data access
-Full report_knowledge is stored in session.state['report_knowledge'] and automatically available in agent instructions.
-Below is a filtered subset relevant for outline generation (to reduce token usage).
-
-[REPORT_KNOWLEDGE_SUBSET]
+            # ✅ BEST PRACTICE: Reference-based data access + Message template optimization
+            # Full report_knowledge is stored in session.state and automatically available in agent instructions
+            message = f"""[REPORT_KNOWLEDGE_SUBSET]
 {json.dumps(relevant_knowledge, indent=2)}
 [END_REPORT_KNOWLEDGE_SUBSET]
 
-Generate a presentation outline based on the report knowledge subset above.
-Note: Full report_knowledge and configuration values are automatically available in your instructions via session.state."""
+Generate a presentation outline based on the report knowledge subset above."""
             events = await runner.run_debug(message, session_id=session.id)
             presentation_outline = extract_output_from_events(events, "presentation_outline")
             
@@ -238,22 +230,9 @@ Note: Full report_knowledge and configuration values are automatically available
             if include_critics:
                 obs_logger.start_agent_execution("OutlineCriticAgent", output_key="critic_review_outline")
                 runner = InMemoryRunner(agent=outline_critic_agent)
-                # Build proper input message with all required context
-                # ✅ BEST PRACTICE: Reference-based data access
-                # Full report_knowledge is stored in session.state['report_knowledge']
-                # ADK automatically injects {{report_knowledge}}, {{presentation_outline}}, etc. from session.state into agent instructions
+                # ✅ BEST PRACTICE: Reference-based data access + Message template optimization
                 # OutlineCriticAgent needs FULL report_knowledge for hallucination checking
-                # We pass it in message, but full data is also available in agent instructions
-                # Note: {{variable}} syntax only works in agent instructions, not in user messages
-                critic_input = f"""✅ BEST PRACTICE: Reference-based data access
-Full data is stored in session.state and automatically available in your instructions:
-- Full report_knowledge: session.state['report_knowledge']
-- Full presentation_outline: session.state['presentation_outline']
-- Configuration: session.state['scenario'], session.state['duration'], etc.
-
-Below is the complete report_knowledge (required for hallucination checking).
-
-[PRESENTATION_OUTLINE]
+                critic_input = f"""[PRESENTATION_OUTLINE]
 {json.dumps(presentation_outline, indent=2)}
 [END_PRESENTATION_OUTLINE]
 
@@ -261,8 +240,7 @@ Below is the complete report_knowledge (required for hallucination checking).
 {json.dumps(report_knowledge, indent=2)}
 [END_REPORT_KNOWLEDGE]
 
-Review this outline for quality, hallucination, and safety.
-Note: Full data is automatically available in your instructions via session.state."""
+Review this outline for quality, hallucination, and safety."""
                 events = await runner.run_debug(critic_input, session_id=session.id)
                 critic_review = extract_output_from_events(events, "critic_review_outline")
                 
@@ -324,20 +302,9 @@ Note: Full data is automatically available in your instructions via session.stat
         outline_reduction = (1 - compressed_outline_size / original_outline_size) * 100 if original_outline_size > 0 else 0
         print(f"📦 Context compaction (outline): {original_outline_size:,} → {compressed_outline_size:,} chars ({outline_reduction:.1f}% reduction) for SlideAndScriptGeneratorAgent")
         
-        # ✅ BEST PRACTICE: Reference-based data access
-        # Full report_knowledge and presentation_outline are stored in session.state
-        # ADK automatically injects {{report_knowledge}}, {{presentation_outline}}, etc. from session.state into agent instructions
-        # We pass filtered/compressed data in message to reduce token usage
-        # Note: {{variable}} syntax only works in agent instructions, not in user messages
-        message = f"""✅ BEST PRACTICE: Reference-based data access
-Full data is stored in session.state and automatically available in your instructions:
-- Full report_knowledge: session.state['report_knowledge']
-- Full presentation_outline: session.state['presentation_outline']
-- Configuration: session.state['scenario'], session.state['duration'], etc.
-
-Below is filtered report_knowledge and compressed outline (to reduce token usage).
-
-[PRESENTATION_OUTLINE]
+        # ✅ BEST PRACTICE: Reference-based data access + Message template optimization
+        # Full data is stored in session.state and automatically available in agent instructions
+        message = f"""[PRESENTATION_OUTLINE]
 {json.dumps(compressed_outline, indent=2)}
 [END_PRESENTATION_OUTLINE]
 
@@ -345,8 +312,7 @@ Below is filtered report_knowledge and compressed outline (to reduce token usage
 {json.dumps(relevant_knowledge, indent=2)}
 [END_REPORT_KNOWLEDGE_SUBSET]
 
-Generate slides and script based on the outline and report knowledge subset above.
-Note: Full data is automatically available in your instructions via session.state."""
+Generate slides and script based on the outline and report knowledge subset above."""
         events = await runner.run_debug(message, session_id=session.id)
         slide_and_script = extract_output_from_events(events, "slide_and_script")
         
@@ -443,10 +409,17 @@ Note: Full data is automatically available in your instructions via session.stat
             'custom_instruction': config.custom_instruction
         }
         
+        # ✅ BEST PRACTICE: Compress presentation_script before passing to export tool
+        compressed_script = compress_presentation_script(presentation_script)
+        original_script_size = len(json.dumps(presentation_script))
+        compressed_script_size = len(json.dumps(compressed_script))
+        script_reduction = (1 - compressed_script_size / original_script_size) * 100 if original_script_size > 0 else 0
+        print(f"📦 Context compaction (presentation_script): {original_script_size:,} → {compressed_script_size:,} chars ({script_reduction:.1f}% reduction) for SlidesExportAgent")
+        
         print("   🚀 Calling export_slideshow_tool directly...")
         export_result = export_slideshow_tool(
             slide_deck=slide_deck,
-            presentation_script=presentation_script,
+            presentation_script=compressed_script,  # ✅ BEST PRACTICE: Use compressed script
             config=config_dict,
             title=""
         )
