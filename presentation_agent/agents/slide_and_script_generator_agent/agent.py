@@ -2,10 +2,62 @@ from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
 import sys
 import os
+import logging
 
 # Add parent directory to path to import config
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import RETRY_CONFIG, DEFAULT_MODEL
+from presentation_agent.agents.utils.helpers import compress_layout_review
+
+logger = logging.getLogger(__name__)
+
+
+def compress_layout_review_before_agent(callback_context):
+    """
+    ✅ BEST PRACTICE: Context compaction - compress layout_review before passing to agent.
+    This callback compresses layout_review in session.state to reduce token usage during retry.
+    """
+    try:
+        # Try to access state from callback context
+        state = None
+        if hasattr(callback_context, 'invocation_context') and callback_context.invocation_context:
+            if hasattr(callback_context.invocation_context, 'state'):
+                state = callback_context.invocation_context.state
+        
+        if state is None and hasattr(callback_context, 'state'):
+            state = callback_context.state
+        
+        if state is None and hasattr(callback_context, 'session'):
+            if hasattr(callback_context.session, 'state'):
+                state = callback_context.session.state
+        
+        if state:
+            # Check if layout_review exists (indicates this is a retry)
+            layout_review = None
+            if hasattr(state, 'get'):
+                layout_review = state.get('layout_review')
+            elif hasattr(state, 'layout_review'):
+                layout_review = getattr(state, 'layout_review', None)
+            
+            if layout_review:
+                # Compress layout_review
+                compressed = compress_layout_review(layout_review)
+                
+                # Store compressed version back to state
+                if hasattr(state, '__setitem__'):
+                    state['layout_review_compressed'] = compressed
+                elif hasattr(state, '__setattr__'):
+                    setattr(state, 'layout_review_compressed', compressed)
+                
+                # Log compression stats
+                import json
+                original_size = len(json.dumps(layout_review))
+                compressed_size = len(json.dumps(compressed))
+                reduction = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
+                logger.info(f"📦 Context compaction (layout_review): {original_size:,} → {compressed_size:,} chars ({reduction:.1f}% reduction)")
+                
+    except Exception as e:
+        logger.warning(f"⚠️  Could not compress layout_review in callback: {e}")
 
 # Export as 'agent' instead of 'root_agent' so this won't be discovered as a root agent by ADK-web
 agent = LlmAgent(
@@ -46,17 +98,19 @@ You will receive in the message:
 - report_knowledge: Filtered structured knowledge (full version available via session.state['report_knowledge'])
 
 [PREVIOUS_LAYOUT_REVIEW] (optional - only present if this is a retry)
-<Previous layout review output if threshold was not met>
+<Compressed actionable feedback from previous layout review>
+Format: {"issues": [...], "slides_to_fix": [1, 4, 5]}
 [END_PREVIOUS_LAYOUT_REVIEW]
 
 [THRESHOLD_CHECK] (optional - only present if this is a retry)
 <Threshold check result indicating why regeneration is needed>
 [END_THRESHOLD_CHECK]
 
-If [PREVIOUS_LAYOUT_REVIEW] and [THRESHOLD_CHECK] are provided, use them to improve the slides:
-- Address layout issues mentioned in the review (text overlap, overflow, spacing)
-- Fix specific issues on slides mentioned in the review
-- Improve formatting based on the critic's recommendations
+✅ BEST PRACTICE: If [PREVIOUS_LAYOUT_REVIEW] and [THRESHOLD_CHECK] are provided, use them to improve the slides:
+- Focus on the specific issues listed in the "issues" array
+- Fix the slides listed in "slides_to_fix" array
+- Address layout problems mentioned: text overlap, overflow, spacing issues
+- Improve formatting based on the actionable feedback provided
 
 ------------------------------------------------------------
 REQUIRED OUTPUT FORMAT
@@ -165,5 +219,6 @@ CRITICAL REQUIREMENTS
 """,
     tools=[],
     output_key="slide_and_script",
+    before_agent_callback=compress_layout_review_before_agent,  # ✅ BEST PRACTICE: Compress layout_review during retry
 )
 

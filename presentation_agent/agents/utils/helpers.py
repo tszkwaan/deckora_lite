@@ -305,6 +305,69 @@ def extract_relevant_knowledge(
         return report_knowledge
 
 
+def compress_layout_review(layout_review: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    ✅ BEST PRACTICE: Context compaction - compress layout review for retry.
+    Extracts only actionable feedback needed by SlideAndScriptGeneratorAgent during retry:
+    - issues: List of specific issues found
+    - slides_to_fix: List of slide numbers that need fixing
+    
+    Removes metadata like:
+    - review_type (not needed for fixing)
+    - presentation_id (not needed for fixing)
+    - total_slides, total_slides_reviewed (not needed for fixing)
+    - issues_summary (redundant, issues list is sufficient)
+    - overlap_severity (can be inferred from issues)
+    - overall_quality (not actionable)
+    - passed (not actionable, agent should fix regardless)
+    
+    Args:
+        layout_review: Full layout review dictionary from LayoutCriticAgent
+        
+    Returns:
+        Compressed layout review dictionary with only actionable feedback:
+        {
+            "issues": [...],  # List of specific issues
+            "slides_to_fix": [1, 4, 5]  # Slide numbers that need fixing
+        }
+    """
+    if not isinstance(layout_review, dict):
+        return layout_review
+    
+    # Extract issues - handle nested structure (e.g., review_layout_tool_response wrapper)
+    issues = []
+    if "review_layout_tool_response" in layout_review:
+        # Handle nested structure from tool response
+        nested_review = layout_review.get("review_layout_tool_response", {})
+        if isinstance(nested_review, dict):
+            issues = nested_review.get("issues", [])
+    else:
+        issues = layout_review.get("issues", [])
+    
+    # Extract slide numbers that have issues
+    slides_to_fix = set()
+    for issue in issues:
+        if isinstance(issue, dict):
+            # Check multiple possible field names for slide number
+            slide_num = issue.get("slide_number") or issue.get("slide") or issue.get("slide_num")
+            if slide_num is not None:
+                try:
+                    slides_to_fix.add(int(slide_num))
+                except (ValueError, TypeError):
+                    pass  # Skip invalid slide numbers
+    
+    # If no slides found in issues, check if there are any issues at all
+    # If there are issues but no slide numbers, we can't determine which slides to fix
+    # In that case, return empty slides_to_fix (agent will need to infer from issues)
+    
+    compressed = {
+        "issues": issues,
+        "slides_to_fix": sorted(list(slides_to_fix)) if slides_to_fix else []
+    }
+    
+    return compressed
+
+
 def compress_outline(presentation_outline: Dict[str, Any]) -> Dict[str, Any]:
     """
     ✅ BEST PRACTICE: Context compaction - compress presentation outline.
