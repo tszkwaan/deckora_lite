@@ -542,6 +542,15 @@ def export_to_google_slides(
             content = slide_data.get('content', {})
             bullet_points = content.get('bullet_points', [])
             main_text = content.get('main_text')
+            design_spec = slide_data.get('design_spec', {})
+            
+            # Log design spec usage
+            if design_spec:
+                logger.info(f"📐 Slide {slide_number}: Using design_spec from agent")
+                print(f"📐 Slide {slide_number}: Using design_spec - title: {design_spec.get('title_font_size', 'default')}pt, subtitle: {design_spec.get('subtitle_font_size', 'default')}pt, body: {design_spec.get('body_font_size', 'default')}pt")
+            else:
+                logger.info(f"📐 Slide {slide_number}: No design_spec found, using defaults")
+                print(f"📐 Slide {slide_number}: No design_spec found, using default font sizes")
             
             # Find title and content shapes
             # For first slide (title slide), use CENTERED_TITLE and SUBTITLE
@@ -647,9 +656,16 @@ def export_to_google_slides(
                             }
                         })
                 
-                # Set title font size - ensure it's larger than subtitle
-                # For title slides: use larger size (44pt), for regular slides: use 36pt
-                title_font_size = 44 if idx == 0 else 36
+                # Set title font size from design_spec or use defaults
+                title_font_size = design_spec.get('title_font_size')
+                if title_font_size is None:
+                    # Defaults: title slides 44pt, regular slides 36pt
+                    title_font_size = 44 if idx == 0 else 36
+                else:
+                    # Validate: ensure reasonable range (20-60pt)
+                    title_font_size = max(20, min(60, int(title_font_size)))
+                
+                # Apply title font size
                 content_requests.append({
                     'updateTextStyle': {
                         'objectId': title_shape_id,
@@ -665,11 +681,84 @@ def export_to_google_slides(
                         'fields': 'fontSize'
                     }
                 })
+                
+                # Apply title alignment if specified
+                title_alignment = design_spec.get('alignment', {}).get('title')
+                if title_alignment:
+                    # Map alignment strings to Google Slides API values
+                    alignment_map = {
+                        'left': 'START',
+                        'center': 'CENTER',
+                        'right': 'END'
+                    }
+                    if title_alignment.lower() in alignment_map:
+                        content_requests.append({
+                            'updateParagraphStyle': {
+                                'objectId': title_shape_id,
+                                'textRange': {
+                                    'type': 'ALL'
+                                },
+                                'style': {
+                                    'alignment': alignment_map[title_alignment.lower()]
+                                },
+                                'fields': 'alignment'
+                            }
+                        })
+                
+                # Apply title position if specified (for title slides, positioning is usually handled by layout)
+                # Note: Google Slides API doesn't directly support percentage-based positioning
+                # Position adjustments would require more complex shape manipulation
             elif slide_title:
                 print(f"⚠️  Warning: Could not find title shape for slide {slide_number}: {slide_title}")
             
             # Add body content
             if content_shape_id:
+                # Try to clear placeholder text, but skip if shape is empty to avoid API errors
+                # We'll try to get text length first, and only delete if there's actual text
+                try:
+                    # Get the slide page to access shape details
+                    page = service.presentations().pages().get(
+                        presentationId=presentation_id,
+                        pageObjectId=slide.get('objectId')
+                    ).execute()
+                    
+                    # Find the content shape and get its text length
+                    current_text_length = 0
+                    for element in page.get('pageElements', []):
+                        if element.get('objectId') == content_shape_id:
+                            shape = element.get('shape', {})
+                            if shape and shape.get('text'):
+                                text_content_obj = shape.get('text', {})
+                                # Get text length from text elements
+                                if text_content_obj.get('textElements'):
+                                    # Calculate total length
+                                    for text_elem in text_content_obj.get('textElements', []):
+                                        if 'textRun' in text_elem:
+                                            current_text_length += len(text_elem['textRun'].get('content', ''))
+                                    break
+                    
+                    # Only delete if there's actual text (avoid error on empty shapes)
+                    if current_text_length > 0:
+                        logger.info(f"   Clearing {current_text_length} chars from content shape on slide {slide_number}")
+                        print(f"   Clearing {current_text_length} chars from content shape on slide {slide_number}")
+                        content_requests.append({
+                            'deleteText': {
+                                'objectId': content_shape_id,
+                                'textRange': {
+                                    'type': 'FIXED_RANGE',
+                                    'startIndex': 0,
+                                    'endIndex': current_text_length
+                                }
+                            }
+                        })
+                    else:
+                        logger.info(f"   Content shape is empty, skipping deleteText for slide {slide_number}")
+                        print(f"   Content shape is empty, skipping deleteText for slide {slide_number}")
+                except Exception as e:
+                    # If we can't determine text length, skip deletion (shape might be empty)
+                    logger.warning(f"⚠️  Could not determine text length for content shape on slide {slide_number}, skipping deleteText: {e}")
+                    print(f"⚠️  Could not determine text length, skipping deleteText for slide {slide_number}")
+                
                 text_content = None
                 if bullet_points:
                     # Add bullet points with proper formatting
@@ -680,16 +769,23 @@ def export_to_google_slides(
                     text_content = main_text
                 
                 if text_content:
+                    logger.info(f"   Adding content to slide {slide_number}: {len(text_content)} chars")
+                    print(f"   Adding content to slide {slide_number}: {len(text_content)} chars")
                     # Parse markdown formatting
                     plain_text, style_ranges = parse_markdown_formatting(text_content)
                     
-                    # Insert plain text first
+                    # Insert plain text first (at index 0 after clearing)
+                    # Use insertionIndex: 0 to insert at the beginning
+                    # If the shape is empty after deletion, insertionIndex 0 should work
                     content_requests.append({
                         'insertText': {
                             'objectId': content_shape_id,
+                            'insertionIndex': 0,
                             'text': plain_text
                         }
                     })
+                    logger.info(f"   Added insertText request for slide {slide_number}: {len(plain_text)} chars at index 0")
+                    print(f"   Added insertText request for slide {slide_number}: {len(plain_text)} chars at index 0")
                     
                     # Apply formatting styles
                     for style_range in style_ranges:
@@ -713,16 +809,28 @@ def export_to_google_slides(
                                 }
                             })
                     
-                    # Set font size for content/subtitle to ensure proper hierarchy
-                    # For first slide (title slide): subtitle should be smaller than title (24pt)
-                    # For regular slides: body text should be readable (18pt)
+                    # Set font size for content/subtitle from design_spec or use defaults
                     if idx == 0:
-                        # Title slide: subtitle font size (smaller than title's 44pt)
-                        subtitle_font_size = 24
+                        # Title slide: use subtitle_font_size from design_spec
+                        subtitle_font_size = design_spec.get('subtitle_font_size')
+                        if subtitle_font_size is None:
+                            subtitle_font_size = 24  # Default
+                        else:
+                            # Validate: ensure smaller than title and reasonable range (14-32pt)
+                            subtitle_font_size = max(14, min(32, int(subtitle_font_size)))
+                            # Ensure subtitle is smaller than title
+                            if subtitle_font_size >= title_font_size:
+                                subtitle_font_size = max(14, title_font_size - 4)
                     else:
-                        # Regular slides: body text font size
-                        subtitle_font_size = 18
+                        # Regular slides: use body_font_size from design_spec
+                        subtitle_font_size = design_spec.get('body_font_size')
+                        if subtitle_font_size is None:
+                            subtitle_font_size = 18  # Default
+                        else:
+                            # Validate: ensure reasonable range (12-24pt)
+                            subtitle_font_size = max(12, min(24, int(subtitle_font_size)))
                     
+                    # Apply content/subtitle font size
                     content_requests.append({
                         'updateTextStyle': {
                             'objectId': content_shape_id,
@@ -738,6 +846,35 @@ def export_to_google_slides(
                             'fields': 'fontSize'
                         }
                     })
+                    
+                    # Apply content alignment if specified
+                    content_alignment_key = 'subtitle' if idx == 0 else 'body'
+                    content_alignment = design_spec.get('alignment', {}).get(content_alignment_key)
+                    if content_alignment:
+                        alignment_map = {
+                            'left': 'START',
+                            'center': 'CENTER',
+                            'right': 'END'
+                        }
+                        if content_alignment.lower() in alignment_map:
+                            content_requests.append({
+                                'updateParagraphStyle': {
+                                    'objectId': content_shape_id,
+                                    'textRange': {
+                                        'type': 'ALL'
+                                    },
+                                    'style': {
+                                        'alignment': alignment_map[content_alignment.lower()]
+                                    },
+                                    'fields': 'alignment'
+                                }
+                            })
+                    
+                    # Line spacing is not applied - Google Slides API format is unclear and causes errors
+                    # We silently skip it (no warning needed as it's expected behavior)
+                else:
+                    logger.warning(f"⚠️  No content to add for slide {slide_number} (no bullet_points or main_text)")
+                    print(f"⚠️  No content to add for slide {slide_number} (no bullet_points or main_text)")
             elif bullet_points or main_text:
                 print(f"⚠️  Warning: Could not find content shape for slide {slide_number}")
             
@@ -801,20 +938,53 @@ def export_to_google_slides(
         # Execute all content updates
         if content_requests:
             print(f"\n📝 Adding slide content and speaker notes ({len(content_requests)} requests)...")
+            logger.info(f"📝 Executing {len(content_requests)} content update requests")
+            
+            # Log request types for debugging
+            request_types = {}
+            for req in content_requests:
+                req_type = list(req.keys())[0]
+                request_types[req_type] = request_types.get(req_type, 0) + 1
+            print(f"   Request breakdown: {request_types}")
+            logger.info(f"   Request breakdown: {request_types}")
+            
             try:
                 response = service.presentations().batchUpdate(
                     presentationId=presentation_id,
                     body={'requests': content_requests}
                 ).execute()
                 print(f"✅ Successfully executed {len(content_requests)} content update requests")
+                logger.info(f"✅ Successfully executed {len(content_requests)} content update requests")
+                
                 if response.get('replies'):
-                    print(f"   Got {len(response.get('replies', []))} replies")
+                    replies = response.get('replies', [])
+                    print(f"   Got {len(replies)} replies")
+                    logger.info(f"   Got {len(replies)} replies")
+                    
+                    # Check for errors in replies
+                    for i, reply in enumerate(replies):
+                        if 'error' in reply:
+                            error_msg = reply.get('error', {})
+                            print(f"   ⚠️  Error in reply {i}: {error_msg}")
+                            logger.warning(f"   ⚠️  Error in reply {i}: {error_msg}")
+                else:
+                    print(f"   ⚠️  No replies in response")
+                    logger.warning(f"   ⚠️  No replies in response")
+                    
             except HttpError as e:
-                print(f"❌ Error adding content: {e}")
+                error_details = str(e)
+                print(f"❌ Error adding content: {error_details}")
+                logger.error(f"❌ Error adding content: {error_details}")
+                
                 # Print first few requests for debugging
-                print(f"   First 3 requests:")
-                for i, req in enumerate(content_requests[:3]):
-                    print(f"      {i}: {list(req.keys())[0]}")
+                print(f"   First 5 requests:")
+                logger.error(f"   First 5 requests:")
+                for i, req in enumerate(content_requests[:5]):
+                    req_type = list(req.keys())[0]
+                    req_details = req.get(req_type, {})
+                    print(f"      {i}: {req_type} - objectId: {req_details.get('objectId', 'N/A')[:20]}...")
+                    logger.error(f"      {i}: {req_type} - objectId: {req_details.get('objectId', 'N/A')[:20]}...")
+                
                 # Even if content addition fails, return the presentation info so it can still be accessed
                 # The presentation was created successfully, even if content couldn't be added
                 shareable_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
