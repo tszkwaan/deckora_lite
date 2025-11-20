@@ -3,7 +3,10 @@ Helper functions for the presentation generation pipeline.
 """
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
@@ -184,6 +187,177 @@ def preview_json(data: Any, max_chars: int = 2000) -> str:
     return preview
 
 
+def filter_sections_by_semantic_similarity(
+    sections: List[Dict[str, Any]],
+    presentation_outline: Dict[str, Any],
+    similarity_threshold: float = 0.3
+) -> List[Dict[str, Any]]:
+    """
+    ✅ BEST PRACTICE: Semantic section filtering using embedding similarity.
+    Filters report sections based on semantic similarity to outline topics.
+    
+    Uses google.generativeai.embed_content() to compute embeddings and cosine similarity
+    to determine which sections are relevant to the outline.
+    
+    Args:
+        sections: List of report sections to filter
+        presentation_outline: Presentation outline with slides
+        similarity_threshold: Minimum cosine similarity threshold (0.0-1.0)
+        
+    Returns:
+        Filtered list of relevant sections
+    """
+    if not sections or not presentation_outline:
+        return sections
+    
+    try:
+        import google.generativeai as genai
+        import numpy as np
+    except ImportError:
+        logger.warning("⚠️  google.generativeai not available, falling back to keyword matching")
+        return _fallback_keyword_filtering(sections, presentation_outline)
+    
+    try:
+        # Extract outline topics from slides
+        slides = presentation_outline.get('slides', [])
+        if not slides:
+            return sections
+        
+        outline_texts = []
+        for slide in slides:
+            key_points = slide.get('key_points', [])
+            title = slide.get('title', '')
+            content_notes = slide.get('content_notes', '')
+            # Combine all text from slide
+            slide_text = f"{title} {content_notes} {' '.join(key_points)}".strip()
+            if slide_text:
+                outline_texts.append(slide_text)
+        
+        if not outline_texts:
+            return sections
+        
+        # Create embeddings for outline topics (combine all slides into one query)
+        combined_outline_text = " ".join(outline_texts)
+        
+        try:
+            # Get embedding for outline
+            outline_embedding_result = genai.embed_content(
+                model="models/text-embedding-004",
+                content=combined_outline_text,
+                task_type="retrieval_document"  # Use retrieval_document for better similarity matching
+            )
+            outline_embedding = np.array(outline_embedding_result['embedding'])
+        except Exception as e:
+            logger.warning(f"⚠️  Error generating outline embedding: {e}, falling back to keyword matching")
+            return _fallback_keyword_filtering(sections, presentation_outline)
+        
+        # Get embeddings for each section
+        relevant_sections = []
+        section_texts = []
+        section_indices = []
+        
+        for idx, section in enumerate(sections):
+            section_label = section.get('label', '')
+            section_summary = section.get('summary', '')
+            section_key_points = ' '.join(section.get('key_points', []))
+            section_text = f"{section_label} {section_summary} {section_key_points}".strip()
+            
+            if section_text:
+                section_texts.append(section_text)
+                section_indices.append(idx)
+        
+        if not section_texts:
+            return sections
+        
+        # Batch embed sections
+        try:
+            section_embeddings_result = genai.embed_content(
+                model="models/text-embedding-004",
+                content=section_texts,
+                task_type="retrieval_document"
+            )
+            section_embeddings = np.array(section_embeddings_result['embedding'])
+        except Exception as e:
+            logger.warning(f"⚠️  Error generating section embeddings: {e}, falling back to keyword matching")
+            return _fallback_keyword_filtering(sections, presentation_outline)
+        
+        # Normalize embeddings for cosine similarity
+        outline_embedding_norm = outline_embedding / (np.linalg.norm(outline_embedding) + 1e-10)
+        section_embeddings_norm = section_embeddings / (np.linalg.norm(section_embeddings, axis=1, keepdims=True) + 1e-10)
+        
+        # Compute cosine similarity
+        similarities = np.dot(section_embeddings_norm, outline_embedding_norm)
+        
+        # Filter sections by similarity threshold
+        for i, similarity in enumerate(similarities):
+            if similarity >= similarity_threshold:
+                relevant_sections.append(sections[section_indices[i]])
+        
+        # If no sections pass threshold, include top 50% by similarity (fallback)
+        if not relevant_sections and len(sections) > 0:
+            top_indices = np.argsort(similarities)[::-1][:max(1, len(sections) // 2)]
+            relevant_sections = [sections[section_indices[i]] for i in top_indices]
+            logger.info(f"📊 Semantic filtering: No sections above threshold {similarity_threshold}, using top {len(relevant_sections)} sections")
+        
+        # Log filtering results
+        if len(sections) > 0:
+            filter_ratio = len(relevant_sections) / len(sections)
+            avg_similarity = float(np.mean(similarities))
+            logger.info(f"📊 Semantic filtering: {len(relevant_sections)}/{len(sections)} sections relevant ({filter_ratio:.1%}), avg similarity: {avg_similarity:.3f}")
+        
+        return relevant_sections
+        
+    except Exception as e:
+        logger.warning(f"⚠️  Error in semantic filtering: {e}, falling back to keyword matching")
+        return _fallback_keyword_filtering(sections, presentation_outline)
+
+
+def _fallback_keyword_filtering(
+    sections: List[Dict[str, Any]],
+    presentation_outline: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """
+    Fallback keyword-based filtering when semantic similarity is not available.
+    """
+    # Extract topics from outline
+    outline_topics = set()
+    slides = presentation_outline.get('slides', [])
+    for slide in slides:
+        key_points = slide.get('key_points', [])
+        title = slide.get('title', '')
+        content_notes = slide.get('content_notes', '')
+        all_text = f"{title} {content_notes} {' '.join(key_points)}".lower()
+        outline_topics.add(all_text)
+    
+    # Filter sections based on keyword matching
+    relevant_sections = []
+    for section in sections:
+        section_label = section.get('label', '').lower()
+        section_summary = section.get('summary', '').lower()
+        section_key_points = ' '.join(section.get('key_points', [])).lower()
+        section_text = f"{section_label} {section_summary} {section_key_points}"
+        
+        is_relevant = False
+        for topic_text in outline_topics:
+            common_words = set(section_text.split()) & set(topic_text.split())
+            if len(common_words) >= 3:
+                is_relevant = True
+                break
+        
+        if is_relevant:
+            relevant_sections.append(section)
+    
+    # If no relevant sections found, include all sections (fallback)
+    if not relevant_sections:
+        relevant_sections = sections
+    
+    if len(sections) > 0:
+        filter_ratio = len(relevant_sections) / len(sections)
+        logger.info(f"📊 Keyword filtering (fallback): {len(relevant_sections)}/{len(sections)} sections relevant ({filter_ratio:.1%})")
+    
+    return relevant_sections
+
+
 def extract_relevant_knowledge(
     report_knowledge: Dict[str, Any],
     agent_name: str,
@@ -235,51 +409,11 @@ def extract_relevant_knowledge(
     elif agent_name == "SlideAndScriptGeneratorAgent":
         # Only needs sections that match the outline topics
         if presentation_outline:
-            # Extract topics from outline
-            outline_topics = set()
-            slides = presentation_outline.get('slides', [])
-            for slide in slides:
-                # Extract key points and titles
-                key_points = slide.get('key_points', [])
-                title = slide.get('title', '')
-                content_notes = slide.get('content_notes', '')
-                
-                # Add keywords from these fields
-                all_text = f"{title} {content_notes} {' '.join(key_points)}".lower()
-                outline_topics.add(all_text)
-            
-            # Filter sections based on relevance to outline topics
-            all_sections = report_knowledge.get('sections', [])
-            relevant_sections = []
-            
-            for section in all_sections:
-                section_label = section.get('label', '').lower()
-                section_summary = section.get('summary', '').lower()
-                section_key_points = ' '.join(section.get('key_points', [])).lower()
-                section_text = f"{section_label} {section_summary} {section_key_points}"
-                
-                # Check if section is relevant to any outline topic
-                is_relevant = False
-                for topic_text in outline_topics:
-                    # Simple keyword matching (can be improved with semantic similarity)
-                    common_words = set(section_text.split()) & set(topic_text.split())
-                    if len(common_words) >= 3:  # At least 3 common words
-                        is_relevant = True
-                        break
-                
-                if is_relevant:
-                    relevant_sections.append(section)
-            
-            # If no relevant sections found, include all sections (fallback)
-            if not relevant_sections:
-                relevant_sections = all_sections
-            
-            # Log filtering results
-            import logging
-            logger = logging.getLogger(__name__)
-            if len(all_sections) > 0:
-                filter_ratio = len(relevant_sections) / len(all_sections)
-                logger.info(f"📊 Section filtering: {len(relevant_sections)}/{len(all_sections)} sections relevant ({filter_ratio:.1%})")
+            # ✅ BEST PRACTICE: Use semantic similarity for section filtering
+            relevant_sections = filter_sections_by_semantic_similarity(
+                report_knowledge.get('sections', []),
+                presentation_outline
+            )
             
             return {
                 **base_fields,
@@ -303,6 +437,93 @@ def extract_relevant_knowledge(
     else:
         # Unknown agent - return full knowledge (safe default)
         return report_knowledge
+
+
+def compress_critic_review(critic_review: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    ✅ BEST PRACTICE: Context compaction - compress outline critic review for retry.
+    Extracts only actionable feedback needed by OutlineGeneratorAgent during retry:
+    - hallucination_issues: List of specific hallucination issues with slide numbers
+    - safety_issues: List of specific safety violations with slide numbers
+    - quality_issues: List of quality issues with severity and suggestions
+    - slides_to_fix: List of slide numbers that need fixing
+    
+    Removes metadata like:
+    - review_type (not needed for fixing)
+    - overall_quality (not actionable)
+    - strengths (not actionable)
+    - missing_elements (can be inferred from issues)
+    - recommendations (redundant with suggestions in issues)
+    - tone_check (not actionable)
+    - hallucination_check.score, safety_check.score (not actionable, only issues matter)
+    
+    Args:
+        critic_review: Full critic review dictionary from OutlineCriticAgent
+        
+    Returns:
+        Compressed critic review dictionary with only actionable feedback:
+        {
+            "hallucination_issues": [...],
+            "safety_issues": [...],
+            "quality_issues": [...],
+            "slides_to_fix": [1, 2, 3]
+        }
+    """
+    if not isinstance(critic_review, dict):
+        return critic_review
+    
+    # Extract hallucination issues
+    hallucination_check = critic_review.get("hallucination_check", {})
+    hallucination_issues = hallucination_check.get("grounding_issues", [])
+    
+    # Extract safety issues
+    safety_check = critic_review.get("safety_check", {})
+    safety_issues = safety_check.get("violations", [])
+    
+    # Extract quality issues (from main issues array)
+    quality_issues = []
+    issues = critic_review.get("issues", [])
+    for issue in issues:
+        if isinstance(issue, dict):
+            # Only include issues with severity and suggestion
+            if "severity" in issue and "suggestion" in issue:
+                quality_issues.append({
+                    "severity": issue.get("severity"),
+                    "issue": issue.get("issue"),
+                    "suggestion": issue.get("suggestion")
+                })
+    
+    # Extract slide numbers that need fixing
+    slides_to_fix = set()
+    
+    # From hallucination issues
+    for issue in hallucination_issues:
+        if isinstance(issue, dict):
+            slide_num = issue.get("slide_number")
+            if slide_num is not None:
+                try:
+                    slides_to_fix.add(int(slide_num))
+                except (ValueError, TypeError):
+                    pass
+    
+    # From safety issues
+    for issue in safety_issues:
+        if isinstance(issue, dict):
+            slide_num = issue.get("slide_number")
+            if slide_num is not None:
+                try:
+                    slides_to_fix.add(int(slide_num))
+                except (ValueError, TypeError):
+                    pass
+    
+    compressed = {
+        "hallucination_issues": hallucination_issues,
+        "safety_issues": safety_issues,
+        "quality_issues": quality_issues,
+        "slides_to_fix": sorted(list(slides_to_fix)) if slides_to_fix else []
+    }
+    
+    return compressed
 
 
 def compress_layout_review(layout_review: Dict[str, Any]) -> Dict[str, Any]:

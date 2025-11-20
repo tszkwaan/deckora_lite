@@ -1,6 +1,7 @@
 # Core dependencies
 google-adk[eval]  # Includes eval module for evaluation features
 google-genai
+google-generativeai  # For semantic embedding (embed_content)
 pypdf
 requests
 python-dotenv  # For .env file support

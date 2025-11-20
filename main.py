@@ -25,7 +25,7 @@ from presentation_agent.agents.layout_critic_agent.agent import agent as layout_
 # Import tools and utilities
 from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool
 from presentation_agent.agents.utils.pdf_loader import load_pdf
-from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, extract_relevant_knowledge, preview_json, compress_outline, compress_layout_review
+from presentation_agent.agents.utils.helpers import extract_output_from_events, save_json_output, extract_relevant_knowledge, preview_json, compress_outline, compress_layout_review, compress_critic_review
 from presentation_agent.agents.utils.observability import (
     get_observability_logger,
     AgentStatus
@@ -267,6 +267,9 @@ Note: Full data is automatically available in your instructions via session.stat
                 critic_review = extract_output_from_events(events, "critic_review_outline")
                 
                 if critic_review:
+                    # ✅ BEST PRACTICE: Store critic_review in session.state for retry compression
+                    session.state["critic_review_outline"] = critic_review
+                    
                     passed, quality_details = check_outline_quality(critic_review)
                     obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
                     

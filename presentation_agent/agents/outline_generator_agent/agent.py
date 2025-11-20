@@ -49,22 +49,30 @@ Note: Full report_knowledge is available via session.state['report_knowledge'] i
 Configuration values are automatically available from session.state.
 
 [PREVIOUS_CRITIC_REVIEW] (optional - only present if this is a retry)
-<Previous critic review output if threshold was not met>
+<Compressed actionable feedback from previous critic review>
+Format: {
+  "hallucination_issues": [{"slide_number": 1, "issue": "...", "severity": "..."}],
+  "safety_issues": [{"slide_number": 2, "violation_type": "...", "severity": "..."}],
+  "quality_issues": [{"severity": "major", "issue": "...", "suggestion": "..."}],
+  "slides_to_fix": [1, 2]
+}
 [END_PREVIOUS_CRITIC_REVIEW]
 
 [THRESHOLD_CHECK] (optional - only present if this is a retry)
 <Threshold check result indicating why regeneration is needed>
 [END_THRESHOLD_CHECK]
 
+✅ BEST PRACTICE: If [PREVIOUS_CRITIC_REVIEW] is provided, use it to improve the outline:
+- Address specific hallucination issues listed in "hallucination_issues" array
+- Fix safety violations listed in "safety_issues" array
+- Address quality issues with their suggestions from "quality_issues" array
+- Focus on fixing slides listed in "slides_to_fix" array
+
 CRITICAL: 
 - Use ONLY the information from [REPORT_KNOWLEDGE] section
 - Do NOT invent facts, numbers, or technical details not present in report_knowledge
 - All slide content must be traceable back to report_knowledge sections
 - The [REPORT_KNOWLEDGE] is your ground truth - stick to it strictly
-- If [PREVIOUS_CRITIC_REVIEW] and [THRESHOLD_CHECK] are provided, use them to improve the outline:
-  * Address hallucination issues if hallucination_score was below threshold
-  * Address safety issues if safety_score was below threshold
-  * Fix any issues mentioned in the critic review
 
 ------------------------------------------------------------
 REQUIRED OUTPUT FORMAT
