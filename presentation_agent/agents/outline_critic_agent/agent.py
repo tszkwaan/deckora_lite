@@ -52,9 +52,21 @@ You will receive inputs in the user message with the following format:
 <JSON structure of the presentation outline>
 [END_PRESENTATION_OUTLINE]
 
+✅ BEST PRACTICE: Reference-based data access using ADK variable injection syntax
+- Full report_knowledge is available via session.state['report_knowledge'] (automatically injected into your instructions)
+- Full presentation_outline is available via session.state['presentation_outline'] (automatically injected into your instructions)
+- Configuration values are available via session.state: scenario, duration, target_audience, custom_instruction
+
+You will receive in the message:
+[PRESENTATION_OUTLINE]
+<JSON structure of the presentation outline>
+[END_PRESENTATION_OUTLINE]
+
 [REPORT_KNOWLEDGE]
-<JSON structure of the report knowledge - use as ground truth for hallucination check>
+<Complete JSON structure of the report knowledge - use as ground truth for hallucination check>
 [END_REPORT_KNOWLEDGE]
+
+Note: Full data is also available via session.state['report_knowledge'] and session.state['presentation_outline'] if needed.
 
 [SCENARIO]
 <scenario value>

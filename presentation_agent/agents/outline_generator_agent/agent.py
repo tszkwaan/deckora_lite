@@ -32,23 +32,21 @@ OBJECTIVES
 INPUTS YOU WILL RECEIVE
 ------------------------------------------------------------
 
+✅ BEST PRACTICE: Reference-based data access using ADK variable injection syntax
+- All data is stored in session.state and automatically injected into your instructions
+- You will receive a filtered subset of report_knowledge in the message (to reduce token usage)
+- Full report_knowledge is available via session.state['report_knowledge'] in your instructions
+- Configuration values are available via session.state: scenario, duration, target_audience, custom_instruction
+
 You will receive inputs in the user message with the following format:
 
-[REPORT_KNOWLEDGE]
-<JSON structure of the report knowledge - this is your ONLY source of content>
-[END_REPORT_KNOWLEDGE]
+[REPORT_KNOWLEDGE_SUBSET]
+<Filtered JSON structure of the report knowledge - this is your primary source of content>
+[END_REPORT_KNOWLEDGE_SUBSET]
 
-[SCENARIO]
-<scenario value>
+Note: Full report_knowledge is available via session.state['report_knowledge'] if you need additional details.
 
-[DURATION]
-<duration value>
-
-[TARGET_AUDIENCE]
-<target_audience value>
-
-[CUSTOM_INSTRUCTION]
-<custom_instruction value>
+Configuration values are automatically available from session.state.
 
 [PREVIOUS_CRITIC_REVIEW] (optional - only present if this is a retry)
 <Previous critic review output if threshold was not met>

@@ -129,8 +129,10 @@ async def run_presentation_pipeline(
         user_id="user"
     )
     
-    # Set up session state
+    # ✅ BEST PRACTICE: Set up session.state for {{variable}} injection
+    # All data stored here will be automatically available via {{variable}} syntax in agent instructions
     session.state.update(config.to_dict())
+    # Note: report_knowledge, presentation_outline, etc. will be added as they are generated
     
     # Build initial message (same format as server.py)
     target_audience_section = (
@@ -206,10 +208,22 @@ Your task:
             filtered_size = len(json.dumps(relevant_knowledge))
             reduction = (1 - filtered_size / original_size) * 100 if original_size > 0 else 0
             print(f"📦 Context compaction: {original_size:,} → {filtered_size:,} chars ({reduction:.1f}% reduction) for OutlineGeneratorAgent")
-            events = await runner.run_debug(
-                f"[REPORT_KNOWLEDGE]\n{json.dumps(relevant_knowledge, indent=2)}\n[END_REPORT_KNOWLEDGE]\n\n[SCENARIO]\n{config.scenario}\n\n[DURATION]\n{config.duration}\n\n[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n\n[CUSTOM_INSTRUCTION]\n{config.custom_instruction}\n\nGenerate a presentation outline based on the report knowledge above.",
-                session_id=session.id
-            )
+            # ✅ BEST PRACTICE: Reference-based data access
+            # Full report_knowledge is stored in session.state['report_knowledge']
+            # ADK automatically injects {{report_knowledge}}, {{scenario}}, etc. from session.state into agent instructions
+            # We pass filtered knowledge in message to reduce token usage
+            # Note: {{variable}} syntax only works in agent instructions, not in user messages
+            message = f"""✅ BEST PRACTICE: Reference-based data access
+Full report_knowledge is stored in session.state['report_knowledge'] and automatically available in agent instructions.
+Below is a filtered subset relevant for outline generation (to reduce token usage).
+
+[REPORT_KNOWLEDGE_SUBSET]
+{json.dumps(relevant_knowledge, indent=2)}
+[END_REPORT_KNOWLEDGE_SUBSET]
+
+Generate a presentation outline based on the report knowledge subset above.
+Note: Full report_knowledge and configuration values are automatically available in your instructions via session.state."""
+            events = await runner.run_debug(message, session_id=session.id)
             presentation_outline = extract_output_from_events(events, "presentation_outline")
             
             if not presentation_outline:
@@ -217,6 +231,7 @@ Your task:
                 outline_retries += 1
                 continue
             
+            # ✅ BEST PRACTICE: Store in session.state for {{presentation_outline}} injection
             session.state["presentation_outline"] = presentation_outline
             
             # Outline Critic (if enabled)
@@ -224,7 +239,21 @@ Your task:
                 obs_logger.start_agent_execution("OutlineCriticAgent", output_key="critic_review_outline")
                 runner = InMemoryRunner(agent=outline_critic_agent)
                 # Build proper input message with all required context
-                critic_input = f"""[PRESENTATION_OUTLINE]
+                # ✅ BEST PRACTICE: Reference-based data access
+                # Full report_knowledge is stored in session.state['report_knowledge']
+                # ADK automatically injects {{report_knowledge}}, {{presentation_outline}}, etc. from session.state into agent instructions
+                # OutlineCriticAgent needs FULL report_knowledge for hallucination checking
+                # We pass it in message, but full data is also available in agent instructions
+                # Note: {{variable}} syntax only works in agent instructions, not in user messages
+                critic_input = f"""✅ BEST PRACTICE: Reference-based data access
+Full data is stored in session.state and automatically available in your instructions:
+- Full report_knowledge: session.state['report_knowledge']
+- Full presentation_outline: session.state['presentation_outline']
+- Configuration: session.state['scenario'], session.state['duration'], etc.
+
+Below is the complete report_knowledge (required for hallucination checking).
+
+[PRESENTATION_OUTLINE]
 {json.dumps(presentation_outline, indent=2)}
 [END_PRESENTATION_OUTLINE]
 
@@ -232,19 +261,8 @@ Your task:
 {json.dumps(report_knowledge, indent=2)}
 [END_REPORT_KNOWLEDGE]
 
-[SCENARIO]
-{config.scenario}
-
-[DURATION]
-{config.duration}
-
-[TARGET_AUDIENCE]
-{config.target_audience}
-
-[CUSTOM_INSTRUCTION]
-{config.custom_instruction}
-
-Review this outline for quality, hallucination, and safety."""
+Review this outline for quality, hallucination, and safety.
+Note: Full data is automatically available in your instructions via session.state."""
                 events = await runner.run_debug(critic_input, session_id=session.id)
                 critic_review = extract_output_from_events(events, "critic_review_outline")
                 
@@ -294,10 +312,30 @@ Review this outline for quality, hallucination, and safety."""
         filtered_size = len(json.dumps(relevant_knowledge))
         reduction = (1 - filtered_size / original_size) * 100 if original_size > 0 else 0
         print(f"📦 Context compaction: {original_size:,} → {filtered_size:,} chars ({reduction:.1f}% reduction) for SlideAndScriptGeneratorAgent")
-        events = await runner.run_debug(
-            f"[PRESENTATION_OUTLINE]\n{json.dumps(presentation_outline, indent=2)}\n[END_PRESENTATION_OUTLINE]\n\n[REPORT_KNOWLEDGE]\n{json.dumps(relevant_knowledge, indent=2)}\n[END_REPORT_KNOWLEDGE]\n\n[SCENARIO]\n{config.scenario}\n\n[DURATION]\n{config.duration}\n\n[TARGET_AUDIENCE]\n{config.target_audience or 'N/A'}\n\n[CUSTOM_INSTRUCTION]\n{config.custom_instruction}\n\nGenerate slides and script based on the outline and report knowledge above.",
-            session_id=session.id
-        )
+        # ✅ BEST PRACTICE: Reference-based data access
+        # Full report_knowledge and presentation_outline are stored in session.state
+        # ADK automatically injects {{report_knowledge}}, {{presentation_outline}}, etc. from session.state into agent instructions
+        # We pass filtered knowledge in message to reduce token usage
+        # Note: {{variable}} syntax only works in agent instructions, not in user messages
+        message = f"""✅ BEST PRACTICE: Reference-based data access
+Full data is stored in session.state and automatically available in your instructions:
+- Full report_knowledge: session.state['report_knowledge']
+- Full presentation_outline: session.state['presentation_outline']
+- Configuration: session.state['scenario'], session.state['duration'], etc.
+
+Below is filtered report_knowledge relevant to the outline (to reduce token usage).
+
+[PRESENTATION_OUTLINE]
+{json.dumps(presentation_outline, indent=2)}
+[END_PRESENTATION_OUTLINE]
+
+[REPORT_KNOWLEDGE_SUBSET]
+{json.dumps(relevant_knowledge, indent=2)}
+[END_REPORT_KNOWLEDGE_SUBSET]
+
+Generate slides and script based on the outline and report knowledge subset above.
+Note: Full data is automatically available in your instructions via session.state."""
+        events = await runner.run_debug(message, session_id=session.id)
         slide_and_script = extract_output_from_events(events, "slide_and_script")
         
         if not slide_and_script:

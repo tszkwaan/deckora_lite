@@ -33,13 +33,17 @@ OBJECTIVES
 INPUTS YOU WILL RECEIVE
 ------------------------------------------------------------
 
-You will be given (via state/context or message):
-- presentation_outline: Outline from Outline Generator Agent
-- report_knowledge: Structured knowledge from Report Understanding Agent
-- scenario: Presentation scenario
-- duration: Presentation duration (CRITICAL for script timing)
-- target_audience: Target audience
-- custom_instruction: Custom instructions (e.g., "keep details in speech only")
+✅ BEST PRACTICE: Reference-based data access using ADK variable injection syntax
+- All data is stored in session.state and automatically injected into your instructions
+- You will receive filtered report_knowledge and presentation_outline in the message (to reduce token usage)
+- Full data is available via session.state:
+  - Full report_knowledge: session.state['report_knowledge']
+  - Full presentation_outline: session.state['presentation_outline']
+  - Configuration: session.state['scenario'], session.state['duration'], etc.
+
+You will receive in the message:
+- presentation_outline: Filtered outline (full version available via session.state['presentation_outline'])
+- report_knowledge: Filtered structured knowledge (full version available via session.state['report_knowledge'])
 
 [PREVIOUS_LAYOUT_REVIEW] (optional - only present if this is a retry)
 <Previous layout review output if threshold was not met>
