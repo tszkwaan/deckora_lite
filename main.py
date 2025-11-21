@@ -132,24 +132,57 @@ async def run_presentation_pipeline(
     # Set up session state
     session.state.update(config.to_dict())
     
+    # Log which fields are provided vs need inference
+    print("\n📋 Input Configuration:")
+    print("=" * 60)
+    scenario_provided = config.scenario and config.scenario.strip()
+    target_audience_provided = config.target_audience and config.target_audience.strip()
+    custom_instruction_provided = config.custom_instruction and config.custom_instruction.strip()
+    
+    print(f"  ✅ scenario: {'PROVIDED' if scenario_provided else 'NOT PROVIDED (will be inferred)'}")
+    if scenario_provided:
+        print(f"     Value: {config.scenario}")
+    
+    print(f"  ✅ target_audience: {'PROVIDED' if target_audience_provided else 'NOT PROVIDED (will be inferred)'}")
+    if target_audience_provided:
+        print(f"     Value: {config.target_audience}")
+    
+    print(f"  ✅ custom_instruction: {'PROVIDED' if custom_instruction_provided else 'NOT PROVIDED (will be omitted)'}")
+    if custom_instruction_provided:
+        print(f"     Value: {config.custom_instruction}")
+    
+    print(f"  ✅ duration: PROVIDED")
+    print(f"     Value: {config.duration}")
+    print(f"  ✅ report_url: {'PROVIDED' if config.report_url else 'NOT PROVIDED'}")
+    if config.report_url:
+        print(f"     Value: {config.report_url}")
+    print("=" * 60)
+    
     # Build initial message (same format as server.py)
+    # Handle optional fields
+    scenario_section = (
+        f"[SCENARIO]\n{config.scenario}\n\n"
+        if scenario_provided
+        else "[SCENARIO]\nN/A\n\n"
+    )
+    
     target_audience_section = (
-        f"[TARGET_AUDIENCE]\n{config.target_audience}\n"
-        if config.target_audience
-        else "[TARGET_AUDIENCE]\nN/A\n"
+        f"[TARGET_AUDIENCE]\n{config.target_audience}\n\n"
+        if target_audience_provided
+        else "[TARGET_AUDIENCE]\nN/A\n\n"
+    )
+    
+    custom_instruction_section = (
+        f"[CUSTOM_INSTRUCTION]\n{config.custom_instruction}\n\n"
+        if custom_instruction_provided
+        else ""
     )
     
     initial_message = f"""
-[SCENARIO]
-{config.scenario}
-
-[DURATION]
+{scenario_section}[DURATION]
 {config.duration}
 
-{target_audience_section}[CUSTOM_INSTRUCTION]
-{config.custom_instruction}
-
-[REPORT_URL]
+{target_audience_section}{custom_instruction_section}[REPORT_URL]
 {config.report_url or 'N/A'}
 
 [REPORT_CONTENT]
@@ -178,6 +211,50 @@ Your task:
         report_knowledge = extract_output_from_events(events, "report_knowledge")
         
         if report_knowledge:
+            # Parse report_knowledge if it's a string
+            if isinstance(report_knowledge, str):
+                try:
+                    report_knowledge = json.loads(report_knowledge.strip())
+                except json.JSONDecodeError:
+                    # Try to extract JSON from markdown code blocks
+                    cleaned = report_knowledge.strip()
+                    if cleaned.startswith("```json"):
+                        cleaned = cleaned[7:].lstrip()
+                    elif cleaned.startswith("```"):
+                        cleaned = cleaned[3:].lstrip()
+                    if cleaned.endswith("```"):
+                        cleaned = cleaned[:-3].rstrip()
+                    try:
+                        report_knowledge = json.loads(cleaned)
+                    except json.JSONDecodeError as e:
+                        print(f"⚠️  Warning: Could not parse report_knowledge as JSON: {e}")
+            
+            # Log inferred values
+            print("\n🔍 Inference Results:")
+            print("=" * 60)
+            inferred_scenario = report_knowledge.get("scenario", "N/A")
+            inferred_audience = report_knowledge.get("audience_profile", {}).get("primary_audience", "N/A")
+            
+            if not scenario_provided:
+                print(f"  🧠 scenario: INFERRED")
+                print(f"     Inferred Value: {inferred_scenario}")
+            else:
+                print(f"  ✅ scenario: PROVIDED (not inferred)")
+                print(f"     Provided Value: {config.scenario}")
+                if inferred_scenario != config.scenario:
+                    print(f"     ⚠️  Note: Agent output differs from input: {inferred_scenario}")
+            
+            if not target_audience_provided:
+                print(f"  🧠 target_audience: INFERRED")
+                print(f"     Inferred Value: {inferred_audience}")
+                audience_level = report_knowledge.get("audience_profile", {}).get("assumed_knowledge_level", "N/A")
+                print(f"     Knowledge Level: {audience_level}")
+            else:
+                print(f"  ✅ target_audience: PROVIDED (not inferred)")
+                print(f"     Provided Value: {config.target_audience}")
+            
+            print("=" * 60)
+            
             outputs["report_knowledge"] = report_knowledge
             session.state["report_knowledge"] = report_knowledge
             obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
@@ -216,6 +293,23 @@ Your task:
                 obs_logger.start_agent_execution("OutlineCriticAgent", output_key="critic_review_outline")
                 runner = InMemoryRunner(agent=outline_critic_agent)
                 # Build proper input message with all required context
+                # Build critic input with optional fields handling
+                scenario_section = (
+                    f"[SCENARIO]\n{config.scenario}\n\n"
+                    if config.scenario and config.scenario.strip()
+                    else "[SCENARIO]\nN/A\n\n"
+                )
+                target_audience_section = (
+                    f"[TARGET_AUDIENCE]\n{config.target_audience}\n\n"
+                    if config.target_audience
+                    else "[TARGET_AUDIENCE]\nN/A\n\n"
+                )
+                custom_instruction_section = (
+                    f"[CUSTOM_INSTRUCTION]\n{config.custom_instruction}\n\n"
+                    if config.custom_instruction and config.custom_instruction.strip()
+                    else ""
+                )
+                
                 critic_input = f"""[PRESENTATION_OUTLINE]
 {json.dumps(presentation_outline, indent=2)}
 [END_PRESENTATION_OUTLINE]
@@ -224,19 +318,10 @@ Your task:
 {json.dumps(report_knowledge, indent=2)}
 [END_REPORT_KNOWLEDGE]
 
-[SCENARIO]
-{config.scenario}
-
-[DURATION]
+{scenario_section}[DURATION]
 {config.duration}
 
-[TARGET_AUDIENCE]
-{config.target_audience}
-
-[CUSTOM_INSTRUCTION]
-{config.custom_instruction}
-
-Review this outline for quality, hallucination, and safety."""
+{target_audience_section}{custom_instruction_section}Review this outline for quality, hallucination, and safety."""
                 events = await runner.run_debug(critic_input, session_id=session.id)
                 critic_review = extract_output_from_events(events, "critic_review_outline")
                 
@@ -648,10 +733,10 @@ async def main():
     # Example configuration
     # Note: target_audience is optional - if not provided (or set to None), LLM will infer from scenario and report
     config = PresentationConfig(
-        scenario="academic_teaching",
+        # scenario="academic_teaching",
         duration="1 minute",
-        target_audience="students",  # Optional - can be None to let LLM infer from scenario and report content
-        custom_instruction="keep the slide as clean as possible, use more point forms, keep the details in speech only",
+        # target_audience="students",  # Optional - can be None to let LLM infer from scenario and report content
+        # custom_instruction="keep the slide as clean as possible, use more point forms, keep the details in speech only",
         report_url="https://arxiv.org/pdf/2511.08597",
         style_images=[],  # Add image URLs here if you have them
     )

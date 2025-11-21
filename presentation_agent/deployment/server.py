@@ -130,14 +130,15 @@ def generate_presentation():
             return jsonify({"error": "No JSON payload provided"}), 400
         
         # Validate required fields
-        if not data.get("scenario") or not data.get("duration"):
+        if not data.get("duration"):
             return jsonify({
-                "error": "Missing required fields: scenario and duration are required"
+                "error": "Missing required field: duration is required"
             }), 400
         
         # Create config
+        # scenario is optional - if not provided, LLM will infer from report content
         config = PresentationConfig(
-            scenario=data.get("scenario"),
+            scenario=data.get("scenario") or "",  # Empty string if not provided, will be set to "N/A" in pipeline
             duration=data.get("duration"),
             target_audience=data.get("target_audience"),
             custom_instruction=data.get("custom_instruction", ""),
