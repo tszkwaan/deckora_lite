@@ -547,6 +547,11 @@ Extract the shareable_url from slides_export_result and call review_layout_tool 
                     # Extract layout_review - try multiple methods
                     layout_review = extract_output_from_events(events, "layout_review")
                     
+                    # Also check session.state (callback might have stored it there)
+                    if not layout_review and session.state.get("layout_review"):
+                        layout_review = session.state.get("layout_review")
+                        print(f"✅ [DEBUG] Found layout_review in session.state (from callback)")
+                    
                     # Debug: Log what we got from extract_output_from_events
                     if layout_review:
                         print(f"🔍 [DEBUG] extract_output_from_events returned type: {type(layout_review).__name__}")
@@ -588,6 +593,8 @@ Extract the shareable_url from slides_export_result and call review_layout_tool 
                                                         json_str = re.sub(r'\bTrue\b', 'true', json_str)
                                                         json_str = re.sub(r'\bFalse\b', 'false', json_str)
                                                         json_str = re.sub(r'\bNone\b', 'null', json_str)
+                                                        # Fix invalid escape sequences
+                                                        json_str = re.sub(r"\\'", "'", json_str)
                                                         parsed = json.loads(json_str)
                                                         # Extract review_layout_tool_response if it exists
                                                         if isinstance(parsed, dict) and "review_layout_tool_response" in parsed:
@@ -639,6 +646,8 @@ Extract the shareable_url from slides_export_result and call review_layout_tool 
                                                     json_str = re.sub(r'\bTrue\b', 'true', response)
                                                     json_str = re.sub(r'\bFalse\b', 'false', json_str)
                                                     json_str = re.sub(r'\bNone\b', 'null', json_str)
+                                                    # Fix invalid escape sequences
+                                                    json_str = re.sub(r"\\'", "'", json_str)
                                                     parsed = json.loads(json_str)
                                                     # Extract review_layout_tool_response if it exists
                                                     if isinstance(parsed, dict) and "review_layout_tool_response" in parsed:
@@ -677,6 +686,10 @@ Extract the shareable_url from slides_export_result and call review_layout_tool 
                             # Replace None with null (but not in strings)
                             cleaned = re.sub(r'\bNone\b', 'null', cleaned)
                             
+                            # Fix invalid escape sequences (e.g., \' should be just ')
+                            # In JSON, single quotes don't need escaping, so \' is invalid
+                            cleaned = re.sub(r"\\'", "'", cleaned)
+                            
                             # Try to parse directly first
                             try:
                                 parsed = json.loads(cleaned)
@@ -710,6 +723,8 @@ Extract the shareable_url from slides_export_result and call review_layout_tool 
                                         json_str = re.sub(r'\bTrue\b', 'true', json_str)
                                         json_str = re.sub(r'\bFalse\b', 'false', json_str)
                                         json_str = re.sub(r'\bNone\b', 'null', json_str)
+                                        # Fix invalid escape sequences
+                                        json_str = re.sub(r"\\'", "'", json_str)
                                         parsed = json.loads(json_str)
                                         # Extract review_layout_tool_response if it exists
                                         if isinstance(parsed, dict) and "review_layout_tool_response" in parsed:
@@ -933,8 +948,8 @@ FAILURE TO FIX THESE ISSUES WILL RESULT IN REJECTION."""
                                 outputs["layout_review"] = layout_review
                                 break
                     else:
-                        obs_logger.finish_agent_execution(AgentStatus.FAILED, "No layout review generated", has_output=False)
-                        print(f"⚠️  Layout review not found or invalid")
+                        obs_logger.finish_agent_execution(AgentStatus.FAILED, "Failed to extract/parse layout review from agent output", has_output=False)
+                        print(f"⚠️  Layout review not found or invalid - failed to extract/parse JSON from agent output")
                         if layout_retries >= LAYOUT_MAX_RETRY_LOOPS:
                             break
                         layout_retries += 1

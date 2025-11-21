@@ -2,11 +2,14 @@ from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
 import sys
 import os
+import logging
 
 # Add parent directory to path to import config and tools
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from config import RETRY_CONFIG, DEFAULT_MODEL
 from presentation_agent.agents.tools.google_slides_layout_tool import review_slides_layout
+
+logger = logging.getLogger(__name__)
 
 
 def review_layout_tool(presentation_id_or_url: str, output_dir: str = "presentation_agent/output") -> dict:
@@ -130,6 +133,105 @@ def review_layout_tool(presentation_id_or_url: str, output_dir: str = "presentat
         }
 
 
+def extract_layout_review_from_tool_result(callback_context):
+    """
+    After-agent callback to extract layout_review from agent output or tool result and store it in state.
+    This ensures the layout_review is properly stored even if ADK doesn't parse it correctly.
+    """
+    import json
+    import re
+    
+    try:
+        layout_review = None
+        
+        # Priority 1: Check if layout_review is already in state (from agent output)
+        if hasattr(callback_context, 'state'):
+            try:
+                if hasattr(callback_context.state, '__dict__'):
+                    layout_review = callback_context.state.__dict__.get('layout_review')
+                elif hasattr(callback_context.state, 'get'):
+                    layout_review = callback_context.state.get('layout_review')
+                else:
+                    layout_review = getattr(callback_context.state, 'layout_review', None)
+                
+                if layout_review and isinstance(layout_review, dict):
+                    logger.info("✅ Found layout_review already in state")
+                    return
+            except Exception as e:
+                logger.debug(f"   Could not check state for layout_review: {e}")
+        
+        # Priority 2: Try to extract from agent's text output (if agent outputted JSON string)
+        # Check if there's an output text we can parse
+        if hasattr(callback_context, 'output') and callback_context.output:
+            output_text = str(callback_context.output)
+            # Try to find JSON in the output
+            try:
+                # Remove markdown code blocks if present
+                cleaned = output_text.strip()
+                if cleaned.startswith("```json"):
+                    cleaned = cleaned[7:].lstrip()
+                elif cleaned.startswith("```"):
+                    cleaned = cleaned[3:].lstrip()
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3].rstrip()
+                
+                # Try to find JSON object
+                start_idx = cleaned.find("{")
+                if start_idx != -1:
+                    # Find matching closing brace
+                    brace_count = 0
+                    end_idx = start_idx
+                    for i in range(start_idx, len(cleaned)):
+                        if cleaned[i] == '{':
+                            brace_count += 1
+                        elif cleaned[i] == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                end_idx = i
+                                break
+                    
+                    if end_idx > start_idx:
+                        json_str = cleaned[start_idx:end_idx+1]
+                        # Convert Python booleans
+                        json_str = re.sub(r'\bTrue\b', 'true', json_str)
+                        json_str = re.sub(r'\bFalse\b', 'false', json_str)
+                        json_str = re.sub(r'\bNone\b', 'null', json_str)
+                        # Fix invalid escape sequences
+                        json_str = re.sub(r"\\'", "'", json_str)
+                        
+                        parsed = json.loads(json_str)
+                        if isinstance(parsed, dict) and ('review_type' in parsed or 'passed' in parsed):
+                            layout_review = parsed
+                            logger.info("✅ Parsed layout_review from agent output text")
+            except (json.JSONDecodeError, ValueError, AttributeError) as e:
+                logger.debug(f"   Could not parse output text as JSON: {e}")
+        
+        # Priority 3: If we have slides_export_result in state, we could call the tool again
+        # But that's wasteful, so we skip this and let main.py handle extraction from tool_results
+        
+        # Store in state if found
+        if layout_review:
+            if hasattr(callback_context, 'state'):
+                try:
+                    if hasattr(callback_context.state, '__dict__'):
+                        callback_context.state.__dict__['layout_review'] = layout_review
+                    elif hasattr(callback_context.state, '__setitem__'):
+                        callback_context.state['layout_review'] = layout_review
+                    else:
+                        setattr(callback_context.state, 'layout_review', layout_review)
+                    logger.info("✅ Stored layout_review in state via callback")
+                except Exception as e:
+                    logger.warning(f"⚠️ Error storing layout_review in state: {e}")
+            else:
+                logger.warning("⚠️ No state object in callback_context")
+        else:
+            logger.debug("⚠️ Could not extract layout_review from callback - will rely on main.py extraction")
+    except Exception as e:
+        logger.error(f"❌ Error in extract_layout_review_from_tool_result callback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
 # Export as 'agent' instead of 'root_agent' so this won't be discovered as a root agent by ADK-web
 agent = LlmAgent(
     name="LayoutCriticAgent",
@@ -163,26 +265,35 @@ Take the "shareable_url" value from the JSON. It starts with "https://docs.googl
 Call review_layout_tool with that URL:
 review_layout_tool("https://docs.google.com/presentation/d/1i6TyEddxmpVbWCGyQWR336lZ_dZt5QeC_HFf_79cZzY/edit", output_dir="presentation_agent/output")
 
-**CRITICAL: After calling the tool, you MUST return the tool's result as valid JSON.**
-The tool returns a dict. Convert it to JSON string and return it. Do NOT wrap it in markdown code blocks - return the raw JSON string.
+**OUTPUT REQUIREMENT:**
 
-Example: If the tool returns {"review_type": "layout_vision_api", "passed": false, "overall_quality": "needs_improvement", ...}, you should return:
-{"review_type": "layout_vision_api", "passed": false, "overall_quality": "needs_improvement", ...}
+After calling review_layout_tool, output the tool's return value as a valid JSON object (not a string).
 
-**IMPORTANT RULES:**
+**EXACT OUTPUT FORMAT:**
+1. The tool returns a Python dict
+2. Output the dict directly as JSON (ADK will parse it automatically)
+3. NO markdown code blocks (no ```json or ```)
+4. NO wrapper objects
+5. NO explanatory text before or after
+6. Output must be valid JSON that starts with { and ends with }
+
+**CORRECT OUTPUT EXAMPLE:**
+{"review_type": "layout_vision_api", "passed": false, "overall_quality": "needs_improvement", "total_slides": 5, "total_slides_reviewed": 5, "issues_summary": {"total_issues": 2, "overlaps_detected": 1, "overflow_detected": 0, "overlap_severity": {"critical": 1, "major": 0, "minor": 0}}, "issues": [{"slide_number": 2, "issues": [{"type": "text_overlap", "severity": "critical", "count": 1, "details": [...]}]}], "presentation_id": "1i6TyEddxmpVbWCGyQWR336lZ_dZt5QeC_HFf_79cZzY"}
+
+**MANDATORY RULES:**
 - ✅ Extract shareable_url from the JSON in your input message
-- ✅ Call review_layout_tool with that URL (use the tool, don't just describe it)
-- ✅ Return the tool's output as raw JSON string (NO markdown code blocks, NO ```json)
+- ✅ Call review_layout_tool with that URL immediately
+- ✅ Output the tool's return value as a JSON object (ADK will parse and store it)
 - ❌ DO NOT use presentation_id (use shareable_url instead)
-- ❌ DO NOT generate your own text response
-- ❌ DO NOT say you don't have access to the URL
-- ❌ DO NOT say the tool requires arguments - just call it with the URL
-- ❌ DO NOT wrap the JSON in markdown code blocks
+- ❌ DO NOT wrap output in any container object
+- ❌ DO NOT add markdown formatting
+- ❌ DO NOT add explanatory text
 
-The shareable_url is ALWAYS in your input message. Extract it and call the tool immediately.
+The shareable_url is ALWAYS in your input message. Extract it, call the tool, and output the tool's return value as JSON.
 
 """,
     tools=[review_layout_tool],
     output_key="layout_review",
+    after_agent_callback=extract_layout_review_from_tool_result,
 )
 
