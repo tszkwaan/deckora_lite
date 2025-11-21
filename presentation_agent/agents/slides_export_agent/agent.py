@@ -10,6 +10,7 @@ from config import RETRY_CONFIG, DEFAULT_MODEL
 
 # Import Google Slides export tool
 from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool
+from presentation_agent.core.json_parser import parse_json_robust
 
 # Callback to log when SlidesExportAgent starts
 def log_slides_export_start(callback_context):
@@ -21,26 +22,59 @@ def log_slides_export_start(callback_context):
     # Try to access state (State object, not dict)
     if hasattr(callback_context, 'state'):
         try:
-            # State object might be dict-like or have different access methods
+            # Check _value and _delta (ADK state structure)
+            state_info = []
+            if hasattr(callback_context.state, '_value'):
+                if isinstance(callback_context.state._value, dict):
+                    state_info.append(f"_value keys: {list(callback_context.state._value.keys())}")
+                    if 'slide_and_script' in callback_context.state._value:
+                        logger.info("   ✅ slide_and_script found in state._value")
+                else:
+                    state_info.append(f"_value type: {type(callback_context.state._value).__name__}")
+            
+            if hasattr(callback_context.state, '_delta'):
+                if isinstance(callback_context.state._delta, dict):
+                    state_info.append(f"_delta keys: {list(callback_context.state._delta.keys())}")
+                    if 'slide_and_script' in callback_context.state._delta:
+                        logger.info("   ✅ slide_and_script found in state._delta")
+                else:
+                    state_info.append(f"_delta type: {type(callback_context.state._delta).__name__}")
+            
+            # Try dict-like access
+            if hasattr(callback_context.state, 'get'):
+                try:
+                    state_keys = list(callback_context.state.keys()) if hasattr(callback_context.state, 'keys') else []
+                    state_info.append(f"Direct keys: {state_keys}")
+                    if callback_context.state.get('slide_and_script'):
+                        logger.info("   ✅ slide_and_script found via state.get()")
+                except:
+                    pass
+            
+            # Try __dict__ access
             if hasattr(callback_context.state, '__dict__'):
                 state_dict = callback_context.state.__dict__
-                logger.info(f"   Session state keys: {list(state_dict.keys())}")
+                state_info.append(f"__dict__ keys: {list(state_dict.keys())}")
                 if 'slide_and_script' in state_dict:
-                    logger.info("   ✅ slide_and_script found in session.state")
-                else:
-                    logger.warning("   ⚠️ slide_and_script NOT found in session.state")
-            elif hasattr(callback_context.state, 'get'):
-                # Try dict-like access
-                state_keys = list(callback_context.state.keys()) if hasattr(callback_context.state, 'keys') else 'N/A'
-                logger.info(f"   Session state keys: {state_keys}")
-                if callback_context.state.get('slide_and_script'):
-                    logger.info("   ✅ slide_and_script found in session.state")
-                else:
-                    logger.warning("   ⚠️ slide_and_script NOT found in session.state")
+                    logger.info("   ✅ slide_and_script found in state.__dict__")
+            
+            if state_info:
+                logger.info(f"   Session state info: {'; '.join(state_info)}")
             else:
-                logger.info(f"   State object: {type(callback_context.state).__name__}")
+                logger.info(f"   State object type: {type(callback_context.state).__name__}")
+            
+            # Final check
+            if not any([
+                (hasattr(callback_context.state, '_value') and isinstance(callback_context.state._value, dict) and 'slide_and_script' in callback_context.state._value),
+                (hasattr(callback_context.state, '_delta') and isinstance(callback_context.state._delta, dict) and 'slide_and_script' in callback_context.state._delta),
+                (hasattr(callback_context.state, 'get') and callback_context.state.get('slide_and_script')),
+                (hasattr(callback_context.state, '__dict__') and 'slide_and_script' in callback_context.state.__dict__),
+            ]):
+                logger.warning("   ⚠️ slide_and_script NOT found in session.state")
+                
         except Exception as e:
             logger.warning(f"   ⚠️ Error accessing state: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
     else:
         logger.warning("   ⚠️ callback_context.state not available")
     
@@ -71,54 +105,121 @@ def call_export_tool_after_agent(callback_context):
         slide_and_script = None
         
         # Priority 1: Try to get from session.state['slide_and_script']
+        # ADK state object may have _value and _delta attributes
         if hasattr(callback_context, 'state'):
             try:
-                if hasattr(callback_context.state, '__dict__'):
-                    state_dict = callback_context.state.__dict__
-                    slide_and_script = state_dict.get('slide_and_script')
-                elif hasattr(callback_context.state, 'get'):
+                # Try direct dict-like access first
+                if hasattr(callback_context.state, 'get'):
                     slide_and_script = callback_context.state.get('slide_and_script')
+                elif hasattr(callback_context.state, '__getitem__'):
+                    try:
+                        slide_and_script = callback_context.state['slide_and_script']
+                    except (KeyError, TypeError):
+                        slide_and_script = None
                 else:
                     slide_and_script = getattr(callback_context.state, 'slide_and_script', None)
+                
+                # If not found, check _value attribute (ADK state structure)
+                if not slide_and_script and hasattr(callback_context.state, '_value'):
+                    if isinstance(callback_context.state._value, dict):
+                        slide_and_script = callback_context.state._value.get('slide_and_script')
+                        if slide_and_script:
+                            logger.info("   ✅ Found slide_and_script in state._value")
+                
+                # Also check _delta (recent changes)
+                if not slide_and_script and hasattr(callback_context.state, '_delta'):
+                    if isinstance(callback_context.state._delta, dict):
+                        slide_and_script = callback_context.state._delta.get('slide_and_script')
+                        if slide_and_script:
+                            logger.info("   ✅ Found slide_and_script in state._delta")
+                
+                # Try __dict__ access as last resort
+                if not slide_and_script and hasattr(callback_context.state, '__dict__'):
+                    state_dict = callback_context.state.__dict__
+                    # Check both direct and in _value/_delta
+                    slide_and_script = state_dict.get('slide_and_script')
+                    if not slide_and_script and '_value' in state_dict:
+                        if isinstance(state_dict['_value'], dict):
+                            slide_and_script = state_dict['_value'].get('slide_and_script')
+                    if not slide_and_script and '_delta' in state_dict:
+                        if isinstance(state_dict['_delta'], dict):
+                            slide_and_script = state_dict['_delta'].get('slide_and_script')
+                            
             except Exception as e:
                 logger.debug(f"   Could not access slide_and_script from state: {e}")
         
-        # Priority 2: Try to get from previous agent's output stored in state
+        # Priority 2: Try to get from previous agent's output stored in state under different keys
         # Check if slide_and_script_generator_agent stored it under a different key
         if not slide_and_script and hasattr(callback_context, 'state'):
             try:
-                state_dict = {}
-                if hasattr(callback_context.state, '__dict__'):
-                    state_dict = callback_context.state.__dict__
-                elif hasattr(callback_context.state, 'get'):
-                    # Convert to dict for easier checking
-                    state_dict = {k: callback_context.state.get(k) for k in dir(callback_context.state) if not k.startswith('_')}
+                # Helper function to get value from state
+                def get_from_state(key):
+                    if hasattr(callback_context.state, 'get'):
+                        return callback_context.state.get(key)
+                    elif hasattr(callback_context.state, '__getitem__'):
+                        try:
+                            return callback_context.state[key]
+                        except (KeyError, TypeError):
+                            return None
+                    elif hasattr(callback_context.state, '_value') and isinstance(callback_context.state._value, dict):
+                        return callback_context.state._value.get(key)
+                    elif hasattr(callback_context.state, '_delta') and isinstance(callback_context.state._delta, dict):
+                        return callback_context.state._delta.get(key)
+                    else:
+                        return getattr(callback_context.state, key, None)
                 
                 # Check common keys where slide_and_script might be stored
                 for key in ['slide_and_script', 'slide_deck', 'presentation_script']:
-                    value = state_dict.get(key)
+                    value = get_from_state(key)
                     if isinstance(value, dict) and 'slide_deck' in value:
                         slide_and_script = value
                         logger.info(f"   ✅ Found slide_and_script in state['{key}']")
                         break
+                    # Also check if slide_deck and presentation_script are separate
+                    if key == 'slide_deck' and value and not slide_and_script:
+                        script_value = get_from_state('presentation_script')
+                        if script_value:
+                            slide_and_script = {
+                                'slide_deck': value,
+                                'presentation_script': script_value
+                            }
+                            logger.info(f"   ✅ Constructed slide_and_script from separate slide_deck and presentation_script")
+                            break
             except Exception as e:
                 logger.debug(f"   Could not check alternative state keys: {e}")
         
-        # Priority 3: Try to get from invocation_context input message (most reliable - previous agent's output)
+        # Priority 3: Try to get from invocation_context input message (MOST RELIABLE - previous agent's output)
+        # In SequentialAgent/LoopAgent, previous agent's output is passed as input_message
         if not slide_and_script and hasattr(callback_context, 'invocation_context'):
             try:
                 if hasattr(callback_context.invocation_context, 'input_message'):
                     input_msg = callback_context.invocation_context.input_message
+                    logger.info("   🔍 Checking input_message for slide_and_script...")
+                    
                     # Extract text from message
+                    full_text = ""
                     if hasattr(input_msg, 'parts') and input_msg.parts:
-                        import json
-                        import re
-                        full_text = ""
                         for part in input_msg.parts:
                             if hasattr(part, 'text') and part.text:
                                 full_text += part.text
+                    elif isinstance(input_msg, str):
+                        full_text = input_msg
+                    elif hasattr(input_msg, '__str__'):
+                        full_text = str(input_msg)
+                    
+                    if full_text:
+                        logger.info(f"   📝 Input message length: {len(full_text)} chars")
+                        logger.info(f"   📝 First 200 chars: {full_text[:200]}...")
                         
-                        if full_text:
+                        import json
+                        import re
+                        
+                        # Try parse_json_robust first (handles markdown, Python booleans, etc.)
+                        parsed = parse_json_robust(full_text, extract_wrapped=False)
+                        if parsed and isinstance(parsed, dict) and 'slide_deck' in parsed:
+                            slide_and_script = parsed
+                            logger.info("   ✅ Found slide_and_script in input message (via parse_json_robust)")
+                        else:
                             # Try to find JSON object in the text (look for slide_deck key)
                             # Match from first { to last } that contains "slide_deck"
                             json_match = re.search(r'\{[\s\S]*?"slide_deck"[\s\S]*?\}', full_text, re.DOTALL)
@@ -139,6 +240,8 @@ def call_export_tool_after_agent(callback_context):
                                             pass
             except Exception as e:
                 logger.debug(f"   Could not access input message: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
         
         if not slide_and_script:
             logger.error("   ❌ slide_and_script not found in any source - cannot export")

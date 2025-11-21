@@ -43,15 +43,25 @@ def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
                     logger.info(f"✅ Found '{output_key}' in state_delta of Event {len(events)-1-i} ({agent_name})")
                     break
     
-    # Priority 2: Check content.parts[].function_response.response (tool responses)
+    # Priority 2: Check content.parts[].text (agent text output)
     if raw is None:
-        logger.debug(f"   Checking content.parts for '{output_key}'...")
+        logger.debug(f"   Checking content.parts[].text for agent output...")
         for i, event in enumerate(reversed(events)):  # Check from last to first
             agent_name = getattr(event, 'agent_name', None) or (getattr(event, 'agent', None) and getattr(event.agent, 'name', None)) or 'Unknown'
             if hasattr(event, 'content') and event.content:
                 if hasattr(event.content, 'parts') and event.content.parts:
                     try:
                         for part_idx, part in enumerate(event.content.parts):
+                            # Check for text content (agent's text output)
+                            if hasattr(part, 'text') and part.text:
+                                text_content = part.text
+                                logger.debug(f"   Event {len(events)-1-i} ({agent_name}), part {part_idx}: Found text content (length: {len(text_content)})")
+                                # For slide_and_script, the text should contain JSON
+                                if output_key == "slide_and_script" and text_content:
+                                    raw = text_content
+                                    logger.info(f"✅ Found '{output_key}' as text content in Event {len(events)-1-i} ({agent_name})")
+                                    break
+                            # Check for function_response (tool responses)
                             if hasattr(part, 'function_response') and part.function_response:
                                 if hasattr(part.function_response, 'response'):
                                     response = part.function_response.response
@@ -106,12 +116,18 @@ def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
     
     if raw is None:
         logger.warning(f"⚠️ extract_output_from_events: '{output_key}' not found in any event")
-        # Log all agent names for debugging
+        # Log all agent names and state_delta keys for debugging
         agent_names = []
-        for event in events:
+        for i, event in enumerate(events):
             agent_name = getattr(event, 'agent_name', None) or (getattr(event, 'agent', None) and getattr(event.agent, 'name', None)) or 'Unknown'
             agent_names.append(agent_name)
+            # Log state_delta keys for each event
+            if hasattr(event, 'actions') and event.actions:
+                if hasattr(event.actions, 'state_delta') and event.actions.state_delta:
+                    delta_keys = list(event.actions.state_delta.keys())
+                    logger.debug(f"   Event {i} ({agent_name}): state_delta keys: {delta_keys}")
         logger.debug(f"   Agents seen in events: {agent_names}")
+        logger.debug(f"   Searched for output_key: '{output_key}'")
         return None
     
     # If already a dict, return as is
