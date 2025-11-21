@@ -26,6 +26,7 @@ import nest_asyncio
 nest_asyncio.apply()
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from google.adk.sessions import InMemorySessionService
 
 # Import main pipeline
@@ -89,6 +90,10 @@ def verify_credentials_files():
 verify_credentials_files()
 
 app = Flask(__name__)
+
+# Configure CORS to allow requests from frontend
+# Allow all origins for development (restrict in production)
+CORS(app, origins="*", methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
 
 
 @app.route('/health', methods=['GET'])
