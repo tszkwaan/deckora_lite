@@ -7,6 +7,13 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import RETRY_CONFIG, DEFAULT_MODEL
 
+# Import chart generator tool
+try:
+    from presentation_agent.agents.tools.chart_generator_tool import generate_chart_tool
+except ImportError:
+    # If chart tool is not available, use empty list
+    generate_chart_tool = None
+
 # Export as 'agent' instead of 'root_agent' so this won't be discovered as a root agent by ADK-web
 agent = LlmAgent(
     name="SlideAndScriptGeneratorAgent",
@@ -123,6 +130,22 @@ Respond with only valid JSON in the following structure:
         "visual_elements": {
           "figures": ["<figure_id>"],
           "charts_needed": true,
+          "chart_spec": {
+            "chart_type": "<bar | line | pie>",
+            "data": {
+              "for bar": {"Category1": value1, "Category2": value2, ...},
+              "for pie": {"Label1": value1, "Label2": value2, ...},
+              "for line": {"Series1": [y1, y2, ...], "Series2": [y1, y2, ...], ...}
+            },
+            "title": "<descriptive chart title>",
+            "x_label": "<x-axis label (required for bar/line)>",
+            "y_label": "<y-axis label (required for bar/line)>",
+            "width": 800,
+            "height": 600,
+            "color": "#7C3AED",
+            "colors": ["#7C3AED", "#EC4899", "#10B981"]
+          },
+          "chart_data": "<base64_encoded_png_string> (MANDATORY if charts_needed: true, obtained by calling generate_chart_tool)",
           "icons_suggested": ["<icon_type1>", "<icon_type2>"]
         },
         "design_spec": {
@@ -206,7 +229,51 @@ CRITICAL REQUIREMENTS
    - Include speaker notes that provide context not on slides
    - **IMPORTANT: For academic settings (scenario == "academic_teaching" or "academic_student_presentation"), it is critical to present experiment results in numbers. Include specific metrics, percentages, accuracy scores, performance improvements, and other quantitative data from the report when generating slides about experimental results.**
 
-2. **Layout Requirements (Commonsense Layout Checking):**
+2. **Chart Generation (Visual Elements):**
+   - **When to Generate Charts:** If a slide contains quantitative data (percentages, metrics, comparisons, trends), consider generating a chart to visualize the data.
+   - **MANDATORY Chart Generation Workflow (if charts_needed: true):**
+     1. **Identify chart need:** If slide has numeric data that would benefit from visualization (e.g., "Model A: 85%, Model B: 92%, Model C: 78%"), set `charts_needed: true`.
+     2. **Generate complete chart_spec:** You MUST create a complete `chart_spec` object with ALL required fields:
+        * `chart_type`: Choose from "bar", "line", or "pie" based on the data:
+          - "bar": For comparing categories (e.g., model performance, accuracy by method, success rates)
+          - "line": For trends over time (e.g., training progress, accuracy over epochs, time series)
+          - "pie": For proportions/percentages (e.g., distribution of categories, market share)
+        * `data`: Provide the actual data in the correct format (extract from report_knowledge):
+          - For "bar" charts: `{"Category1": value1, "Category2": value2, ...}` (e.g., `{"GPT-3.5 Zero-shot (Automated)": 92, "GPT-3.5 Zero-shot (Human)": 21, "LLaMA3 Zero-shot (Automated)": 45, "LLaMA3 Zero-shot (Human)": 5}`)
+          - For "line" charts: `{"Series1": [y1, y2, y3, ...], "Series2": [y1, y2, y3, ...], ...}` (e.g., `{"Training": [0.5, 0.7, 0.8, 0.85], "Validation": [0.4, 0.6, 0.75, 0.82]}`)
+          - For "pie" charts: `{"Label1": value1, "Label2": value2, ...}` (e.g., `{"Category A": 40, "Category B": 35, "Category C": 25}`)
+        * `title`: Descriptive chart title (e.g., "Jailbreak Success Rate: Automated vs. Human Evaluation")
+        * `x_label`: X-axis label (required for bar/line charts, e.g., "Model & Evaluation Method")
+        * `y_label`: Y-axis label (required for bar/line charts, e.g., "Success Rate (%)")
+        * `width`: Chart width in pixels (default: 800, recommended: 800-1000)
+        * `height`: Chart height in pixels (default: 600, recommended: 600-800)
+        * `color`: Single hex color for bar charts (e.g., "#7C3AED")
+        * `colors`: List of hex colors for line/pie charts (e.g., `["#7C3AED", "#EC4899", "#10B981"]`)
+     3. **MANDATORY: Call `generate_chart_tool`:** You MUST call the `generate_chart_tool` function with the chart_spec parameters. 
+        * IMPORTANT: In ADK, tools are called during your response generation, not in the final JSON output.
+        * You should call the tool like this: `generate_chart_tool(chart_type="bar", data={...}, title="...", x_label="...", y_label="...", width=800, height=600, color="#7C3AED")`
+        * The tool will return a dictionary with `chart_data` (base64 PNG string) in the `status: "success"` case.
+        * If the tool returns `status: "error"`, log the error but continue with your output (chart will be skipped).
+     4. **MANDATORY: Include chart_data in output:** After calling the tool, you MUST extract the `chart_data` from the tool's response dictionary and include it in your JSON output under `visual_elements.chart_data`.
+        * The tool response format: `{"status": "success", "chart_data": "<base64_string>", ...}`
+        * Extract `chart_data` from the response and put it directly in your JSON output.
+   - **Data Extraction from Report:**
+     * Extract actual numeric values from report_knowledge (e.g., from "Results" section, tables, key takeaways)
+     * Use real data from the report, do NOT invent numbers
+     * If report mentions "GPT-3.5 Zero-shot: 21%", use exactly that value
+     * If report mentions "92% vs. 21%", extract both values for comparison
+   - **Chart Styling Guidelines:**
+     * Use professional colors: "#7C3AED" (purple), "#EC4899" (pink), "#10B981" (green), "#F59E0B" (amber)
+     * For comparison charts (e.g., automated vs human), use contrasting colors: ["#EC4899", "#7C3AED"]
+     * Default size: 800x600 pixels (good for slides)
+     * Ensure chart title clearly describes what is being compared or shown
+   - **CRITICAL REQUIREMENTS:**
+     * If `charts_needed: true`, you MUST call `generate_chart_tool` - it will NOT be called automatically
+     * You MUST include the complete `chart_spec` with all required fields before calling the tool
+     * After calling the tool, you MUST include the returned `chart_data` in `visual_elements.chart_data`
+     * If you fail to call the tool or include chart_data, the chart will NOT appear in the slides
+
+3. **Layout Requirements (Commonsense Layout Checking):**
    - **Design Specification:** You MUST provide a "design_spec" object for each slide with font sizes, positions, spacing, and alignment.
    - **Font Size Hierarchy:** Title font size MUST be larger than subtitle. Subtitle MUST be larger than body text. Typical ranges:
      * Title slides: title 40-48pt, subtitle 24-28pt, body 16-18pt
@@ -234,7 +301,7 @@ CRITICAL REQUIREMENTS
      * If body content exists, ensure subtitle_y + subtitle_height < body_start_y (or title_y + title_height < body_start_y if no subtitle)
      * Consider font sizes when calculating positions - larger fonts need more space
 
-3. **Script Content:**
+4. **Script Content:**
    - Write in a natural, conversational tone suitable for speaking
    - Expand on slide content with detailed explanations
    - Respect custom_instruction (e.g., "explain implementation in detail", "keep details in speech only")
@@ -243,18 +310,23 @@ CRITICAL REQUIREMENTS
    - Each point in main_content should have an estimated_time in seconds
    - Sum of all estimated_time values should approximately equal the target duration
 
-4. **Consistency:**
+5. **Consistency:**
    - The script must align with the slide content
    - Each script section should correspond to a slide
    - The number of script_sections must match the number of slides
 
-5. **Output:**
+6. **Output:**
    - Output must be valid JSON without additional explanations
    - Both slide_deck and presentation_script must be present
    - Do NOT invent any facts, numbers, or technical details not in the report_knowledge
+   - **Chart Output Verification:**
+     * If ANY slide has `charts_needed: true`, you MUST have called `generate_chart_tool` for that slide
+     * The `chart_data` field MUST be present and non-empty in `visual_elements.chart_data` for that slide
+     * If `charts_needed: true` but `chart_data` is missing or empty, the chart will NOT appear in the final slides
+     * Verify: For each slide with `charts_needed: true`, check that `visual_elements.chart_data` contains a base64 string
 
 """,
-    tools=[],
+    tools=[generate_chart_tool] if generate_chart_tool else [],
     output_key="slide_and_script",
 )
 

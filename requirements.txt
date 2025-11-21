@@ -17,6 +17,10 @@ google-cloud-vision>=3.0.0
 pdf2image>=1.16.0
 Pillow>=10.0.0
 
+# Chart generation (Plotly - best UI, free, can export static PNG)
+plotly>=5.18.0
+kaleido>=0.2.1  # Required for static image export (PNG/JPEG)
+
 # HTTP server for Cloud Run
 flask>=3.0.0
 flask-cors>=4.0.0

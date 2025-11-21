@@ -1,0 +1,2 @@
+"""Chart Generator Agent module."""
+

@@ -20,6 +20,7 @@ from presentation_agent.agents.report_understanding_agent.agent import agent as 
 from presentation_agent.agents.outline_generator_agent.agent import agent as outline_generator_agent
 from presentation_agent.agents.outline_critic_agent.agent import agent as outline_critic_agent
 from presentation_agent.agents.slide_and_script_generator_agent.agent import agent as slide_and_script_generator_agent
+from presentation_agent.agents.chart_generator_agent.agent import agent as chart_generator_agent
 from presentation_agent.agents.layout_critic_agent.agent import agent as layout_critic_agent
 
 # Import tools and utilities
@@ -449,6 +450,58 @@ Your task:
         
         obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
         
+        # Step 3.5: Chart Generation (if needed)
+        print("\n📊 Step 3.5: Chart Generation")
+        obs_logger.start_agent_execution("ChartGeneratorAgent", output_key="chart_generation_status")
+        
+        # Check if any slides need charts
+        slides_with_charts = []
+        if slide_deck and isinstance(slide_deck, dict):
+            for slide in slide_deck.get('slides', []):
+                visual_elements = slide.get('visual_elements', {})
+                if visual_elements.get('charts_needed', False) and visual_elements.get('chart_spec'):
+                    slides_with_charts.append(slide.get('slide_number'))
+        
+        if slides_with_charts:
+            print(f"   📊 Found {len(slides_with_charts)} slide(s) needing charts: {slides_with_charts}")
+            
+            # Run ChartGeneratorAgent
+            # The agent will validate chart_spec, and the callback will generate charts
+            chart_input = json.dumps({"slide_deck": slide_deck}, separators=(',', ':'))
+            runner = InMemoryRunner(agent=chart_generator_agent)
+            chart_events = await runner.run_debug(
+                chart_input,
+                session_id=session.id
+            )
+            
+            # Extract chart generation status
+            chart_status = extract_output_from_events(chart_events, "chart_generation_status")
+            
+            # The callback has already updated slide_deck in session.state
+            # Get the updated slide_deck
+            updated_slide_deck = session.state.get("slide_deck") or slide_deck
+            
+            # Verify charts were generated
+            charts_generated_count = 0
+            for slide in updated_slide_deck.get('slides', []):
+                visual_elements = slide.get('visual_elements', {})
+                chart_data = visual_elements.get('chart_data')
+                if chart_data and chart_data != "PLACEHOLDER_CHART_DATA" and len(chart_data) > 100:
+                    charts_generated_count += 1
+            
+            if charts_generated_count > 0:
+                print(f"   ✅ Successfully generated {charts_generated_count} chart(s)")
+                slide_deck = updated_slide_deck  # Use updated slide_deck with chart_data
+                outputs["slide_deck"] = slide_deck
+                session.state["slide_deck"] = slide_deck
+            else:
+                print(f"   ⚠️  Warning: No charts were generated (check logs for errors)")
+            
+            obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
+        else:
+            print("   ℹ️  No charts needed for this presentation")
+            obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=False)
+        
         # Step 4: Google Slides Export (DIRECT CALL - bypasses callback issues)
         print("\n📤 Step 4: Google Slides Export")
         obs_logger.start_agent_execution("SlidesExportAgent", output_key="slides_export_result")
@@ -716,7 +769,7 @@ Extract the shareable_url from slides_export_result and call review_layout_tool 
                                             if brace_count == 0:
                                                 end_idx = i
                                                 break
-                                    
+            
                                     if end_idx > start_idx:
                                         json_str = cleaned[start_idx:end_idx+1]
                                         # Convert Python booleans in extracted JSON too
@@ -916,6 +969,36 @@ FAILURE TO FIX THESE ISSUES WILL RESULT IN REJECTION."""
                             slide_deck = slide_and_script.get("slide_deck")
                             presentation_script = slide_and_script.get("presentation_script")
                             
+                            # Generate charts ONLY if chart_data is missing or invalid (not on every retry)
+                            if slide_deck:
+                                slides_needing_charts = []
+                                for slide in slide_deck.get('slides', []):
+                                    visual_elements = slide.get('visual_elements', {})
+                                    if visual_elements.get('charts_needed', False) and visual_elements.get('chart_spec'):
+                                        chart_data = visual_elements.get('chart_data')
+                                        # Check if chart_data is missing or invalid
+                                        is_invalid = (
+                                            not chart_data or
+                                            chart_data == "PLACEHOLDER_CHART_DATA" or
+                                            (isinstance(chart_data, str) and len(chart_data) < 100)
+                                        )
+                                        if is_invalid:
+                                            slides_needing_charts.append(slide.get('slide_number'))
+                                
+                                if slides_needing_charts:
+                                    print(f"   📊 Regenerating charts for {len(slides_needing_charts)} slide(s) with invalid/missing chart_data: {slides_needing_charts}")
+                                    chart_input = json.dumps({"slide_deck": slide_deck}, separators=(',', ':'))
+                                    runner = InMemoryRunner(agent=chart_generator_agent)
+                                    chart_events = await runner.run_debug(
+                                        chart_input,
+                                        session_id=session.id
+                                    )
+                                    # Get updated slide_deck from session.state
+                                    updated_slide_deck = session.state.get("slide_deck") or slide_deck
+                                    slide_deck = updated_slide_deck
+                                else:
+                                    print(f"   ℹ️  Charts are already generated, skipping chart generation in retry")
+                            
                             if slide_deck and presentation_script:
                                 config_dict = {
                                     'scenario': config.scenario,
@@ -958,7 +1041,7 @@ FAILURE TO FIX THESE ISSUES WILL RESULT IN REJECTION."""
                     obs_logger.finish_agent_execution(AgentStatus.FAILED, "No shareable URL available", has_output=False)
                     print(f"⚠️  No shareable URL available for layout review")
                     break
-        
+                    
         # Save complete output
         if len(outputs) > 1:
             save_json_output(outputs, f"{output_dir}/complete_output.json")
@@ -1034,7 +1117,7 @@ async def main():
         # scenario="academic_teaching",
         duration="1 minute",
         # target_audience="students",  # Optional - can be None to let LLM infer from scenario and report content
-        # custom_instruction="keep the slide as clean as possible, use more point forms, keep the details in speech only",
+        custom_instruction="add a chart to the experiment slide page",
         report_url="https://arxiv.org/pdf/2511.08597",
         style_images=[],  # Add image URLs here if you have them
     )

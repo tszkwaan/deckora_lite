@@ -7,6 +7,8 @@ import os
 import json
 import re
 import tempfile
+import base64
+import io
 from pathlib import Path
 from typing import Dict, Optional, List, Tuple
 
@@ -15,13 +17,16 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseUpload
 
 # Scopes required for Google Slides API
 # Also include drive.readonly for PDF export (used by layout review)
+# drive.file for uploading chart images to Google Drive
 # And cloud-platform for Vision API (used by layout review)
 SCOPES = [
     'https://www.googleapis.com/auth/presentations',
     'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/drive.file',  # For uploading chart images
     'https://www.googleapis.com/auth/cloud-platform'  # Required for Vision API (layout review)
 ]
 
@@ -349,6 +354,99 @@ def find_text_shape_id(slide: Dict, shape_type: str = "TITLE") -> Optional[str]:
                 placeholder = shape.get('placeholder', {})
                 if placeholder.get('type') == shape_type:
                     return page_element.get('objectId')
+        return None
+
+
+def upload_chart_to_drive(
+    chart_data_base64: str,
+    chart_title: str,
+    credentials: Credentials
+) -> Optional[str]:
+    """
+    Upload a base64-encoded PNG chart image to Google Drive and return the file ID.
+    The file will be set to public (anyone with link can view) so it can be used in Google Slides.
+    
+    Args:
+        chart_data_base64: Base64-encoded PNG image data (without data:image/png;base64, prefix)
+        chart_title: Title for the chart file in Google Drive
+        credentials: Google API credentials
+        
+    Returns:
+        file_id: Google Drive file ID if successful, None otherwise
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Build Drive service
+        drive_service = build('drive', 'v3', credentials=credentials)
+        
+        # Decode base64 to bytes
+        try:
+            chart_bytes = base64.b64decode(chart_data_base64)
+        except Exception as e:
+            logger.error(f"❌ Failed to decode base64 chart data: {e}")
+            return None
+        
+        # Create a file-like object from bytes
+        chart_file = io.BytesIO(chart_bytes)
+        
+        # Create file metadata
+        file_metadata = {
+            'name': f'{chart_title}.png',
+            'mimeType': 'image/png'
+        }
+        
+        # Create media upload object
+        media = MediaIoBaseUpload(
+            chart_file,
+            mimetype='image/png',
+            resumable=True
+        )
+        
+        # Upload file to Google Drive
+        logger.info(f"📤 Uploading chart '{chart_title}' to Google Drive...")
+        file = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id'
+        ).execute()
+        
+        file_id = file.get('id')
+        if not file_id:
+            logger.error(f"❌ Failed to get file ID from Google Drive upload response")
+            return None
+        
+        logger.info(f"✅ Chart uploaded to Google Drive: {file_id}")
+        print(f"   ✅ Chart uploaded to Google Drive: {file_id}")
+        
+        # Make the file publicly accessible (required for Google Slides API to access it)
+        # Use 'anyone' with 'reader' role to allow Slides API to access
+        permission = {
+            'type': 'anyone',
+            'role': 'reader'
+        }
+        try:
+            drive_service.permissions().create(
+                fileId=file_id,
+                body=permission
+            ).execute()
+            logger.info(f"✅ Chart file made publicly accessible")
+        except Exception as perm_error:
+            logger.warning(f"⚠️  Could not make chart file public (may still work): {perm_error}")
+            # Continue anyway - sometimes files are accessible without explicit permission
+        
+        return file_id
+            
+    except HttpError as e:
+        error_details = str(e)
+        logger.error(f"❌ Failed to upload chart to Google Drive: {error_details}")
+        print(f"   ❌ Failed to upload chart to Google Drive: {error_details[:200]}")
+        return None
+    except Exception as e:
+        import traceback
+        logger.error(f"❌ Unexpected error uploading chart to Google Drive: {e}\n{traceback.format_exc()}")
+        print(f"   ❌ Unexpected error uploading chart: {str(e)[:200]}")
         return None
 
 
@@ -934,6 +1032,142 @@ def export_to_google_slides(
                             print(f"⚠️  Warning: Could not find speaker notes text box for slide {slide_number}")
                     else:
                         print(f"⚠️  Warning: No notes page found for slide {slide_number}")
+            
+            # Insert charts if available
+            visual_elements = slide_data.get('visual_elements', {})
+            chart_data = visual_elements.get('chart_data')
+            charts_needed = visual_elements.get('charts_needed', False)
+            chart_spec = visual_elements.get('chart_spec')
+            
+            # Fallback: If charts_needed but chart_data is missing or invalid, generate it from chart_spec
+            # Check if chart_data is missing, empty, placeholder, or too short
+            is_chart_data_invalid = (
+                not chart_data or
+                chart_data == "PLACEHOLDER_CHART_DATA" or
+                (isinstance(chart_data, str) and len(chart_data) < 100)
+            )
+            
+            if charts_needed and chart_spec and is_chart_data_invalid:
+                logger.info(f"📊 Chart needed but chart_data missing for slide {slide_number}, generating from chart_spec...")
+                print(f"   📊 Generating chart for slide {slide_number} from chart_spec...")
+                try:
+                    from presentation_agent.agents.tools.chart_generator_tool import generate_chart_tool
+                    
+                    # Extract parameters from chart_spec
+                    chart_type = chart_spec.get('chart_type', 'bar')
+                    data = chart_spec.get('data', {})
+                    title = chart_spec.get('title', 'Chart')
+                    x_label = chart_spec.get('x_label')
+                    y_label = chart_spec.get('y_label')
+                    width = chart_spec.get('width', 800)
+                    height = chart_spec.get('height', 600)
+                    color = chart_spec.get('color')
+                    colors = chart_spec.get('colors')
+                    
+                    # Validate data
+                    if not data or len(data) == 0:
+                        logger.error(f"❌ Empty data in chart_spec for slide {slide_number}")
+                        print(f"   ❌ Empty data in chart_spec for slide {slide_number}")
+                        chart_data = None
+                    else:
+                        logger.info(f"   Chart spec: type={chart_type}, data_keys={list(data.keys())[:5]}, title={title}")
+                        print(f"   Chart spec: type={chart_type}, data_keys={list(data.keys())[:5]}, title={title}")
+                        
+                        # Call the tool to generate the chart
+                        result = generate_chart_tool(
+                            chart_type=chart_type,
+                            data=data,
+                            title=title,
+                            x_label=x_label,
+                            y_label=y_label,
+                            width=width,
+                            height=height,
+                            color=color,
+                            colors=colors
+                        )
+                        
+                        if result.get('status') == 'success' and result.get('chart_data'):
+                            chart_data = result.get('chart_data')
+                            chart_data_len = len(chart_data) if chart_data else 0
+                            logger.info(f"✅ Successfully generated chart for slide {slide_number} (base64 length: {chart_data_len})")
+                            print(f"   ✅ Chart generated successfully for slide {slide_number} (base64 length: {chart_data_len})")
+                        else:
+                            error_msg = result.get('error', 'Unknown error')
+                            logger.warning(f"⚠️  Failed to generate chart for slide {slide_number}: {error_msg}")
+                            print(f"   ⚠️  Chart generation failed for slide {slide_number}: {error_msg}")
+                            chart_data = None
+                except Exception as e:
+                    import traceback
+                    logger.error(f"❌ Error generating chart for slide {slide_number}: {e}\n{traceback.format_exc()}")
+                    print(f"   ❌ Error generating chart for slide {slide_number}: {str(e)[:100]}")
+                    chart_data = None
+            
+            if chart_data:
+                # Validate chart_data is not empty
+                if not chart_data or len(chart_data) < 100:
+                    logger.warning(f"⚠️  Chart data too short for slide {slide_number} (length: {len(chart_data) if chart_data else 0}), skipping")
+                    print(f"   ⚠️  Chart data too short for slide {slide_number}, skipping")
+                else:
+                    # Chart data is base64-encoded PNG
+                    # Upload to Google Drive first, then use Drive URL to insert into slide
+                    # This avoids the 2KB URL length limit for data URLs
+                    
+                    # Get chart title from chart_spec or use default
+                    chart_title = chart_spec.get('title', f'Chart_Slide_{slide_number}') if chart_spec else f'Chart_Slide_{slide_number}'
+                    # Sanitize title for filename (remove special characters)
+                    chart_title = re.sub(r'[^\w\s-]', '', chart_title).strip().replace(' ', '_')
+                    
+                    # Upload chart to Google Drive
+                    logger.info(f"📤 Uploading chart for slide {slide_number} to Google Drive...")
+                    print(f"   📤 Uploading chart to Google Drive...")
+                    drive_file_id = upload_chart_to_drive(
+                        chart_data_base64=chart_data,
+                        chart_title=chart_title,
+                        credentials=creds
+                    )
+                    
+                    if not drive_file_id:
+                        logger.error(f"❌ Failed to upload chart to Google Drive for slide {slide_number}, skipping chart insertion")
+                        print(f"   ❌ Failed to upload chart to Google Drive, skipping")
+                    else:
+                        # Use Google Drive short URL format: https://drive.google.com/uc?id=FILE_ID
+                        # This URL format is short enough to meet the 2KB limit
+                        drive_url = f'https://drive.google.com/uc?id={drive_file_id}'
+                        
+                        # Chart size: 400x300 points
+                        chart_width_emu = 400 * 12700  # 400pt to EMU
+                        chart_height_emu = 300 * 12700  # 300pt to EMU
+                        
+                        # Position: right side, vertically centered
+                        # Slide dimensions: 720pt width, 540pt height (4:3 aspect ratio)
+                        slide_width_emu = 720 * 12700  # 720pt in EMU
+                        slide_height_emu = 540 * 12700  # 540pt in EMU
+                        
+                        # Position chart on the right side, centered vertically
+                        # x: Start at 60% from left (to leave space for text on left)
+                        # y: Center vertically (50% - half chart height)
+                        chart_x_emu = int(slide_width_emu * 0.6)  # 60% from left
+                        chart_y_emu = int((slide_height_emu - chart_height_emu) / 2)  # Vertically centered
+                        
+                        content_requests.append({
+                            'createImage': {
+                                'url': drive_url,
+                                'elementProperties': {
+                                    'pageObjectId': slide.get('objectId'),
+                                    'size': {
+                                        'height': {'magnitude': chart_height_emu, 'unit': 'EMU'},
+                                        'width': {'magnitude': chart_width_emu, 'unit': 'EMU'}
+                                    },
+                                    'transform': {
+                                        'scaleX': 1.0, 'scaleY': 1.0,
+                                        'translateX': chart_x_emu, 'translateY': chart_y_emu,
+                                        'unit': 'EMU'
+                                    }
+                                }
+                            }
+                        })
+                        logger.info(f"✅ Added chart to slide {slide_number} (Drive file ID: {drive_file_id}, position: x={chart_x_emu/12700:.0f}pt, y={chart_y_emu/12700:.0f}pt, size: {chart_width_emu/12700:.0f}x{chart_height_emu/12700:.0f}pt)")
+                        print(f"   ✅ Added chart to slide {slide_number} (size: {chart_width_emu/12700:.0f}x{chart_height_emu/12700:.0f}pt)")
         
         # Execute all content updates
         if content_requests:
