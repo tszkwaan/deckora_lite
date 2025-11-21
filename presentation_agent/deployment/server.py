@@ -29,10 +29,40 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from google.adk.sessions import InMemorySessionService
 
-# Import main pipeline
+# Import main pipeline components
 try:
-    from main import run_presentation_pipeline
     from config import PresentationConfig
+    from presentation_agent.core.pipeline_orchestrator import PipelineOrchestrator
+    from presentation_agent.core.app_initializer import AppInitializer
+    
+    # Create wrapper function to match old API signature
+    async def run_presentation_pipeline(
+        config: PresentationConfig,
+        output_dir: str = "/tmp/output",
+        include_critics: bool = True,
+        save_intermediate: bool = True,
+        open_browser: bool = False
+    ):
+        """
+        Wrapper function for backward compatibility with server.py.
+        Uses the new PipelineOrchestrator under the hood.
+        """
+        # Initialize application
+        initializer = AppInitializer(output_dir=output_dir)
+        if not initializer.initialize():
+            raise RuntimeError("Failed to initialize application")
+        
+        # Create and run pipeline orchestrator
+        orchestrator = PipelineOrchestrator(
+            config=config,
+            output_dir=output_dir,
+            include_critics=include_critics,
+            save_intermediate=save_intermediate,
+            open_browser=open_browser,
+        )
+        
+        return await orchestrator.run()
+    
 except ImportError as e:
     print(f"ERROR: Import error - {e}")
     print(f"Python path: {sys.path}")

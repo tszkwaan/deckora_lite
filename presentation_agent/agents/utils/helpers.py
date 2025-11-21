@@ -136,6 +136,8 @@ def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
     
     # Try to parse as JSON
     if isinstance(raw, str):
+        logger.debug(f"Raw output is a string (length: {len(raw)}). Attempting to parse...")
+        
         # Strip markdown code blocks if present (```json ... ```)
         cleaned = raw.strip()
         if cleaned.startswith("```json"):
@@ -149,20 +151,42 @@ def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
             # Remove closing ```
             cleaned = cleaned[:-3].rstrip()
         
-        # Try to parse as JSON
+        # Try to parse as JSON directly first
         try:
-            return json.loads(cleaned)
+            parsed = json.loads(cleaned)
+            logger.debug(f"✅ Direct JSON parse succeeded (keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'N/A'})")
+            return parsed
         except json.JSONDecodeError:
-            # If that fails, try to find JSON object in the string
-            # Look for first { and last }
+            logger.debug("Direct JSON parse failed, trying robust extraction...")
+            # If that fails, use robust JSON extraction (finds largest/outermost object)
+            from presentation_agent.core.json_parser import extract_json_from_text, parse_json_robust
+            extracted_json = extract_json_from_text(cleaned)
+            if extracted_json:
+                try:
+                    parsed = json.loads(extracted_json)
+                    logger.debug(f"✅ Extracted JSON parse succeeded (keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'N/A'})")
+                    return parsed
+                except json.JSONDecodeError as e:
+                    logger.debug(f"Extracted JSON parse failed: {e}")
+                    # Try parse_json_robust as last resort
+                    parsed = parse_json_robust(extracted_json)
+                    if parsed:
+                        logger.debug(f"✅ parse_json_robust succeeded (keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'N/A'})")
+                        return parsed
+            
+            # Last resort: try to find JSON object in the string (simple approach)
             start_idx = cleaned.find("{")
             end_idx = cleaned.rfind("}")
             if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
                 try:
-                    return json.loads(cleaned[start_idx:end_idx+1])
+                    parsed = json.loads(cleaned[start_idx:end_idx+1])
+                    logger.debug(f"✅ Simple extraction parse succeeded (keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'N/A'})")
+                    return parsed
                 except json.JSONDecodeError:
                     pass
+            
             # Return raw string if not valid JSON
+            logger.warning(f"⚠️ Could not parse JSON from string. Returning raw string (first 200 chars: {cleaned[:200]})")
             return cleaned
     
     return raw

@@ -351,16 +351,26 @@ class PipelineOrchestrator:
         
         # Ensure it's a dict
         if not isinstance(slide_and_script, dict):
+            logger.error(f"slide_and_script is not a dict, got {type(slide_and_script).__name__}")
+            logger.error(f"slide_and_script value (first 500 chars): {str(slide_and_script)[:500]}")
             raise ValueError(f"slide_and_script is not a dict, got {type(slide_and_script).__name__}")
+        
+        # Log what we got for debugging
+        logger.info(f"✅ slide_and_script parsed successfully. Keys: {list(slide_and_script.keys())}")
         
         slide_deck = slide_and_script.get("slide_deck")
         presentation_script = slide_and_script.get("presentation_script")
         
         if not slide_deck:
-            logger.error(f"slide_and_script keys: {list(slide_and_script.keys())}")
-            raise ValueError("slide_and_script missing 'slide_deck' field")
+            logger.error(f"❌ slide_and_script missing 'slide_deck' field")
+            logger.error(f"   Available keys: {list(slide_and_script.keys())}")
+            logger.error(f"   slide_and_script type: {type(slide_and_script)}")
+            logger.error(f"   slide_and_script preview (first 1000 chars): {json.dumps(slide_and_script, indent=2)[:1000]}")
+            raise ValueError(f"slide_and_script missing 'slide_deck' field. Available keys: {list(slide_and_script.keys())}")
         if not presentation_script:
-            raise ValueError("slide_and_script missing 'presentation_script' field")
+            logger.error(f"❌ slide_and_script missing 'presentation_script' field")
+            logger.error(f"   Available keys: {list(slide_and_script.keys())}")
+            raise ValueError(f"slide_and_script missing 'presentation_script' field. Available keys: {list(slide_and_script.keys())}")
         
         # Store outputs
         self.outputs["slide_deck"] = slide_deck
