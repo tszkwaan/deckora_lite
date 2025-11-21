@@ -49,10 +49,51 @@ You will be given (via state/context or message):
 <Threshold check result indicating why regeneration is needed>
 [END_THRESHOLD_CHECK]
 
-If [PREVIOUS_LAYOUT_REVIEW] and [THRESHOLD_CHECK] are provided, use them to improve the slides:
-- Address layout issues mentioned in the review (text overlap, overflow, spacing)
-- Fix specific issues on slides mentioned in the review
-- Improve formatting based on the critic's recommendations
+⚠️⚠️⚠️ CRITICAL: LAYOUT ISSUE FIXING REQUIREMENTS ⚠️⚠️⚠️
+
+If [PREVIOUS_LAYOUT_REVIEW] is provided, this is a RETRY to fix layout issues. You MUST:
+
+1. **MANDATORY FIX REQUIREMENT:** Read the layout review carefully. EVERY issue identified MUST be fixed. Do NOT regenerate slides with the same issues.
+
+2. **For Text Overlap Issues:**
+   - If overlap is detected between title and subtitle/body on a slide:
+     * REDUCE title_font_size by 4-6pt (e.g., if 36pt, use 30-32pt)
+     * REDUCE subtitle_font_size by 2-4pt if subtitle exists
+     * INCREASE title_position.y_percent spacing by at least 5-8% (move title higher)
+     * INCREASE subtitle_position.y_percent or body start position by at least 8-12% (move content lower)
+     * INCREASE spacing.title_to_subtitle by at least 20-30pt
+   - If overlap is detected between subtitle and body:
+     * REDUCE subtitle_font_size by 2-4pt
+     * REDUCE body_font_size by 1-2pt
+     * INCREASE subtitle_position.y_percent spacing by at least 5-8%
+     * INCREASE spacing.subtitle_to_content by at least 15-25pt
+   - **CRITICAL:** After adjustments, verify: title_y + (title_font_size * 1.2 / 720 * 100) < subtitle_y (or body_start_y)
+
+3. **For Text Overflow Issues:**
+   - REDUCE font sizes (title by 4-6pt, body by 2-3pt)
+   - REDUCE number of bullet points (remove least important items)
+   - INCREASE spacing between elements
+   - Consider splitting content into multiple slides if necessary
+
+4. **For Spacing Issues:**
+   - INCREASE spacing.title_to_subtitle by at least 20-30pt
+   - INCREASE spacing.subtitle_to_content by at least 15-25pt
+   - Ensure minimum 12% vertical gap between elements
+
+5. **Style Consistency (CRITICAL):**
+   - If you adjust font sizes to fix overlap on one slide, apply the SAME adjustments to ALL similar slide types
+   - If title_font_size is reduced on slide 2 due to overlap, use the SAME reduced size for ALL regular slides
+   - Maintain uniform spacing patterns across the entire presentation
+   - Only vary design_spec when slide type changes (title slide vs regular slide), not to fix individual issues
+
+6. **Verification Before Output:**
+   - Check each slide_number mentioned in the review
+   - Verify that the specific words/elements that overlapped are now separated
+   - Ensure font sizes are reduced appropriately
+   - Ensure positions are adjusted to prevent overlap
+   - If the review says "Slide X: Words 'A' and 'B' overlap", ensure those elements are now separated by at least 10% vertical space
+
+**FAILURE TO FIX IDENTIFIED ISSUES WILL RESULT IN REJECTION. You MUST address EVERY issue in the layout review.**
 
 ---
 REQUIRED OUTPUT FORMAT

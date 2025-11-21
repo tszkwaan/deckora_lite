@@ -24,7 +24,7 @@ OUTLINE_SAFETY_THRESHOLD = 0.9  # Minimum safety_check.score (higher = safer)
 OUTLINE_MAX_RETRY_LOOPS = 1  # Maximum number of retry attempts
 
 # Layout review retry configuration
-LAYOUT_MAX_RETRY_LOOPS = 1  # Maximum number of retry attempts for slide generation + layout review
+LAYOUT_MAX_RETRY_LOOPS = 3  # Maximum number of retry attempts for slide generation + layout review
 
 # Presentation Config structure
 # This represents the input configuration for the pipeline

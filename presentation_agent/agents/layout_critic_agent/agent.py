@@ -159,25 +159,25 @@ Example JSON in your input:
 **STEP 2: Extract shareable_url**
 Take the "shareable_url" value from the JSON. It starts with "https://docs.google.com/presentation/d/"
 
-**STEP 3: Call the tool and return its output**
+**STEP 3: Call the tool**
 Call review_layout_tool with that URL:
 review_layout_tool("https://docs.google.com/presentation/d/1i6TyEddxmpVbWCGyQWR336lZ_dZt5QeC_HFf_79cZzY/edit", output_dir="presentation_agent/output")
 
-The tool will return a dict with the review results. After calling the tool, return the tool's output as JSON text (not as a dict object).
+**CRITICAL: After calling the tool, you MUST return the tool's result as valid JSON.**
+The tool returns a dict. Convert it to JSON string and return it. Do NOT wrap it in markdown code blocks - return the raw JSON string.
 
-Example: If the tool returns {"review_type": "layout", "passed": true, ...}, you should respond with:
-```json
-{"review_type": "layout", "passed": true, ...}
-```
+Example: If the tool returns {"review_type": "layout_vision_api", "passed": false, "overall_quality": "needs_improvement", ...}, you should return:
+{"review_type": "layout_vision_api", "passed": false, "overall_quality": "needs_improvement", ...}
 
 **IMPORTANT RULES:**
 - ✅ Extract shareable_url from the JSON in your input message
 - ✅ Call review_layout_tool with that URL (use the tool, don't just describe it)
-- ✅ Return the tool's output as JSON text (wrapped in ```json code block)
+- ✅ Return the tool's output as raw JSON string (NO markdown code blocks, NO ```json)
 - ❌ DO NOT use presentation_id (use shareable_url instead)
 - ❌ DO NOT generate your own text response
 - ❌ DO NOT say you don't have access to the URL
 - ❌ DO NOT say the tool requires arguments - just call it with the URL
+- ❌ DO NOT wrap the JSON in markdown code blocks
 
 The shareable_url is ALWAYS in your input message. Extract it and call the tool immediately.
 

@@ -14,7 +14,7 @@ from google.adk.runners import InMemoryRunner
 from google.adk.sessions import InMemorySessionService
 import webbrowser
 
-from config import PresentationConfig
+from config import PresentationConfig, LAYOUT_MAX_RETRY_LOOPS
 # Import individual agents for manual orchestration
 from presentation_agent.agents.report_understanding_agent.agent import agent as report_understanding_agent
 from presentation_agent.agents.outline_generator_agent.agent import agent as outline_generator_agent
@@ -120,7 +120,11 @@ async def run_presentation_pipeline(
     if config.report_url and not config.report_content:
         print(f"📄 Loading PDF from URL: {config.report_url}")
         config.report_content = load_pdf(report_url=config.report_url)
-        print(f"✅ Loaded {len(config.report_content)} characters")
+        # Count lines and words for better logging
+        lines = config.report_content.split('\n')
+        words = config.report_content.split()
+        print(f"✅ Loaded PDF: {len(config.report_content)} characters, {len(lines)} lines, {len(words)} words")
+        # Don't print the full content to avoid cluttering logs
     
     # Create session
     session_service = InMemorySessionService()
@@ -399,7 +403,6 @@ Your task:
                 # Try to fix common JSON issues
                 print(f"   Attempting to fix common JSON issues...")
                 try:
-                    import re
                     fixed = cleaned
                     
                     # Fix 1: Remove trailing commas before closing brackets/braces
@@ -513,153 +516,433 @@ Your task:
             obs_logger.finish_agent_execution(AgentStatus.FAILED, error_msg, has_output=False)
             print(f"⚠️  Google Slides export failed: {error_msg}")
         
-        # Step 5: Layout Critic (optional, if export succeeded)
+        # Step 5: Layout Critic with Retry Loop (optional, if export succeeded)
         if include_critics and export_result.get('status') in ['success', 'partial_success']:
-            print("\n🎨 Step 5: Layout Review")
-            obs_logger.start_agent_execution("LayoutCriticAgent", output_key="layout_review")
+            print("\n🎨 Step 5: Layout Review with Retry Loop")
+            layout_retries = 0
+            max_layout_retries = LAYOUT_MAX_RETRY_LOOPS + 1  # +1 because first attempt is not a retry
             
-            shareable_url = export_result.get("shareable_url") or f"https://docs.google.com/presentation/d/{export_result.get('presentation_id')}/edit"
-            if shareable_url:
-                # Store slides_export_result in session.state so agent can access it
-                session.state["slides_export_result"] = export_result
+            while layout_retries < max_layout_retries:
+                if layout_retries > 0:
+                    print(f"\n🔄 Layout Review Retry {layout_retries}/{LAYOUT_MAX_RETRY_LOOPS}")
                 
-                # Build input message with slides_export_result in the format agent expects
-                layout_input = f"""The SlidesExportAgent has completed. Here is the slides_export_result:
+                # Layout Critic
+                obs_logger.start_agent_execution("LayoutCriticAgent", output_key="layout_review", retry_count=layout_retries)
+                
+                shareable_url = export_result.get("shareable_url") or f"https://docs.google.com/presentation/d/{export_result.get('presentation_id')}/edit"
+                if shareable_url:
+                    # Store slides_export_result in session.state so agent can access it
+                    session.state["slides_export_result"] = export_result
+                    
+                    # Build input message with slides_export_result in the format agent expects
+                    layout_input = f"""The SlidesExportAgent has completed. Here is the slides_export_result:
 
-{json.dumps(export_result, indent=2)}
+{json.dumps(export_result, separators=(',', ':'))}
 
 Extract the shareable_url from slides_export_result and call review_layout_tool with it to review the layout."""
-                
-                runner = InMemoryRunner(agent=layout_critic_agent)
-                events = await runner.run_debug(layout_input, session_id=session.id)
-                
-                # Extract layout_review - check multiple sources
-                layout_review = None
-                import logging
-                logger = logging.getLogger(__name__)
-                
-                # Priority 1: Check state_delta (agent's text output stored by output_key)
-                layout_review = extract_output_from_events(events, "layout_review")
-                
-                # Priority 2: Check tool_results directly - the tool returns the dict itself
-                if not layout_review:
-                    print("🔍 [DEBUG] Checking tool_results for layout_review in main.py...")
-                    print(f"   Total events: {len(events)}")
                     
-                    for i, event in enumerate(reversed(events)):
-                        agent_name = getattr(event, 'agent_name', None) or (getattr(event, 'agent', None) and getattr(event.agent, 'name', None)) or 'Unknown'
-                        
-                        # Since we run this agent in isolation, we can check all events
-                        # regardless of whether the agent name is correctly populated
-                        print(f"   Event {len(events)-1-i} ({agent_name}): Checking actions...")
-                        
-                        if hasattr(event, 'actions') and event.actions:
-                            if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
-                                print(f"   Found {len(event.actions.tool_results)} tool_results")
-                                for j, tool_result in enumerate(event.actions.tool_results):
-                                    if hasattr(tool_result, 'response'):
-                                        response = tool_result.response
-                                        print(f"      Result {j} type: {type(response).__name__}")
-                                        
-                                        # Handle string response (often JSON string)
-                                        if isinstance(response, str):
-                                            try:
-                                                # Try to clean and parse JSON string
-                                                cleaned_response = response.strip()
-                                                if cleaned_response.startswith("```json"):
-                                                    cleaned_response = cleaned_response[7:].lstrip()
-                                                elif cleaned_response.startswith("```"):
-                                                    cleaned_response = cleaned_response[3:].lstrip()
-                                                if cleaned_response.endswith("```"):
-                                                    cleaned_response = cleaned_response[:-3].rstrip()
-                                                
-                                                parsed_response = json.loads(cleaned_response)
-                                                if isinstance(parsed_response, dict):
-                                                    response = parsed_response
-                                                    print(f"      Result {j} parsed from string to dict")
-                                            except json.JSONDecodeError:
-                                                print(f"      Result {j} string is not valid JSON")
-                                        
-                                        if isinstance(response, dict):
-                                            keys = list(response.keys())
-                                            print(f"      Result {j} keys: {keys}")
-                                            
-                                            # Check for layout review structure
-                                            if 'review_type' in response or 'total_slides_reviewed' in response or \
-                                               ('passed' in response and 'overall_quality' in response) or \
-                                               ('presentation_id' in response and ('issues_summary' in response or 'overall_quality' in response)):
-                                                layout_review = response
-                                                print("✅ [DEBUG] Found layout_review in tool_result.response!")
-                                                break
-                                    if layout_review:
-                                        break
-                        
-                        # Also check function_response in content parts
-                        if hasattr(event, 'content') and event.content:
-                            if hasattr(event.content, 'parts') and event.content.parts:
-                                for k, part in enumerate(event.content.parts):
-                                    if hasattr(part, 'function_response') and part.function_response:
-                                        print(f"      Part {k} has function_response")
-                                        if hasattr(part.function_response, 'response'):
-                                            response = part.function_response.response
-                                            print(f"      Part {k} response type: {type(response).__name__}")
-                                            
-                                            # Handle string response (often JSON string)
-                                            if isinstance(response, str):
+                    runner = InMemoryRunner(agent=layout_critic_agent)
+                    events = await runner.run_debug(layout_input, session_id=session.id)
+                    
+                    # Extract layout_review - try multiple methods
+                    layout_review = extract_output_from_events(events, "layout_review")
+                    
+                    # Debug: Log what we got from extract_output_from_events
+                    if layout_review:
+                        print(f"🔍 [DEBUG] extract_output_from_events returned type: {type(layout_review).__name__}")
+                        if isinstance(layout_review, str):
+                            print(f"   [DEBUG] String length: {len(layout_review)}, first 100 chars: {repr(layout_review[:100])}")
+                        elif isinstance(layout_review, dict):
+                            print(f"   [DEBUG] Dict keys: {list(layout_review.keys())[:5]}")
+                    else:
+                        print("🔍 [DEBUG] extract_output_from_events returned None")
+                    
+                    # If not found, try to extract from agent's text content (fallback)
+                    if not layout_review:
+                        print("🔍 [DEBUG] Checking agent text content for JSON...")
+                        for event in reversed(events):
+                            if hasattr(event, 'content') and event.content:
+                                if hasattr(event.content, 'parts') and event.content.parts:
+                                    for part in event.content.parts:
+                                        if hasattr(part, 'text') and part.text:
+                                            text = part.text.strip()
+                                            # Look for JSON object in the text
+                                            start_idx = text.find("{")
+                                            if start_idx != -1:
+                                                # Try to parse from the first { onwards
                                                 try:
-                                                    # Try to clean and parse JSON string
-                                                    cleaned_response = response.strip()
-                                                    if cleaned_response.startswith("```json"):
-                                                        cleaned_response = cleaned_response[7:].lstrip()
-                                                    elif cleaned_response.startswith("```"):
-                                                        cleaned_response = cleaned_response[3:].lstrip()
-                                                    if cleaned_response.endswith("```"):
-                                                        cleaned_response = cleaned_response[:-3].rstrip()
-                                                    
-                                                    parsed_response = json.loads(cleaned_response)
-                                                    if isinstance(parsed_response, dict):
-                                                        response = parsed_response
-                                                        print(f"      Part {k} parsed from string to dict")
-                                                except json.JSONDecodeError:
-                                                    print(f"      Part {k} string is not valid JSON")
-
-                                            if isinstance(response, dict):
-                                                keys = list(response.keys())
-                                                print(f"      Part {k} response keys: {keys}")
-                                                if 'review_type' in response or 'total_slides_reviewed' in response:
-                                                    layout_review = response
-                                                    print("✅ [DEBUG] Found layout_review in function_response!")
-                                                    break
+                                                    # Find matching closing brace
+                                                    brace_count = 0
+                                                    end_idx = start_idx
+                                                    for i in range(start_idx, len(text)):
+                                                        if text[i] == '{':
+                                                            brace_count += 1
+                                                        elif text[i] == '}':
+                                                            brace_count -= 1
+                                                            if brace_count == 0:
+                                                                end_idx = i
+                                                                break
+                                                    if end_idx > start_idx:
+                                                        json_str = text[start_idx:end_idx+1]
+                                                        # Convert Python-style JSON to JSON-compliant
+                                                        json_str = re.sub(r'\bTrue\b', 'true', json_str)
+                                                        json_str = re.sub(r'\bFalse\b', 'false', json_str)
+                                                        json_str = re.sub(r'\bNone\b', 'null', json_str)
+                                                        parsed = json.loads(json_str)
+                                                        # Extract review_layout_tool_response if it exists
+                                                        if isinstance(parsed, dict) and "review_layout_tool_response" in parsed:
+                                                            layout_review = parsed["review_layout_tool_response"]
+                                                            print(f"✅ [DEBUG] Extracted layout_review from agent text content (extracted from review_layout_tool_response)")
+                                                            break
+                                                        elif isinstance(parsed, dict) and ('review_type' in parsed or 'passed' in parsed):
+                                                            layout_review = parsed
+                                                            print(f"✅ [DEBUG] Extracted layout_review from agent text content")
+                                                            break
+                                                except (json.JSONDecodeError, ValueError):
+                                                    pass
                                     if layout_review:
                                         break
-                        
-                        if layout_review:
-                            break
-                
-                if layout_review:
-                    outputs["layout_review"] = layout_review
-                    if save_intermediate:
-                        review_file = f"{output_dir}/layout_review.json"
-                        save_json_output(layout_review, review_file)
-                        print(f"✅ Layout review saved to: {review_file}")
-                    obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
-                else:
-                    obs_logger.finish_agent_execution(AgentStatus.FAILED, "No layout review generated", has_output=False)
-                    print(f"⚠️  Layout review not found in events or tool results")
-                    # Debug: log what we found
-                    logger.warning("   Debug: Checking all events for LayoutCriticAgent...")
-                    for i, event in enumerate(events):
-                        agent_name = getattr(event, 'agent_name', None) or (getattr(event, 'agent', None) and getattr(event.agent, 'name', None)) or 'Unknown'
-                        if agent_name == "LayoutCriticAgent":
-                            logger.warning(f"   Event {i}: LayoutCriticAgent found")
+                            if layout_review:
+                                break
+                    
+                    # If not found, try to extract directly from tool_results
+                    if not layout_review:
+                        print("🔍 [DEBUG] layout_review not found in state_delta, checking tool_results directly...")
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        for i, event in enumerate(reversed(events)):
+                            agent_name = getattr(event, 'agent_name', None) or (getattr(event, 'agent', None) and getattr(event.agent, 'name', None)) or 'Unknown'
                             if hasattr(event, 'actions') and event.actions:
                                 if hasattr(event.actions, 'tool_results') and event.actions.tool_results:
-                                    logger.warning(f"      tool_results: {len(event.actions.tool_results)}")
-                                    for j, tr in enumerate(event.actions.tool_results):
-                                        if hasattr(tr, 'response'):
-                                            logger.warning(f"         tool_result {j} type: {type(tr.response).__name__}")
-                                            if isinstance(tr.response, dict):
-                                                logger.warning(f"         tool_result {j} keys: {list(tr.response.keys())[:10]}")
+                                    logger.info(f"   Found {len(event.actions.tool_results)} tool_results in event {len(events)-1-i} ({agent_name})")
+                                    for tr_idx, tool_result in enumerate(event.actions.tool_results):
+                                        if hasattr(tool_result, 'response'):
+                                            response = tool_result.response
+                                            # Check if response is the layout review dict
+                                            if isinstance(response, dict):
+                                                # Check if it's wrapped in review_layout_tool_response
+                                                if "review_layout_tool_response" in response:
+                                                    layout_review = response["review_layout_tool_response"]
+                                                    print(f"✅ [DEBUG] Found layout_review in tool_result {tr_idx} (extracted from review_layout_tool_response)")
+                                                    break
+                                                elif ('review_type' in response and 'layout' in str(response.get('review_type', ''))) or \
+                                                   ('total_slides_reviewed' in response) or \
+                                                   ('passed' in response and 'overall_quality' in response) or \
+                                                   ('presentation_id' in response and 'issues_summary' in response):
+                                                    layout_review = response
+                                                    print(f"✅ [DEBUG] Found layout_review in tool_result {tr_idx} of event {len(events)-1-i}")
+                                                    break
+                                            elif isinstance(response, str):
+                                                # Try to parse as JSON
+                                                try:
+                                                    # Convert Python-style JSON to JSON-compliant
+                                                    json_str = re.sub(r'\bTrue\b', 'true', response)
+                                                    json_str = re.sub(r'\bFalse\b', 'false', json_str)
+                                                    json_str = re.sub(r'\bNone\b', 'null', json_str)
+                                                    parsed = json.loads(json_str)
+                                                    # Extract review_layout_tool_response if it exists
+                                                    if isinstance(parsed, dict) and "review_layout_tool_response" in parsed:
+                                                        layout_review = parsed["review_layout_tool_response"]
+                                                        print(f"✅ [DEBUG] Parsed layout_review from tool_result {tr_idx} string (extracted from review_layout_tool_response)")
+                                                        break
+                                                    elif isinstance(parsed, dict) and ('review_type' in parsed or 'passed' in parsed):
+                                                        layout_review = parsed
+                                                        print(f"✅ [DEBUG] Parsed layout_review from tool_result {tr_idx} string")
+                                                        break
+                                                except json.JSONDecodeError:
+                                                    pass
+                                        if layout_review:
+                                            break
+                                if layout_review:
+                                    break
+                    
+                    # Parse layout_review if it's a string
+                    if isinstance(layout_review, str):
+                        try:
+                            cleaned = layout_review.strip()
+                            # Remove markdown code blocks if present
+                            if cleaned.startswith("```json"):
+                                cleaned = cleaned[7:].lstrip()
+                            elif cleaned.startswith("```"):
+                                cleaned = cleaned[3:].lstrip()
+                            if cleaned.endswith("```"):
+                                cleaned = cleaned[:-3].rstrip()
+                            
+                            # Convert Python-style JSON (True/False/None) to JSON-compliant (true/false/null)
+                            # Use regex to replace Python booleans and None with JSON equivalents
+                            # Replace True with true (but not in strings)
+                            cleaned = re.sub(r'\bTrue\b', 'true', cleaned)
+                            # Replace False with false (but not in strings)
+                            cleaned = re.sub(r'\bFalse\b', 'false', cleaned)
+                            # Replace None with null (but not in strings)
+                            cleaned = re.sub(r'\bNone\b', 'null', cleaned)
+                            
+                            # Try to parse directly first
+                            try:
+                                parsed = json.loads(cleaned)
+                                # Extract review_layout_tool_response if it exists
+                                if isinstance(parsed, dict) and "review_layout_tool_response" in parsed:
+                                    layout_review = parsed["review_layout_tool_response"]
+                                    print("✅ [DEBUG] Parsed layout_review from string and extracted review_layout_tool_response")
+                                else:
+                                    layout_review = parsed
+                                    print("✅ [DEBUG] Parsed layout_review from string")
+                            except json.JSONDecodeError:
+                                # If direct parse fails, try to find JSON object in the string
+                                # Look for first { and matching last }
+                                start_idx = cleaned.find("{")
+                                if start_idx != -1:
+                                    # Find the matching closing brace
+                                    brace_count = 0
+                                    end_idx = start_idx
+                                    for i in range(start_idx, len(cleaned)):
+                                        if cleaned[i] == '{':
+                                            brace_count += 1
+                                        elif cleaned[i] == '}':
+                                            brace_count -= 1
+                                            if brace_count == 0:
+                                                end_idx = i
+                                                break
+                                    
+                                    if end_idx > start_idx:
+                                        json_str = cleaned[start_idx:end_idx+1]
+                                        # Convert Python booleans in extracted JSON too
+                                        json_str = re.sub(r'\bTrue\b', 'true', json_str)
+                                        json_str = re.sub(r'\bFalse\b', 'false', json_str)
+                                        json_str = re.sub(r'\bNone\b', 'null', json_str)
+                                        parsed = json.loads(json_str)
+                                        # Extract review_layout_tool_response if it exists
+                                        if isinstance(parsed, dict) and "review_layout_tool_response" in parsed:
+                                            layout_review = parsed["review_layout_tool_response"]
+                                            print(f"✅ [DEBUG] Extracted and parsed JSON from string, extracted review_layout_tool_response (start={start_idx}, end={end_idx})")
+                                        else:
+                                            layout_review = parsed
+                                            print(f"✅ [DEBUG] Extracted and parsed JSON from string (start={start_idx}, end={end_idx})")
+                                    else:
+                                        raise json.JSONDecodeError("No matching closing brace found", cleaned, start_idx)
+                                else:
+                                    raise json.JSONDecodeError("No JSON object found in string", cleaned, 0)
+                        except json.JSONDecodeError as e:
+                            print(f"⚠️  Warning: Could not parse layout_review as JSON: {e}")
+                            print(f"   [DEBUG] First 100 chars of layout_review: {repr(layout_review[:100] if layout_review else 'None')}")
+                            layout_review = None
+                    
+                    if layout_review and isinstance(layout_review, dict):
+                        # Save layout_review to session.state for retry compression
+                        session.state["layout_review"] = layout_review
+                        
+                        # Check if layout review passed
+                        passed = layout_review.get("passed", False)
+                        issues_summary = layout_review.get("issues_summary", {})
+                        total_issues = issues_summary.get("total_issues", 0) if isinstance(issues_summary, dict) else 0
+                        overall_quality = layout_review.get("overall_quality", "unknown")
+                        
+                        # Check for text overlap specifically
+                        has_overlap = False
+                        if issues_summary and isinstance(issues_summary, dict):
+                            overlaps_detected = issues_summary.get("overlaps_detected", 0)
+                            has_overlap = overlaps_detected > 0
+                        
+                        obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
+                        
+                        if save_intermediate:
+                            review_file = f"{output_dir}/layout_review.json"
+                            save_json_output(layout_review, review_file)
+                            print(f"✅ Layout review saved to: {review_file}")
+                        
+                        # Check if layout passes (no issues)
+                        if passed and total_issues == 0:
+                            print(f"✅ Layout review passed! Quality: {overall_quality}, Issues: {total_issues}")
+                            outputs["layout_review"] = layout_review
+                            break
+                        else:
+                            print(f"⚠️  Layout review failed: Quality: {overall_quality}, Issues: {total_issues}, Overlaps: {has_overlap}")
+                            
+                            # If we've reached max retries, save the review and exit
+                            if layout_retries >= LAYOUT_MAX_RETRY_LOOPS:
+                                print(f"⚠️  Reached maximum layout retry attempts ({LAYOUT_MAX_RETRY_LOOPS}). Proceeding with current slides.")
+                                outputs["layout_review"] = layout_review
+                                break
+                            
+                            # Prepare feedback for slide regeneration
+                            feedback_details = []
+                            if layout_review.get("issues"):
+                                for slide_issue in layout_review.get("issues", []):
+                                    slide_num = slide_issue.get("slide_number")
+                                    for issue in slide_issue.get("issues", []):
+                                        issue_type = issue.get("type")
+                                        severity = issue.get("severity", "minor")
+                                        
+                                        if issue_type == "text_overlap":
+                                            for detail in issue.get("details", []):
+                                                word1 = detail.get("word1", "text")
+                                                word2 = detail.get("word2", "text")
+                                                feedback_details.append(f"Slide {slide_num}: Words '{word1}' and '{word2}' overlap ({severity} severity).")
+                                        elif issue_type == "text_overflow":
+                                            for detail in issue.get("details", []):
+                                                text = detail.get("text", "text")
+                                                feedback_details.append(f"Slide {slide_num}: Text '{text}' overflows slide boundaries.")
+                                        elif issue_type == "spacing":
+                                            for detail in issue.get("details", []):
+                                                feedback_details.append(f"Slide {slide_num}: Spacing issue: {detail.get('description', 'Inadequate whitespace')}.")
+                                        elif issue_type == "alignment":
+                                            for detail in issue.get("details", []):
+                                                feedback_details.append(f"Slide {slide_num}: Alignment issue: {detail.get('description', 'Elements not properly aligned')}.")
+                            
+                            detailed_feedback = "\n- " + "\n- ".join(feedback_details) if feedback_details else "General layout issues detected."
+                            
+                            # Regenerate slides with feedback
+                            layout_retries += 1
+                            obs_logger.log_retry("SlideAndScriptGeneratorAgent", layout_retries, f"Layout issues: {detailed_feedback}")
+                            
+                            print(f"\n🔄 Regenerating slides to fix layout issues (Attempt {layout_retries}/{LAYOUT_MAX_RETRY_LOOPS})...")
+                            
+                            # Save previous slide_and_script for incremental updates
+                            session.state["previous_slide_and_script"] = slide_and_script
+                            
+                            # Compress layout review for retry (keep all details for all issue types)
+                            compressed_layout_review = {
+                                "overall_quality": overall_quality,
+                                "passed": passed,
+                                "total_issues": total_issues,
+                                "overlaps_detected": issues_summary.get("overlaps_detected", 0) if isinstance(issues_summary, dict) else 0,
+                                "issues": []
+                            }
+                            
+                            # Keep all issues with all details
+                            if layout_review.get("issues"):
+                                for slide_issue in layout_review.get("issues", []):
+                                    slide_number = slide_issue.get("slide_number")
+                                    for issue in slide_issue.get("issues", []):
+                                        compressed_layout_review["issues"].append({
+                                            "slide_number": slide_number,
+                                            "type": issue.get("type"),
+                                            "severity": issue.get("severity", "minor"),
+                                            "count": issue.get("count", 1),
+                                            "details": issue.get("details", []),  # Keep ALL details
+                                        })
+                            
+                            # Regenerate slides with layout feedback
+                            print("\n🎨 Regenerating Slide and Script with Layout Feedback")
+                            obs_logger.start_agent_execution("SlideAndScriptGeneratorAgent", output_key="slide_and_script", retry_count=layout_retries)
+                            
+                            # Build retry message with layout feedback
+                            style_consistency_note = """
+**CRITICAL: STYLE CONSISTENCY REQUIREMENT**
+If layout issues require adjusting font sizes (title, subtitle, body) or positions on one slide, you MUST apply the SAME adjustments to ALL slides to maintain visual consistency:
+- If you reduce title font size on one slide due to overlap, use the SAME reduced size for ALL slides
+- If you adjust title/subtitle positions, use CONSISTENT positions across ALL slides
+- Maintain uniform spacing and alignment patterns across the entire presentation
+- Only vary design_spec when slide type changes (title slide vs regular slide), not to fix individual issues
+"""
+                            
+                            slide_message = f"""[PREVIOUS_LAYOUT_REVIEW]
+{json.dumps(compressed_layout_review, separators=(',', ':'))}
+[END_PREVIOUS_LAYOUT_REVIEW]
+
+⚠️⚠️⚠️ MANDATORY FIX REQUIREMENT ⚠️⚠️⚠️
+
+The layout review identified {total_issues} issue(s) that MUST be fixed. This is retry attempt {layout_retries}/{LAYOUT_MAX_RETRY_LOOPS}.
+
+**YOU MUST FIX EVERY ISSUE BELOW:**
+
+{detailed_feedback}
+
+**SPECIFIC FIX INSTRUCTIONS:**
+- For text overlap: REDUCE font sizes (title by 4-6pt, subtitle by 2-4pt, body by 1-2pt) and INCREASE vertical spacing by at least 8-12%
+- For overflow: REDUCE font sizes and/or reduce content (remove least important bullet points)
+- For spacing: INCREASE spacing.title_to_subtitle by 20-30pt and spacing.subtitle_to_content by 15-25pt
+- Apply fixes consistently across ALL slides of the same type
+
+{style_consistency_note}
+
+**VERIFICATION:** After generating, verify that:
+1. Each slide_number mentioned above has been fixed
+2. Overlapping words/elements are now separated by at least 10% vertical space
+3. Font sizes have been reduced appropriately
+4. Spacing has been increased appropriately
+
+FAILURE TO FIX THESE ISSUES WILL RESULT IN REJECTION."""
+                            
+                            # Re-run slide generator with feedback
+                            runner = InMemoryRunner(agent=slide_and_script_generator_agent)
+                            events = await runner.run_debug(
+                                f"Generate slides and script based on:\nOutline: {json.dumps(presentation_outline, separators=(',', ':'))}\nReport Knowledge: {json.dumps(report_knowledge, separators=(',', ':'))}\n\n{slide_message}",
+                                session_id=session.id
+                            )
+                            slide_and_script = extract_output_from_events(events, "slide_and_script")
+                            
+                            if not slide_and_script:
+                                obs_logger.finish_agent_execution(AgentStatus.FAILED, "No slide_and_script generated on retry", has_output=False)
+                                print(f"⚠️  Failed to regenerate slides. Proceeding with previous version.")
+                                outputs["layout_review"] = layout_review
+                                break
+                            
+                            # Parse slide_and_script if string
+                            if isinstance(slide_and_script, str):
+                                try:
+                                    cleaned = slide_and_script.strip()
+                                    if cleaned.startswith("```json"):
+                                        cleaned = cleaned[7:].lstrip()
+                                    elif cleaned.startswith("```"):
+                                        cleaned = cleaned[3:].lstrip()
+                                    if cleaned.endswith("```"):
+                                        cleaned = cleaned[:-3].rstrip()
+                                    slide_and_script = json.loads(cleaned)
+                                except json.JSONDecodeError as e:
+                                    print(f"⚠️  Warning: Could not parse regenerated slide_and_script as JSON: {e}")
+                                    outputs["layout_review"] = layout_review
+                                    break
+                            
+                            # Re-export slides
+                            print("\n📤 Re-exporting Slides to Google Slides")
+                            obs_logger.start_agent_execution("SlidesExportAgent", output_key="slides_export_result", retry_count=layout_retries)
+                            
+                            slide_deck = slide_and_script.get("slide_deck")
+                            presentation_script = slide_and_script.get("presentation_script")
+                            
+                            if slide_deck and presentation_script:
+                                config_dict = {
+                                    'scenario': config.scenario,
+                                    'duration': config.duration,
+                                    'target_audience': config.target_audience,
+                                    'custom_instruction': config.custom_instruction
+                                }
+                                
+                                export_result = export_slideshow_tool(
+                                    slide_deck=slide_deck,
+                                    presentation_script=presentation_script,
+                                    config=config_dict,
+                                    title=""
+                                )
+                                
+                                if export_result.get('status') in ['success', 'partial_success']:
+                                    session.state["slideshow_export_result"] = export_result
+                                    obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
+                                    print(f"✅ Slides re-exported successfully")
+                                    # Continue loop to review again
+                                    continue
+                                else:
+                                    obs_logger.finish_agent_execution(AgentStatus.FAILED, "Re-export failed", has_output=False)
+                                    print(f"⚠️  Failed to re-export slides. Proceeding with previous version.")
+                                    outputs["layout_review"] = layout_review
+                                    break
+                            else:
+                                obs_logger.finish_agent_execution(AgentStatus.FAILED, "Missing slide_deck or presentation_script", has_output=False)
+                                print(f"⚠️  Missing slide_deck or presentation_script. Proceeding with previous version.")
+                                outputs["layout_review"] = layout_review
+                                break
+                    else:
+                        obs_logger.finish_agent_execution(AgentStatus.FAILED, "No layout review generated", has_output=False)
+                        print(f"⚠️  Layout review not found or invalid")
+                        if layout_retries >= LAYOUT_MAX_RETRY_LOOPS:
+                            break
+                        layout_retries += 1
+                        continue
+                else:
+                    obs_logger.finish_agent_execution(AgentStatus.FAILED, "No shareable URL available", has_output=False)
+                    print(f"⚠️  No shareable URL available for layout review")
+                    break
         
         # Save complete output
         if len(outputs) > 1:
