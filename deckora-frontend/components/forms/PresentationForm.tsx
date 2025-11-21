@@ -8,6 +8,7 @@ import Button from '../ui/Button';
 import Icon from '../ui/Icon';
 import { PresentationFormData, FormErrors } from '@/types';
 import { SCENARIOS, TARGET_AUDIENCES, DEFAULT_DURATION } from '@/lib/constants';
+import { generatePresentation, GeneratePresentationResponse } from '@/lib/api';
 
 const PresentationForm: React.FC = () => {
   const [showConfig, setShowConfig] = useState(false);
@@ -20,6 +21,8 @@ const PresentationForm: React.FC = () => {
     customInstruction: '',
   });
   const [errors, setErrors] = useState<FormErrors>({});
+  const [result, setResult] = useState<GeneratePresentationResponse | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -44,12 +47,30 @@ const PresentationForm: React.FC = () => {
     }
 
     setIsSubmitting(true);
+    setErrorMessage(null);
+    setResult(null);
+
     try {
-      // TODO: Implement API call to backend
-      console.log('Form submitted:', formData);
-      // await submitPresentation(formData);
+      const response = await generatePresentation({
+        report_url: formData.reportUrl || undefined,
+        scenario: formData.scenario || undefined,
+        duration: formData.duration,
+        target_audience: formData.targetAudience || undefined,
+        custom_instruction: formData.customInstruction || undefined,
+      });
+
+      setResult(response);
+
+      // If successful and we have a shareable URL, open it
+      const slidesResult = response.outputs?.slideshow_export_result || response.outputs?.slides_export_result;
+      if (response.status === 'success' && slidesResult?.shareable_url) {
+        window.open(slidesResult.shareable_url, '_blank');
+      }
     } catch (error) {
       console.error('Error submitting form:', error);
+      setErrorMessage(
+        error instanceof Error ? error.message : 'An unexpected error occurred'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -204,6 +225,45 @@ const PresentationForm: React.FC = () => {
       <Button type="submit" variant="primary" fullWidth disabled={isSubmitting}>
         {isSubmitting ? 'Generating...' : 'Generate Slides'}
       </Button>
+
+      {errorMessage && (
+        <div className="mt-4 rounded-lg border border-red-300 bg-red-50 p-4">
+          <p className="text-sm font-medium text-red-800">Error</p>
+          <p className="mt-1 text-sm text-red-600">{errorMessage}</p>
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-medium text-slate-800">
+            {result.status === 'success' ? '✅ Success!' : '⚠️ Error'}
+          </p>
+          {(result.outputs?.slideshow_export_result?.shareable_url || 
+            result.outputs?.slides_export_result?.shareable_url) && (
+            <div className="mt-2">
+              <a
+                href={result.outputs?.slideshow_export_result?.shareable_url || 
+                     result.outputs?.slides_export_result?.shareable_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-primary-600 hover:text-primary-700 underline"
+              >
+                Open Google Slides Presentation
+              </a>
+            </div>
+          )}
+          {result.outputs?.slideshow_export_result?.message && (
+            <p className="mt-1 text-sm text-slate-600">
+              {result.outputs.slideshow_export_result.message}
+            </p>
+          )}
+          {result.outputs?.slides_export_result?.message && (
+            <p className="mt-1 text-sm text-slate-600">
+              {result.outputs.slides_export_result.message}
+            </p>
+          )}
+        </div>
+      )}
     </form>
   );
 };

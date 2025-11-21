@@ -23,6 +23,22 @@ A Next.js frontend application for Deckora - Transform Reports into Presentation
 npm install
 ```
 
+### Environment Setup
+
+1. Create a `.env.local` file in the `deckora-frontend` directory:
+
+```bash
+cp .env.example .env.local
+```
+
+2. Update `.env.local` with your API URL:
+
+```env
+NEXT_PUBLIC_API_URL=https://presentation-agent-385552249410.us-central1.run.app
+```
+
+**Note**: `.env.local` is already in `.gitignore` and will not be committed to version control.
+
 ### Development
 
 ```bash
