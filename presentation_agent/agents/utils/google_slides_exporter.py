@@ -1040,14 +1040,9 @@ def export_to_google_slides(
             chart_spec = visual_elements.get('chart_spec')
             
             # Fallback: If charts_needed but chart_data is missing or invalid, generate it from chart_spec
-            # Check if chart_data is missing, empty, placeholder, or too short
-            is_chart_data_invalid = (
-                not chart_data or
-                chart_data == "PLACEHOLDER_CHART_DATA" or
-                (isinstance(chart_data, str) and len(chart_data) < 100)
-            )
+            from presentation_agent.agents.utils.helpers import is_valid_chart_data
             
-            if charts_needed and chart_spec and is_chart_data_invalid:
+            if charts_needed and chart_spec and not is_valid_chart_data(chart_data):
                 logger.info(f"📊 Chart needed but chart_data missing for slide {slide_number}, generating from chart_spec...")
                 print(f"   📊 Generating chart for slide {slide_number} from chart_spec...")
                 try:
@@ -1102,12 +1097,7 @@ def export_to_google_slides(
                     print(f"   ❌ Error generating chart for slide {slide_number}: {str(e)[:100]}")
                     chart_data = None
             
-            if chart_data:
-                # Validate chart_data is not empty
-                if not chart_data or len(chart_data) < 100:
-                    logger.warning(f"⚠️  Chart data too short for slide {slide_number} (length: {len(chart_data) if chart_data else 0}), skipping")
-                    print(f"   ⚠️  Chart data too short for slide {slide_number}, skipping")
-                else:
+            if is_valid_chart_data(chart_data):
                     # Chart data is base64-encoded PNG
                     # Upload to Google Drive first, then use Drive URL to insert into slide
                     # This avoids the 2KB URL length limit for data URLs

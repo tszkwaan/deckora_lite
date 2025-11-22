@@ -9,6 +9,8 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 import logging
 
+from presentation_agent.agents.utils.helpers import is_valid_chart_data, clean_chart_data
+
 logger = logging.getLogger(__name__)
 
 
@@ -169,11 +171,9 @@ def _generate_slide_html(slide: Dict, script_section: Optional[Dict], slide_inde
     # Generate chart HTML if available
     chart_html = ""
     chart_data = visual_elements.get("chart_data")
-    if chart_data and chart_data != "PLACEHOLDER_CHART_DATA" and isinstance(chart_data, str) and len(chart_data) > 100:
+    if is_valid_chart_data(chart_data):
         # Chart is base64 PNG - ensure it's properly formatted
-        # Remove any JSON wrapper if present
-        if chart_data.startswith('"') and chart_data.endswith('"'):
-            chart_data = chart_data[1:-1]
+        chart_data = clean_chart_data(chart_data)
         chart_html = f'<div class="chart-container"><img src="data:image/png;base64,{chart_data}" alt="Chart" class="chart-image"></div>'
     
     # Generate icons HTML if available
@@ -740,59 +740,60 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     chart_data = visual_elements.get("chart_data")
     chart_spec = visual_elements.get("chart_spec")
     
-    if charts_needed:
+    if not charts_needed:
+        # No chart needed, skip
+        pass
+    elif is_valid_chart_data(chart_data):
         # If chart_data exists and is valid, use it
-        if chart_data and chart_data != "PLACEHOLDER_CHART_DATA" and isinstance(chart_data, str) and len(chart_data) > 100:
-            if chart_data.startswith('"') and chart_data.endswith('"'):
-                chart_data = chart_data[1:-1]
-            chart_html = f'<div class="chart-container"><img src="data:image/png;base64,{chart_data}" alt="Chart" class="chart-image"></div>'
-        elif chart_spec:
-            # Generate chart on-the-fly from chart_spec if chart_data is missing
-            try:
-                from presentation_agent.agents.tools.chart_generator_tool import generate_chart_tool
+        chart_data = clean_chart_data(chart_data)
+        chart_html = f'<div class="chart-container"><img src="data:image/png;base64,{chart_data}" alt="Chart" class="chart-image"></div>'
+    elif chart_spec:
+        # Generate chart on-the-fly from chart_spec if chart_data is missing
+        try:
+            from presentation_agent.agents.tools.chart_generator_tool import generate_chart_tool
+            
+            chart_type = chart_spec.get('chart_type', 'bar')
+            data = chart_spec.get('data', {})
+            title = chart_spec.get('title', 'Chart')
+            x_label = chart_spec.get('x_label')
+            y_label = chart_spec.get('y_label')
+            width = chart_spec.get('width', 800)
+            height = chart_spec.get('height', 600)
+            color = chart_spec.get('color')
+            colors = chart_spec.get('colors')
+            
+            # Filter out null values from data
+            filtered_data = {k: v for k, v in data.items() if v is not None}
+            
+            if not filtered_data:
+                logger.warning(f"⚠️  No valid data in chart_spec for slide {slide_number}")
+                chart_html = '<div class="chart-container"><p class="text-slate-400 italic">No chart data available</p></div>'
+            else:
+                result = generate_chart_tool(
+                    chart_type=chart_type,
+                    data=filtered_data,
+                    title=title,
+                    x_label=x_label,
+                    y_label=y_label,
+                    width=width,
+                    height=height,
+                    color=color,
+                    colors=colors
+                )
                 
-                chart_type = chart_spec.get('chart_type', 'bar')
-                data = chart_spec.get('data', {})
-                title = chart_spec.get('title', 'Chart')
-                x_label = chart_spec.get('x_label')
-                y_label = chart_spec.get('y_label')
-                width = chart_spec.get('width', 800)
-                height = chart_spec.get('height', 600)
-                color = chart_spec.get('color')
-                colors = chart_spec.get('colors')
-                
-                # Filter out null values from data
-                filtered_data = {k: v for k, v in data.items() if v is not None}
-                
-                if filtered_data:
-                    result = generate_chart_tool(
-                        chart_type=chart_type,
-                        data=filtered_data,
-                        title=title,
-                        x_label=x_label,
-                        y_label=y_label,
-                        width=width,
-                        height=height,
-                        color=color,
-                        colors=colors
-                    )
-                    
-                    if result.get('status') == 'success' and result.get('chart_data'):
-                        generated_chart_data = result.get('chart_data')
-                        chart_html = f'<div class="chart-container"><img src="data:image/png;base64,{generated_chart_data}" alt="{title}" class="chart-image"></div>'
-                        logger.info(f"✅ Generated chart on-the-fly for slide {slide_number}")
-                    else:
-                        logger.warning(f"⚠️  Failed to generate chart for slide {slide_number}: {result.get('error', 'Unknown error')}")
-                        chart_html = '<div class="chart-container"><p class="text-slate-400 italic">Chart generation failed</p></div>'
+                if result.get('status') == 'success' and result.get('chart_data'):
+                    generated_chart_data = result.get('chart_data')
+                    chart_html = f'<div class="chart-container"><img src="data:image/png;base64,{generated_chart_data}" alt="{title}" class="chart-image"></div>'
+                    logger.info(f"✅ Generated chart on-the-fly for slide {slide_number}")
                 else:
-                    logger.warning(f"⚠️  No valid data in chart_spec for slide {slide_number}")
-                    chart_html = '<div class="chart-container"><p class="text-slate-400 italic">No chart data available</p></div>'
-            except Exception as e:
-                logger.error(f"❌ Error generating chart for slide {slide_number}: {e}")
-                chart_html = '<div class="chart-container"><p class="text-slate-400 italic">Chart generation error</p></div>'
-        else:
-            # No chart_spec available
-            chart_html = '<div class="chart-container"><p class="text-slate-400 italic">Chart specification not available</p></div>'
+                    logger.warning(f"⚠️  Failed to generate chart for slide {slide_number}: {result.get('error', 'Unknown error')}")
+                    chart_html = '<div class="chart-container"><p class="text-slate-400 italic">Chart generation failed</p></div>'
+        except Exception as e:
+            logger.error(f"❌ Error generating chart for slide {slide_number}: {e}")
+            chart_html = '<div class="chart-container"><p class="text-slate-400 italic">Chart generation error</p></div>'
+    else:
+        # No chart_spec available
+        chart_html = '<div class="chart-container"><p class="text-slate-400 italic">Chart specification not available</p></div>'
     
     # Generate icons HTML if available
     icons_html = ""

@@ -143,7 +143,8 @@ def call_chart_generation_after_agent(callback_context):
                 continue
             
             # Skip if chart_data already exists and is valid (not placeholder)
-            if chart_data and chart_data != "PLACEHOLDER_CHART_DATA" and len(chart_data) > 100:
+            from presentation_agent.agents.utils.helpers import is_valid_chart_data
+            if is_valid_chart_data(chart_data):
                 logger.info(f"   ✅ Slide {slide_number}: Chart data already exists, skipping")
                 continue
             

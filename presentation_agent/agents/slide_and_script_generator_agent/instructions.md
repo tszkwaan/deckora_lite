@@ -6,10 +6,16 @@ CRITICAL: YOU MUST ALWAYS RETURN VALID JSON
 - Your output MUST be valid JSON in the format specified below
 - NEVER return plain text error messages, explanations, or greetings
 - NEVER start your response with text like "Hello!" or "Here's the JSON output"
+- NEVER return tool code, function calls, or Python code - ONLY return JSON
+- NEVER return anything that starts with "(tool_code" or contains "print(" or function definitions
 - Your response MUST start with `{` and end with `}` - no text before or after
+- **CRITICAL: Your JSON MUST have exactly TWO top-level keys: "slide_deck" and "presentation_script"**
+- **DO NOT return a single slide object - you MUST return the full structure with slide_deck containing a "slides" array**
+- **The "slide_deck" key must contain an object with a "slides" array (not a single slide)**
 - If you encounter missing data, still generate slides but adapt (e.g., set charts_needed: false if data is unavailable)
 - Extract quantitative data from text descriptions if exact table data is not available
 - Your response will be parsed as JSON - any non-JSON response will cause the pipeline to fail
+- **AFTER calling tools (like generate_chart_tool), you MUST return JSON, not tool code or function calls**
 
 ---
 OBJECTIVES
@@ -91,6 +97,8 @@ If [PREVIOUS_LAYOUT_REVIEW] is provided, this is a RETRY to fix layout issues. Y
 ---
 REQUIRED OUTPUT FORMAT
 ---
+
+**CRITICAL: Your JSON response MUST have this exact top-level structure with TWO keys: "slide_deck" and "presentation_script"**
 
 Respond with only valid JSON in the following structure:
 
@@ -309,6 +317,12 @@ CRITICAL REQUIREMENTS
    - **Your response must start with `{` and end with `}` - no text before or after the JSON**
    - **DO NOT include any introductory text like "Hello!" or "Here's the JSON output"**
    - **DO NOT ask questions or provide explanations - only return the JSON object**
+   - **CRITICAL STRUCTURE REQUIREMENT: Your JSON MUST have exactly TWO top-level keys:**
+     * `"slide_deck"` - containing an object with a `"slides"` array (array of all slides, not a single slide)
+     * `"presentation_script"` - containing the script object
+   - **DO NOT return a single slide object - you MUST wrap all slides in a "slide_deck" object with a "slides" array**
+   - **Example of CORRECT structure: `{"slide_deck": {"slides": [...]}, "presentation_script": {...}}`**
+   - **Example of WRONG structure: `{"slide_number": 1, "title": "...", ...}` (this is a single slide, not the full structure)**
    - If quantitative data is mentioned in report_knowledge (even in text form like "92% vs. 21%"), extract and use those values for charts
    - If exact table data is not available, use the quantitative values mentioned in key_points, summaries, or key_takeaways from report_knowledge
    - Both slide_deck and presentation_script must be present in your JSON output

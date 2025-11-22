@@ -21,7 +21,7 @@ from presentation_agent.agents.layout_critic_agent.agent import agent as layout_
 # from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool  # Commented out
 from presentation_agent.agents.tools.web_slides_generator_tool import generate_web_slides_tool
 from presentation_agent.agents.utils.pdf_loader import load_pdf
-from presentation_agent.agents.utils.helpers import save_json_output
+from presentation_agent.agents.utils.helpers import save_json_output, is_valid_chart_data
 from presentation_agent.agents.utils.observability import get_observability_logger, AgentStatus
 from presentation_agent.agents.utils.quality_check import check_outline_quality
 from presentation_agent.core.agent_executor import AgentExecutor
@@ -434,7 +434,7 @@ class PipelineOrchestrator:
             for slide in updated_slide_deck.get('slides', []):
                 visual_elements = slide.get('visual_elements', {})
                 chart_data = visual_elements.get('chart_data')
-                if chart_data and chart_data != "PLACEHOLDER_CHART_DATA" and len(chart_data) > 100:
+                if is_valid_chart_data(chart_data):
                     charts_generated_count += 1
             
             if charts_generated_count > 0:

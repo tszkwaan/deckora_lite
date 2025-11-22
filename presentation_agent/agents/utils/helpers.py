@@ -6,6 +6,43 @@ import json
 from typing import Any, Dict, Optional
 
 
+def is_valid_chart_data(chart_data: Any, min_length: int = 100) -> bool:
+    """
+    Validate chart data before use.
+    
+    Args:
+        chart_data: Chart data to validate (should be base64 string)
+        min_length: Minimum length for valid chart data (default: 100)
+        
+    Returns:
+        True if chart_data is valid, False otherwise
+    """
+    if not chart_data:
+        return False
+    if chart_data == "PLACEHOLDER_CHART_DATA":
+        return False
+    if not isinstance(chart_data, str):
+        return False
+    if len(chart_data) <= min_length:
+        return False
+    return True
+
+
+def clean_chart_data(chart_data: str) -> str:
+    """
+    Clean chart data by removing JSON wrapper quotes if present.
+    
+    Args:
+        chart_data: Chart data string (may have JSON quotes)
+        
+    Returns:
+        Cleaned chart data string
+    """
+    if chart_data.startswith('"') and chart_data.endswith('"'):
+        return chart_data[1:-1]
+    return chart_data
+
+
 def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
     """
     Extract output from events, checking multiple locations:
