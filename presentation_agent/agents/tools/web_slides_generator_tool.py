@@ -273,9 +273,9 @@ def _generate_css(theme_colors: Dict) -> str:
             flex: 1;
             display: flex;
             flex-direction: column;
-            max-width: 1400px;
-            margin: 0 auto;
             width: 100%;
+            height: 100%;
+            box-sizing: border-box;
         }}
         
         .slide-text-only .slide-content {{
@@ -283,10 +283,21 @@ def _generate_css(theme_colors: Dict) -> str:
         }}
         
         .slide-with-chart .slide-content {{
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            height: 100%;
+            overflow: hidden;
+        }}
+        
+        .slide-content-wrapper {{
+            flex: 1;
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 40px;
             align-items: center;
+            min-height: 0;
+            overflow: hidden;
         }}
         
         .slide-title {{
@@ -294,11 +305,14 @@ def _generate_css(theme_colors: Dict) -> str:
             margin-bottom: 30px;
             font-weight: 700;
             line-height: 1.2;
+            flex-shrink: 0;
         }}
         
         .slide-body {{
             flex: 1;
             line-height: 1.6;
+            overflow-y: auto;
+            min-height: 0;
         }}
         
         .main-text {{
@@ -330,15 +344,23 @@ def _generate_css(theme_colors: Dict) -> str:
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 20px;
-            background: #F9FAFB;
+            padding: 0;
+            background: white;
             border-radius: 8px;
+            min-height: 0;
+            overflow: hidden;
+            height: 100%;
+            width: 100%;
         }}
         
         .chart-image {{
             max-width: 100%;
+            max-height: 100%;
+            width: auto;
             height: auto;
+            object-fit: contain;
             border-radius: 4px;
+            display: block;
         }}
         
         .icons-container {{
@@ -795,7 +817,22 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     body_align = alignment.get("body", "left")
     
     # Generate HTML fragment (just the slide content, no wrapper)
-    slide_html = f"""
+    # For slides with charts, wrap body and chart in a content-wrapper
+    if charts_needed and has_chart:
+        slide_html = f"""
+    <div class="slide-content {layout_class}">
+        <h1 class="slide-title" style="font-size: {title_font_size}pt; text-align: {title_align};">{slide_title}</h1>
+        <div class="slide-content-wrapper">
+            <div class="slide-body" style="font-size: {body_font_size}pt; text-align: {body_align};">
+                {content_html}
+            </div>
+            {chart_html}
+        </div>
+        {icons_html}
+    </div>
+"""
+    else:
+        slide_html = f"""
     <div class="slide-content {layout_class}">
         <h1 class="slide-title" style="font-size: {title_font_size}pt; text-align: {title_align};">{slide_title}</h1>
         <div class="slide-body" style="font-size: {body_font_size}pt; text-align: {body_align};">
@@ -826,7 +863,9 @@ def _generate_global_css(theme_colors: Dict) -> str:
             display: flex;
             flex-direction: column;
             height: 100%;
-            padding: 40px 60px;
+            width: 100%;
+            padding: 30px 40px;
+            box-sizing: border-box;
         }}
         
         .slide-content.slide-with-chart {{
@@ -889,15 +928,23 @@ def _generate_global_css(theme_colors: Dict) -> str:
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 20px;
-            background: #F9FAFB;
+            padding: 0;
+            background: white;
             border-radius: 8px;
+            min-height: 0;
+            overflow: hidden;
+            height: 100%;
+            width: 100%;
         }}
         
         .chart-image {{
             max-width: 100%;
+            max-height: 100%;
+            width: auto;
             height: auto;
+            object-fit: contain;
             border-radius: 4px;
+            display: block;
         }}
         
         .icons-container {{

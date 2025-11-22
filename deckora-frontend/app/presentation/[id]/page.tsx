@@ -71,7 +71,7 @@ function SlideContent({
     }
   }, [html, chartsNeeded]);
 
-  return <div ref={containerRef} className="w-full h-full" />;
+  return <div ref={containerRef} className="w-full h-full overflow-hidden" />;
 }
 
 export default function PresentationViewPage() {
@@ -236,6 +236,36 @@ export default function PresentationViewPage() {
     <>
       {/* Inject global CSS */}
       <style dangerouslySetInnerHTML={{ __html: slidesData.global_css }} />
+      <style>{`
+        .slide-content {
+          height: 100% !important;
+          width: 100% !important;
+          max-height: 100% !important;
+          overflow: hidden !important;
+          box-sizing: border-box !important;
+        }
+        .slide-content-wrapper {
+          height: 100% !important;
+          max-height: 100% !important;
+        }
+        .chart-container {
+          height: 100% !important;
+          width: 100% !important;
+          max-height: 100% !important;
+          padding: 0 !important;
+          display: flex !important;
+          justify-content: center !important;
+          align-items: center !important;
+        }
+        .chart-image {
+          max-width: 100% !important;
+          max-height: 100% !important;
+          width: auto !important;
+          height: auto !important;
+          object-fit: contain !important;
+          display: block !important;
+        }
+      `}</style>
       
       <div className="flex h-screen w-full flex-col overflow-hidden">
         {/* Header */}
@@ -292,23 +322,21 @@ export default function PresentationViewPage() {
           </aside>
 
           {/* Main Content Area */}
-          <div className="relative flex flex-1 flex-col overflow-hidden">
-            <div className="flex flex-grow flex-col overflow-y-auto p-4 sm:p-8">
-              <div className="flex flex-shrink-0 items-center justify-center pb-32">
-                <div className="aspect-[16/9] w-full max-w-6xl rounded-xl bg-white shadow-xl p-8 overflow-hidden">
-                  {/* Render current slide HTML */}
-                  <div className="w-full h-full overflow-auto">
-                    <SlideContent 
-                      html={currentSlide.html} 
-                      chartsNeeded={currentSlide.charts_needed}
-                    />
-                  </div>
+          <div className="relative flex flex-1 flex-col overflow-hidden min-h-0">
+            <div className="flex flex-1 items-center justify-center p-4 sm:p-8 min-h-0 overflow-hidden">
+              <div className="w-full max-w-[95vw] rounded-xl bg-white shadow-xl p-4 overflow-hidden" style={{ aspectRatio: '16/9', maxHeight: '100%' }}>
+                {/* Render current slide HTML */}
+                <div className="w-full h-full overflow-hidden">
+                  <SlideContent 
+                    html={currentSlide.html} 
+                    chartsNeeded={currentSlide.charts_needed}
+                  />
                 </div>
               </div>
             </div>
 
             {/* Bottom Bar - Transcript and Navigation */}
-            <div className="absolute bottom-0 left-0 right-0 z-10 flex items-end justify-between gap-6 border-t border-slate-200 bg-white/60 p-4 backdrop-blur-md">
+            <div className="flex-shrink-0 flex items-end justify-between gap-6 border-t border-slate-200 bg-white/60 p-4 backdrop-blur-md">
               <div className="flex-grow">
                 <div className="w-full max-w-4xl mx-auto">
                   <h3 className="text-sm font-semibold text-slate-800 mb-2">Transcript</h3>
