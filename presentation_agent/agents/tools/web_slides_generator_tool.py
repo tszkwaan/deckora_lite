@@ -1163,8 +1163,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 theme_colors=theme_colors,
                 title_font_size=title_font_size,
                 title_align=title_align,
-                image_cache=image_cache,
-                keyword_usage_tracker=keyword_usage_tracker
+                image_cache=image_cache
             )
     
     elif layout_type == "data-table":
@@ -1262,7 +1261,6 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 theme_colors=theme_colors,
                 subtitle=subtitle,
                 image_cache=image_cache,
-                keyword_usage_tracker=keyword_usage_tracker
             )
     
     elif layout_type == "icon-sequence":
@@ -1275,7 +1273,6 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 theme_colors=theme_colors,
                 goal_text=goal_text,
                 image_cache=image_cache,
-                keyword_usage_tracker=keyword_usage_tracker
             )
     
     elif layout_type == "linear-process":
@@ -1288,7 +1285,6 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 theme_colors=theme_colors,
                 section_header=section_header,
                 image_cache=image_cache,
-                keyword_usage_tracker=keyword_usage_tracker
             )
     
     elif layout_type == "workflow-diagram":
@@ -1303,7 +1299,6 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 subtitle=subtitle,
                 evaluation_criteria=evaluation_criteria,
                 image_cache=image_cache,
-                keyword_usage_tracker=keyword_usage_tracker
             )
     
     elif layout_type == "process-flow":
@@ -1316,7 +1311,6 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 theme_colors=theme_colors,
                 section_header=section_header,
                 image_cache=image_cache,
-                keyword_usage_tracker=keyword_usage_tracker
             )
     
     # Default layout (existing behavior)

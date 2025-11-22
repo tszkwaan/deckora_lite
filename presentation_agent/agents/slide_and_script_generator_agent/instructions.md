@@ -601,8 +601,25 @@ CRITICAL REQUIREMENTS
    - Respect custom_instruction (e.g., "explain implementation in detail", "keep details in speech only")
    - Include smooth transitions between slides
    - **CRITICAL: Ensure total_estimated_time matches the specified duration**
-   - Each point in main_content should have an estimated_time in seconds
-   - Sum of all estimated_time values should approximately equal the target duration
+   - **TIMING CALCULATION (CRITICAL):**
+     * The system calculates timing as: `estimated_seconds = total_words / 2` (approximately 120 words per minute)
+     * **BEFORE generating content, calculate how many words you need:**
+       - If duration is "10 minutes" → target: 10 × 60 = 600 seconds → need ~1200 words total
+       - If duration is "5 minutes" → target: 5 × 60 = 300 seconds → need ~600 words total
+       - Formula: `target_words = (duration_in_minutes × 60) × 2`
+     * **Distribute words across all slides:**
+       - Cover slide (slide 1): ~30-50 words (opening remarks + brief intro)
+       - Content slides: Distribute remaining words evenly (e.g., for 8 slides with 10 min: ~150-200 words per content slide)
+       - Each `explanation` in `main_content` should be detailed enough to fill its allocated time
+     * **Example for "10 minutes" with 8 slides:**
+       - Total target: ~1200 words
+       - Slide 1 (cover): 40 words
+       - Slides 2-8 (7 content slides): ~165 words each (40 + 7×165 = 1195 words ≈ 1200)
+       - Each slide's `main_content` should have 2-4 points, each with 40-80 words of explanation
+     * **After generating, verify:** Sum of all `estimated_time` values should be close to target duration
+     * **If your generated content is too short, EXPAND the explanations** - add more detail, examples, context
+   - Each point in main_content should have an estimated_time in seconds (calculated as: word_count / 2)
+   - Sum of all estimated_time values (including opening_line, main_content points, and transitions) should approximately equal the target duration
 
 5. **Consistency:**
    - The script must align with the slide content

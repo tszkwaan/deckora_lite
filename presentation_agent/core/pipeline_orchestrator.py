@@ -456,6 +456,54 @@ DO NOT ask for clarification - just generate the keywords automatically and dist
             message_parts = []
             if custom_instruction_note:
                 message_parts.append(custom_instruction_note)
+            
+            # Add explicit duration requirement with calculated target
+            # Parse duration string to calculate target seconds
+            duration_str = self.config.duration.lower()
+            target_seconds = 60  # Default to 1 minute
+            if "minute" in duration_str or "min" in duration_str:
+                import re
+                match = re.search(r'(\d+)', duration_str)
+                if match:
+                    minutes = int(match.group(1))
+                    target_seconds = minutes * 60
+            elif "second" in duration_str or "sec" in duration_str:
+                import re
+                match = re.search(r'(\d+)', duration_str)
+                if match:
+                    target_seconds = int(match.group(1))
+            
+            # Calculate required words (words = seconds × 2, since estimated_seconds = words / 2)
+            required_words = target_seconds * 2
+            
+            # Get number of slides from outline for distribution calculation
+            outline = self.outputs.get('presentation_outline', {})
+            num_slides = len(outline.get('slides', [])) or 8  # Default to 8 if not available
+            words_per_content_slide = int((required_words - 50) / max(1, num_slides - 1)) if num_slides > 1 else required_words - 50
+            
+            duration_note = f"""
+═══════════════════════════════════════════════════════════════
+⏱️ CRITICAL DURATION REQUIREMENT ⏱️
+═══════════════════════════════════════════════════════════════
+TARGET DURATION: {self.config.duration} ({target_seconds} seconds)
+
+You MUST generate enough script content to fill this duration.
+
+TIMING CALCULATION:
+- System calculates: estimated_seconds = total_words / 2 (≈120 words/minute)
+- Target: {target_seconds} seconds = {required_words} words total
+- Distribute across all slides:
+  * Cover slide (slide 1): ~40-50 words (opening remarks + brief intro)
+  * Content slides: ~{words_per_content_slide} words each
+  * Each slide's main_content explanations should be DETAILED (40-80 words per point)
+
+CRITICAL: Your script explanations must be DETAILED enough to reach ~{required_words} words total.
+If your current content is too short, EXPAND the explanations with more detail, examples, context, and elaboration.
+
+After generation, verify: Sum of all estimated_time values should be close to {target_seconds} seconds.
+═══════════════════════════════════════════════════════════════
+"""
+            message_parts.append(duration_note)
             message_parts.append(f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {serialized_report_knowledge}")
             
             slide_and_script = await self.executor.run_agent(
