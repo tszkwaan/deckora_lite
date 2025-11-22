@@ -1281,8 +1281,10 @@ def _generate_global_css(theme_colors: Dict) -> str:
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 40px;
-            align-items: center;
+            align-items: flex-start;
             flex: 1;
+            min-height: 0;
+            overflow: visible;
         }}
         
         .slide-images {{
@@ -1290,17 +1292,23 @@ def _generate_global_css(theme_colors: Dict) -> str:
             flex-direction: column;
             gap: 16px;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
+            overflow-y: auto;
+            overflow-x: visible;
+            max-height: 100%;
+            min-height: 0;
+            padding: 10px 0;
         }}
         
         .slide-image {{
             max-width: 100%;
-            max-height: 200px;
+            max-height: 150px;
             width: auto;
             height: auto;
             object-fit: contain;
             border-radius: 8px;
             background: transparent;
+            flex-shrink: 0;
             /* Ensure transparent PNGs display properly without checkerboard */
             image-rendering: -webkit-optimize-contrast;
             image-rendering: crisp-edges;
