@@ -30,7 +30,7 @@ async def main():
         # scenario="academic_teaching",
         duration="1 minute",
         # target_audience="students",  # Optional - can be None to let LLM infer from scenario and report content
-        custom_instruction="add a chart to the experiment slide page",
+        custom_instruction="the whole slide should contain at least one bar chart",
         report_url="https://arxiv.org/pdf/2511.08597",
         style_images=[],  # Add image URLs here if you have them
     )
