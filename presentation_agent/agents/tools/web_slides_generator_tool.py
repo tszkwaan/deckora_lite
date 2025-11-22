@@ -15,7 +15,12 @@ from presentation_agent.templates.template_helpers import (
     render_data_table_html,
     render_flowchart_html,
     render_timeline_html,
-    render_icon_feature_card_html
+    render_icon_feature_card_html,
+    render_icon_row_html,
+    render_icon_sequence_html,
+    render_linear_process_html,
+    render_workflow_diagram_html,
+    render_process_flow_html
 )
 
 logger = logging.getLogger(__name__)
@@ -844,8 +849,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     # Priority 1: Use image_keywords if provided (explicit image keywords)
     if image_keywords:
         for keyword in image_keywords:
-            if len(image_items) >= 3:  # Limit to 3 images
-                break
+            # No limit on number of images - process all keywords
             try:
                 image_url = get_image_url(keyword, source="generative")
                 if image_url and image_url not in used_image_urls:
@@ -861,8 +865,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     # Priority 2: Use icons_suggested if no image_keywords (agent suggested icons)
     elif icons_suggested:
         for keyword in icons_suggested:
-            if len(image_items) >= 3:  # Limit to 3 images
-                break
+            # No limit on number of images - process all keywords
             try:
                 image_url = get_image_url(keyword, source="generative")
                 if image_url and image_url not in used_image_urls:
@@ -878,8 +881,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     # Priority 3: Process figures - check for image_keyword or image_url
     if figures and not image_items:
         for fig in figures:
-            if len(image_items) >= 3:  # Limit to 3 images
-                break
+            # No limit on number of images - process all figures
             if isinstance(fig, dict):
                 # Check for image_keyword first (generate image from keyword)
                 image_keyword = fig.get("image_keyword")
@@ -908,8 +910,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     # Fallback: If still no images and icons_suggested exists, use them
     if not image_items and icons_suggested:
         for keyword in icons_suggested:
-            if len(image_items) >= 3:  # Limit to 3 images
-                break
+            # No limit on number of images - process all keywords
             try:
                 image_url = get_image_url(keyword, source="generative")
                 if image_url and image_url not in used_image_urls:
@@ -1047,6 +1048,63 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         </div>
     </div>
 """
+    
+    elif layout_type == "icon-row":
+        icon_items = visual_elements.get("icon_items", [])
+        if icon_items:
+            subtitle = content.get("main_text") or None
+            return render_icon_row_html(
+                title=slide_title,
+                icon_items=icon_items,
+                theme_colors=theme_colors,
+                subtitle=subtitle
+            )
+    
+    elif layout_type == "icon-sequence":
+        sequence_items = visual_elements.get("sequence_items", [])
+        if sequence_items:
+            goal_text = content.get("main_text") or None
+            return render_icon_sequence_html(
+                title=slide_title,
+                sequence_items=sequence_items,
+                theme_colors=theme_colors,
+                goal_text=goal_text
+            )
+    
+    elif layout_type == "linear-process":
+        process_steps = visual_elements.get("process_steps", [])
+        if process_steps:
+            section_header = visual_elements.get("section_header") or None
+            return render_linear_process_html(
+                title=slide_title,
+                process_steps=process_steps,
+                theme_colors=theme_colors,
+                section_header=section_header
+            )
+    
+    elif layout_type == "workflow-diagram":
+        workflow = visual_elements.get("workflow", {})
+        if workflow:
+            subtitle = content.get("main_text") or None
+            evaluation_criteria = visual_elements.get("evaluation_criteria") or None
+            return render_workflow_diagram_html(
+                title=slide_title,
+                workflow=workflow,
+                theme_colors=theme_colors,
+                subtitle=subtitle,
+                evaluation_criteria=evaluation_criteria
+            )
+    
+    elif layout_type == "process-flow":
+        flow_stages = visual_elements.get("flow_stages", [])
+        if flow_stages:
+            section_header = visual_elements.get("section_header") or None
+            return render_process_flow_html(
+                title=slide_title,
+                flow_stages=flow_stages,
+                theme_colors=theme_colors,
+                section_header=section_header
+            )
     
     # Default layout (existing behavior)
     has_chart = chart_html != ""

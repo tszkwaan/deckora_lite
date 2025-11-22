@@ -109,10 +109,12 @@ OBJECTIVES
 
 1. Read presentation_outline (from Outline Generator Agent)
 2. Read report_knowledge for detailed content
-3. Generate detailed slide content with text, bullet points, and structure
-4. Generate a natural, conversational script that expands on slide content
-5. Ensure content is appropriate for the target audience and scenario
-6. Ensure script timing matches the specified duration
+3. **Generate visually engaging slides** - prioritize visual components (comparison-grid, data-table, flowchart, timeline, charts, images) over text-heavy bullet points
+4. **Keep slide text minimal** - use visuals to convey information, move detailed explanations to the script
+5. Generate a natural, conversational script that expands on slide content (script can be detailed, slides should be visual summaries)
+6. Ensure content is appropriate for the target audience and scenario
+7. Ensure script timing matches the specified duration
+8. **Vary visual components** across slides to keep the presentation engaging and less boring
 
 ---
 INPUTS YOU WILL RECEIVE
@@ -214,15 +216,15 @@ Respond with only valid JSON in the following structure:
             "title": "<descriptive chart title>",
             "x_label": "<x-axis label (required for bar/line)>",
             "y_label": "<y-axis label (required for bar/line)>",
-            "width": 800,
-            "height": 600,
+            "width": 700,
+            "height": 350,
             "color": "#7C3AED",
             "colors": ["#7C3AED", "#EC4899", "#10B981"]
           },
           "chart_data": "<base64_encoded_png_string> (MANDATORY if charts_needed: true, obtained by calling generate_chart_tool)"
         },
         "design_spec": {
-          "layout_type": "<cover-slide | content-text | content-with-chart | comparison-grid | data-table | timeline | flowchart | null>",
+          "layout_type": "<cover-slide | content-text | content-with-chart | comparison-grid | data-table | timeline | flowchart | icon-row | icon-sequence | linear-process | workflow-diagram | process-flow | null>",
           "title_font_size": <number in PT, typically 36-48 for title slides, 28-36 for regular slides>,
           "subtitle_font_size": <number in PT, typically 20-28, must be smaller than title_font_size>,
           "body_font_size": <number in PT, typically 14-18 for body text>,
@@ -318,13 +320,19 @@ CRITICAL REQUIREMENTS
      * **CRITICAL CONSTRAINT**: The `content-text` template does NOT support images or icons. If you need icons/images, you MUST use `comparison-grid` layout, NOT `content-text`. You cannot add icons to a `content-text` slide - you must change the layout to `comparison-grid`.
      * **Example:** If outline says "Use a flowchart to visualize the process" → Use `layout_type: "flowchart"` with `flowchart_steps: [{"label": "Step 1", "description": "..."}, ...]`
      * **Example:** If outline says "A comparison grid or table is ideal" → Use `layout_type: "comparison-grid"` or `"data-table"` with appropriate data
+     * **VISUAL-FIRST APPROACH:** Always consider if a visual component can replace text-heavy content. Prefer visual layouts over text-only slides.
      * Select appropriate `layout_type` in `design_spec` based on content:
-       - Use `"comparison-grid"` when comparing 2-4 items/concepts (e.g., models, methods, scenarios) OR when outline suggests "comparison grid" OR when custom instruction requires "icon-feature card"
-       - Use `"data-table"` when displaying structured tabular data (e.g., results table, metrics comparison) OR when outline suggests "table"
-       - Use `"flowchart"` when showing a process flow OR when outline suggests "flowchart" (provide `visual_elements.flowchart_steps` array)
-       - Use `"timeline"` when showing progression, steps, or chronological flow OR when outline suggests "timeline"
-       - Use `"content-with-chart"` when you have both text content and a chart (but prefer `data-table` if data is tabular)
-       - Use `"content-text"` for standard text-only slides (NOTE: This template does NOT support icons/images - if you need icons, use `comparison-grid` instead)
+       - **PREFER** `"comparison-grid"` when comparing 2-4 items/concepts (e.g., models, methods, scenarios) OR when outline suggests "comparison grid" OR when custom instruction requires "icon-feature card" - **This is more engaging than bullet points**
+       - **PREFER** `"data-table"` when displaying structured tabular data (e.g., results table, metrics comparison) OR when outline suggests "table" - **This is clearer than listing data in text**
+       - **PREFER** `"flowchart"` when showing a process flow OR when outline suggests "flowchart" (provide `visual_elements.flowchart_steps` array) - **This visualizes the process better than text**
+       - **PREFER** `"timeline"` when showing progression, steps, or chronological flow OR when outline suggests "timeline" - **This shows progression visually**
+       - **PREFER** `"icon-row"` when showing 2-4 problems, features, or concepts with icons (provide `visual_elements.icon_items` array) - **Great for problem statements, feature highlights**
+       - **PREFER** `"icon-sequence"` when showing a sequence/flow with 3+ icons and connectors (provide `visual_elements.sequence_items` array) - **Great for process visualization, relationship mapping**
+       - **PREFER** `"linear-process"` when showing a step-by-step pipeline (provide `visual_elements.process_steps` array) - **Great for sequential workflows, pipelines**
+       - **PREFER** `"workflow-diagram"` when showing complex workflow with inputs/processes/outputs (provide `visual_elements.workflow` object) - **Great for system architecture, multi-stage processes**
+       - **PREFER** `"process-flow"` when showing flowchart-style process with multiple stages (provide `visual_elements.flow_stages` array) - **Great for training pipelines, complex workflows**
+       - **PREFER** `"content-with-chart"` when you have both text content and a chart (but prefer `data-table` if data is tabular) - **Charts are more engaging than text descriptions**
+       - **USE SPARINGLY** `"content-text"` for standard text-only slides - **Only when visual components are truly not applicable** (NOTE: This template does NOT support icons/images - if you need icons, use `comparison-grid` or `icon-row` instead)
      * **For `comparison-grid`:** You MUST provide `visual_elements.sections` array with 2-4 section objects: `[{"title": "...", "content": "...", "image_keyword": "..."}, ...]`. Each section should have:
        - `title`: Section title (REQUIRED)
        - `content`: Section description/content (REQUIRED)
@@ -420,13 +428,15 @@ CRITICAL REQUIREMENTS
         * `title`: Descriptive chart title (e.g., "Jailbreak Success Rate: Automated vs. Human Evaluation")
         * `x_label`: X-axis label (required for bar/line charts, e.g., "Model & Evaluation Method")
         * `y_label`: Y-axis label (required for bar/line charts, e.g., "Success Rate (%)")
-        * `width`: Chart width in pixels (default: 800, recommended: 800-1000)
-        * `height`: Chart height in pixels (default: 600, recommended: 600-800)
+        * `width`: Chart width in pixels (default: 700, recommended: 600-900 for 1200px slide width)
+        * `height`: Chart height in pixels (default: 350, recommended: 300-400 for 500px slide height)
+        * **CRITICAL: Slide dimensions are 1200px × 500px** - charts must fit within this space, accounting for padding and other content
         * `color`: Single hex color for bar charts (e.g., "#7C3AED")
         * `colors`: List of hex colors for line/pie charts (e.g., `["#7C3AED", "#EC4899", "#10B981"]`)
      3. **MANDATORY: Call `generate_chart_tool`:** You MUST call the `generate_chart_tool` function with the chart_spec parameters. 
         * IMPORTANT: In ADK, tools are called during your response generation, not in the final JSON output.
-        * You should call the tool like this: `generate_chart_tool(chart_type="bar", data={...}, title="...", x_label="...", y_label="...", width=800, height=600, color="#7C3AED")`
+        * You should call the tool like this: `generate_chart_tool(chart_type="bar", data={...}, title="...", x_label="...", y_label="...", width=700, height=350, color="#7C3AED")`
+        * **Note:** Use width=700, height=350 as defaults for 1200px × 500px slides (can adjust based on layout)
         * The tool will return a dictionary with `chart_data` (base64 PNG string) in the `status: "success"` case.
         * If the tool returns `status: "error"`, log the error but continue with your output (chart will be skipped).
      4. **MANDATORY: Include chart_data in output:** After calling the tool, you MUST extract the `chart_data` from the tool's response dictionary and include it in your JSON output under `visual_elements.chart_data`.
@@ -443,7 +453,8 @@ CRITICAL REQUIREMENTS
    - **Chart Styling Guidelines:**
      * Use professional colors: "#7C3AED" (purple), "#EC4899" (pink), "#10B981" (green), "#F59E0B" (amber)
      * For comparison charts (e.g., automated vs human), use contrasting colors: ["#EC4899", "#7C3AED"]
-     * Default size: 800x600 pixels (good for slides)
+     * Default size: 700x350 pixels (optimized for 1200px × 500px slides)
+     * **CRITICAL: Account for slide dimensions (1200px × 500px)** - charts should not exceed available space
      * Ensure chart title clearly describes what is being compared or shown
    - **CRITICAL REQUIREMENTS:**
      * If `charts_needed: true`, you MUST call `generate_chart_tool` - it will NOT be called automatically
@@ -451,20 +462,104 @@ CRITICAL REQUIREMENTS
      * After calling the tool, you MUST include the returned `chart_data` in `visual_elements.chart_data`
      * If you fail to call the tool or include chart_data, the chart will NOT appear in the slides
 
-3. **Layout Requirements (Commonsense Layout Checking):**
+3. **VISUAL-FIRST DESIGN PRINCIPLE (CRITICAL - REDUCE TEXT, INCREASE ENGAGEMENT):**
+   - **PRIORITY: Use Visual Components Over Text-Heavy Slides**
+     * **AVOID text-heavy slides with long bullet point lists** - these are boring and hard to digest
+     * **PREFER visual components** (comparison-grid, data-table, flowchart, timeline, charts, images) to convey information
+     * **Replace bullet points with visual representations** whenever possible
+     * **Use images/icons to illustrate concepts** - a picture is worth a thousand words
+     * **Keep text minimal** - only essential keywords, labels, and titles
+     * **Let visuals tell the story** - use the script to explain details, not the slide text
+   
+   - **Meaningful Visual Component Selection:**
+     * **Use `comparison-grid`** when comparing 2-4 concepts, features, methods, or scenarios:
+       - Instead of: "Method A: Fast but inaccurate. Method B: Slow but accurate."
+       - Use: comparison-grid with 2 sections, each with an image_keyword and concise title/content
+       - Example: Security features comparison, evaluation methods, model types
+     * **Use `data-table`** when presenting structured data, metrics, or results:
+       - Instead of: "Model A: 92% accuracy. Model B: 85% accuracy. Model C: 78% accuracy."
+       - Use: data-table with headers and rows showing the comparison clearly
+       - Example: Performance metrics, financial data, comparison results
+     * **Use `flowchart`** when showing a process, workflow, or sequence:
+       - Instead of: "Step 1: Input → Step 2: Process → Step 3: Output"
+       - Use: flowchart with visual flow arrows and step labels
+       - Example: Evaluation pipeline, decision process, workflow steps
+     * **Use `timeline`** when showing progression, chronology, or milestones:
+       - Instead of: "2020: Started. 2021: Growth. 2022: Expansion."
+       - Use: timeline with visual progression and key milestones
+       - Example: Project timeline, historical progression, development stages
+     * **Use `content-with-chart`** when you have quantitative data to visualize:
+       - Instead of: "Revenue increased 25% year-over-year"
+       - Use: chart showing the trend visually with minimal text
+       - Example: Growth trends, performance metrics, statistical comparisons
+     * **Use images strategically** to illustrate concepts:
+       - Add `image_keywords` to slides to make them more engaging
+       - Use images to represent abstract concepts (security → shield icon, analytics → chart icon, innovation → lightbulb icon)
+       - Replace text descriptions with visual metaphors where possible
+   
+   - **Text Reduction Strategies:**
+     * **Limit bullet points to 3-4 items maximum** - if you have more, use a visual component instead
+     * **Use single keywords or short phrases** instead of full sentences
+     * **Move detailed explanations to the script** - slides should be visual summaries
+     * **Replace descriptive text with visual elements** (icons, images, diagrams)
+     * **Use visual hierarchy** - make important points stand out with images or larger text, not more text
+   
+   - **Engagement Enhancement:**
+     * **Mix different visual components** across slides - don't use the same layout for every slide
+     * **Vary the visual approach** - alternate between comparison-grid, data-table, flowchart, charts, and image-rich slides
+     * **Use color and imagery** to create visual interest - avoid plain text-only slides
+     * **Create visual narratives** - use flowcharts to show processes, timelines to show progression, comparison-grids to show alternatives
+     * **Make slides scannable** - viewers should understand the main point at a glance, with details in the script
+   
+   - **Decision Framework: "Should I use a visual component?"**
+     * **YES, use a visual component if:**
+       - You're comparing 2+ items → Use `comparison-grid`
+       - You have tabular data → Use `data-table`
+       - You're showing a process/flow → Use `flowchart`
+       - You're showing progression over time → Use `timeline`
+       - You have quantitative data → Use a `chart`
+       - You can illustrate a concept with an image → Add `image_keywords`
+     * **YES, text-only is acceptable if:**
+       - It's a cover slide (title + subtitle only)
+       - It's a simple conclusion slide with 1-2 key takeaways
+       - **There is truly no suitable visual element** for the content (e.g., highly abstract philosophical concepts, very specific technical definitions that cannot be visualized)
+       - **However, even in these cases, try to add at least one relevant image/icon** to make the slide more engaging
+     * **AVOID creating slides with:**
+       - More than 5 bullet points (use a visual component instead)
+       - Long paragraphs of text (move to script, use visuals on slide)
+       - Only text with no visual elements (add at least images/icons) - **EXCEPTION: Acceptable if truly no suitable visual element exists for the content**
+
+4. **Layout Requirements (Commonsense Layout Checking):**
    - **Layout Type Selection:** You MUST select an appropriate `layout_type` in `design_spec` based on slide content:
      * `"cover-slide"`: For slide_number: 1 (title + subtitle only)
-     * `"content-text"`: For text-only slides (title + bullet points)
+     * `"content-text"`: For text-only slides (title + bullet points) - **USE SPARINGLY** - prefer visual components when possible
      * `"content-with-chart"`: For slides with charts (title + content + chart side-by-side)
      * `"comparison-grid"`: For comparing 2-4 items side-by-side (requires `visual_elements.sections` array with 2-4 section objects)
      * `"data-table"`: For displaying tabular data (requires `visual_elements.table_data` with headers and rows)
      * `"flowchart"`: For showing a process flow or sequence of steps (requires `visual_elements.flowchart_steps` array OR will be auto-generated from bullet points)
      * `"timeline"`: For showing progression/chronological flow (requires `visual_elements.timeline_items` array)
+     * `"icon-row"`: For horizontal row of 2-4 icons with labels (requires `visual_elements.icon_items` array) - **Great for problem statements, feature highlights**
+     * `"icon-sequence"`: For sequence of 3+ icons with connectors (requires `visual_elements.sequence_items` array) - **Great for process visualization, relationship mapping**
+     * `"linear-process"`: For step-by-step pipeline (requires `visual_elements.process_steps` array) - **Great for sequential workflows, pipelines**
+     * `"workflow-diagram"`: For complex workflow with inputs/processes/outputs (requires `visual_elements.workflow` object) - **Great for system architecture, multi-stage processes**
+     * `"process-flow"`: For flowchart-style process with multiple stages (requires `visual_elements.flow_stages` array) - **Great for training pipelines, complex workflows**
      * `null` or omit: Default layout (auto-selected based on charts_needed)
    - **Design Specification:** You MUST provide a "design_spec" object for each slide with font sizes, positions, spacing, and alignment.
-   - **Font Size Hierarchy:** Title font size MUST be larger than subtitle. Subtitle MUST be larger than body text. Typical ranges:
-     * Title slides: title 40-48pt, subtitle 24-28pt, body 16-18pt
-     * Regular slides: title 32-40pt, subtitle 20-24pt, body 14-18pt
+   - **CRITICAL: Slide Dimensions:** The slide canvas is **1200px width × 500px height** (2.4:1 aspect ratio - wider and shorter than standard). All design decisions MUST account for this specific dimension.
+   - **Font Size Hierarchy (Optimized for 1200px × 500px):** Title font size MUST be larger than subtitle. Subtitle MUST be larger than body text. Recommended ranges for this dimension:
+     * Title slides: title 36-44pt, subtitle 22-26pt, body 14-16pt
+     * Regular slides: title 28-36pt, subtitle 18-22pt, body 12-16pt
+     * **Note:** Due to shorter height (500px), use slightly smaller fonts than standard to ensure content fits comfortably
+   - **Padding & Margins (Optimized for 1200px × 500px):**
+     * Horizontal padding: 40-60px (3-5% of width) on each side
+     * Vertical padding: 30-40px (6-8% of height) on top and bottom
+     * Content area: ~1080-1120px width × ~420-440px height (accounting for padding)
+   - **Image Sizes (Optimized for 1200px × 500px):**
+     * Small icons/images: 80-120px width/height
+     * Medium images: 150-250px width/height
+     * Large images: 300-400px width (max 80% of content width)
+     * Chart images: 500-700px width × 300-400px height (for side-by-side layouts)
+     * **Always maintain aspect ratio** - images should not exceed slide boundaries
    - **Cover Slide (slide_number: 1) Special Rules:**
      * Title slide MUST have: title + subtitle (in main_text) only
      * bullet_points MUST be empty array []
@@ -474,22 +569,25 @@ CRITICAL REQUIREMENTS
      * layout_type MUST be "cover-slide" or null
      * No charts, no bullet points, no detailed content, no figures
      * Subtitle should be concise (1-2 lines max)
-   - **Positioning & Overlap Prevention:** 
+   - **Positioning & Overlap Prevention (Optimized for 1200px × 500px):** 
+     * **Slide dimensions: 1200px width × 500px height** - account for shorter height in all calculations
      * Calculate vertical positions to prevent overlap. Use this formula:
-       - Title: y_percent = 10-15% (top area)
-       - Subtitle: y_percent = title_y_percent + (title_font_size * 1.2 / slide_height_pt * 100) + spacing_buffer
-       - Body content: y_percent = subtitle_y_percent + (subtitle_font_size * 1.2 / slide_height_pt * 100) + spacing_buffer
-     * For title slides: title at y=15-20%, subtitle at y=35-45% (ensure at least 15% gap)
-     * For regular slides: title at y=8-12%, body starts at y=20-25% (ensure at least 10% gap)
-     * Width: title/subtitle width_percent should be 70-85% (leave margins)
+       - Title: y_percent = 8-12% (top area, slightly higher due to shorter height)
+       - Subtitle: y_percent = title_y_percent + (title_font_size * 1.2 / 500 * 100) + spacing_buffer
+       - Body content: y_percent = subtitle_y_percent + (subtitle_font_size * 1.2 / 500 * 100) + spacing_buffer
+     * For title slides: title at y=12-18%, subtitle at y=30-40% (ensure at least 12% gap, account for shorter height)
+     * For regular slides: title at y=6-10%, body starts at y=18-22% (ensure at least 8% gap, account for shorter height)
+     * Width: title/subtitle width_percent should be 75-90% (can use more width due to wider canvas)
      * CRITICAL: Ensure title_position.y_percent + estimated_title_height < subtitle_position.y_percent (or body start)
-   - **Spacing:** Provide adequate spacing between elements:
-     * title_to_subtitle: Calculate based on title font size (at least title_font_size * 1.5 in points, converted to %)
-     * subtitle_to_content: At least subtitle_font_size * 1.2 in points
-     * Minimum vertical gap: 8-12% of slide height between elements
+     * **Due to 500px height, be more conservative with vertical spacing** - elements must fit within the shorter canvas
+   - **Spacing (Optimized for 1200px × 500px):** Provide adequate spacing between elements:
+     * title_to_subtitle: Calculate based on title font size (at least title_font_size * 1.3 in points, converted to %)
+     * subtitle_to_content: At least subtitle_font_size * 1.1 in points
+     * Minimum vertical gap: 6-10% of slide height (500px) between elements (slightly tighter due to shorter height)
+     * **Account for 500px height** - spacing should be proportional but efficient
    - **Alignment:** Use appropriate alignment (center for title slides, left/center for regular slides).
-   - **No Overflow:** Keep text content within slide boundaries. Limit bullet points to 4-6 items max. Adjust font sizes if content is too long.
-   - **Content Density:** If content is too dense (more than 6 bullet points or long text), reduce font sizes by 2-4pt or split into multiple slides.
+   - **No Overflow:** Keep text content within slide boundaries. **Limit bullet points to 3-4 items max** - if you need more, use a visual component (comparison-grid, data-table, flowchart) instead. Adjust font sizes if content is too long.
+   - **Content Density:** If content is too dense (more than 4 bullet points or long text), **replace with a visual component** rather than reducing font sizes. Visual components are more engaging and easier to digest than dense text.
    - **Visual Balance:** Distribute content evenly. For title slides, center title and subtitle. For regular slides, left-align or center-align based on content type.
    - **Overlap Prevention Checklist:**
      * Title and subtitle/body must have clear vertical separation (minimum 10% of slide height)
