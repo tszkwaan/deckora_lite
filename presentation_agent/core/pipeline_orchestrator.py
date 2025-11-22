@@ -18,7 +18,8 @@ from presentation_agent.agents.outline_critic_agent.agent import agent as outlin
 from presentation_agent.agents.slide_and_script_generator_agent.agent import agent as slide_and_script_generator_agent
 from presentation_agent.agents.chart_generator_agent.agent import agent as chart_generator_agent
 from presentation_agent.agents.layout_critic_agent.agent import agent as layout_critic_agent
-from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool
+# from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool  # Commented out
+from presentation_agent.agents.tools.web_slides_generator_tool import generate_web_slides_tool
 from presentation_agent.agents.utils.pdf_loader import load_pdf
 from presentation_agent.agents.utils.helpers import save_json_output
 from presentation_agent.agents.utils.observability import get_observability_logger, AgentStatus
@@ -97,12 +98,16 @@ class PipelineOrchestrator:
             # Step 3.5: Chart Generation
             await self._step_chart_generation()
             
-            # Step 4: Google Slides Export
-            await self._step_export_slides()
+            # Step 4: Web Slides Generation (Google Slides Export commented out)
+            await self._step_generate_web_slides()
+            # await self._step_export_slides()  # Commented out - using web slides instead
             
-            # Step 5: Layout Review with Retry
-            if self.include_critics:
-                await self._step_layout_review()
+            # Step 5: Layout Review with Retry (commented out for web slides - no layout review needed)
+            # Web slides have better style control, so layout review is not necessary
+            # if self.include_critics:
+            #     await self._step_layout_review()
+            
+            print("\n✅ Pipeline completed - web slides generated!")
             
             self.obs_logger.finish_pipeline()
             return self.outputs
@@ -347,6 +352,13 @@ class PipelineOrchestrator:
                     except json.JSONDecodeError as e:
                         logger.error(f"Failed to parse slide_and_script: {e}")
                         logger.error(f"First 1000 chars: {slide_and_script[:1000]}")
+                        # Check if it looks like an error message
+                        if "unable" in slide_and_script.lower() or "error" in slide_and_script.lower() or "cannot" in slide_and_script.lower():
+                            raise ValueError(
+                                f"SlideAndScriptGeneratorAgent returned a plain text error message instead of JSON. "
+                                f"This usually means the agent encountered an issue (e.g., missing data) but failed to return JSON. "
+                                f"Error message: {slide_and_script[:500]}"
+                            )
                         raise ValueError(f"Failed to parse slide_and_script as JSON: {e}")
         
         # Ensure it's a dict
@@ -435,6 +447,62 @@ class PipelineOrchestrator:
         else:
             print("   ℹ️  No charts needed for this presentation")
             self.obs_logger.finish_agent_execution(AgentStatus.SKIPPED, "No charts needed", has_output=False)
+    
+    async def _step_generate_web_slides(self):
+        """Step 4: Generate Web Slides (HTML)."""
+        print("\n🌐 Step 4: Generate Web Slides")
+        self.obs_logger.start_agent_execution("WebSlidesGenerator", output_key="web_slides_result")
+        
+        # CRITICAL: Get the latest slide_deck from session.state (may have been updated by ChartGeneratorAgent)
+        slide_deck = self.session.state.get("slide_deck") or self.outputs.get("slide_deck")
+        presentation_script = self.outputs.get("presentation_script")
+        
+        if not slide_deck or not presentation_script:
+            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, "Missing slide_deck or presentation_script", has_output=False)
+            raise ValueError("Cannot generate web slides: missing slide_deck or presentation_script")
+        
+        config_dict = {
+            'scenario': self.config.scenario,
+            'duration': self.config.duration,
+            'target_audience': self.config.target_audience,
+            'custom_instruction': self.config.custom_instruction
+        }
+        
+        # Get presentation title from first slide or config
+        presentation_title = slide_deck.get('slides', [{}])[0].get('title', 'Generated Presentation')
+        
+        print("   🚀 Generating web slides HTML...")
+        web_result = generate_web_slides_tool(
+            slide_deck=slide_deck,
+            presentation_script=presentation_script,
+            config=config_dict,
+            title=presentation_title
+        )
+        
+        if web_result.get('status') == 'success':
+            self.outputs["web_slides_result"] = web_result
+            self.session.state["web_slides_result"] = web_result
+            print(f"   ✅ Web slides generated successfully!")
+            print(f"   📄 File: {web_result.get('file_path')}")
+            print(f"   🌐 Open in browser: {web_result.get('url')}")
+            
+            # Optionally open in browser
+            if self.open_browser:
+                import webbrowser
+                try:
+                    webbrowser.open(web_result.get('url'))
+                    print(f"   🌐 Opened in browser")
+                except Exception as e:
+                    print(f"   ⚠️  Could not open browser: {e}")
+            
+            if self.save_intermediate:
+                save_json_output(web_result, str(self.output_dir / "web_slides_result.json"))
+            
+            self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
+        else:
+            error_msg = web_result.get('error', 'Unknown error')
+            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, error_msg, has_output=False)
+            raise ValueError(f"Failed to generate web slides: {error_msg}")
     
     async def _step_export_slides(self):
         """Step 4: Google Slides Export."""

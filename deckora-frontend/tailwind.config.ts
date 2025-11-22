@@ -18,6 +18,9 @@ const config: Config = {
           600: '#6D28D9',
           700: '#5B21B6',
         },
+        'primary-hover': '#6D28D9',
+        'primary-light': '#EDE9FE',
+        'primary-lighter': '#F5F3FF',
         secondary: {
           DEFAULT: '#EC4899',
           500: '#EC4899',

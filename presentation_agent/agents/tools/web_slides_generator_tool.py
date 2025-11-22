@@ -1,0 +1,898 @@
+"""
+Web Slides Generator Tool.
+Generates an HTML webpage with interactive slides from slide deck and presentation script.
+"""
+
+import json
+import base64
+from typing import Dict, Any, Optional
+from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def generate_web_slides_tool(
+    slide_deck: Dict,
+    presentation_script: Dict,
+    config: Optional[Dict] = None,
+    title: str = "Generated Presentation",
+    output_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Generate frontend-ready JSON format with individual slide HTML fragments for Deckora frontend.
+    
+    Args:
+        slide_deck: Slide deck JSON with slides array
+        presentation_script: Presentation script JSON
+        config: Optional config dict (scenario, duration, etc.)
+        title: Presentation title
+        output_path: Output JSON file path (default: presentation_agent/output/slides_data.json)
+        
+    Returns:
+        Dict with status, slides_data_path, and slides_data (for frontend)
+    """
+    try:
+        # Default output path
+        if output_path is None:
+            output_dir = Path("presentation_agent/output")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = str(output_dir / "slides_data.json")
+        
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Extract slides and script
+        slides = slide_deck.get("slides", [])
+        script_sections = presentation_script.get("script_sections", [])
+        
+        # Create script map for easy lookup
+        script_map = {section.get("slide_number"): section for section in script_sections}
+        
+        # Generate frontend-ready JSON format
+        slides_data = _generate_frontend_slides_data(slides, script_map, title, config)
+        output_path.write_text(json.dumps(slides_data, indent=2, ensure_ascii=False), encoding='utf-8')
+        
+        logger.info(f"✅ Frontend slides data generated: {output_path}")
+        print(f"✅ Frontend slides data generated: {output_path}")
+        print(f"   📊 Total slides: {len(slides_data.get('slides', []))}")
+        print(f"   📦 JSON file ready for Deckora frontend integration")
+        
+        return {
+            "status": "success",
+            "slides_data_path": str(output_path.absolute()),
+            "slides_data": slides_data,
+            "message": "Frontend slides data generated successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error generating frontend slides data: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Failed to generate frontend slides data"
+        }
+
+
+def _generate_html(slides: list, script_map: Dict, title: str, config: Optional[Dict]) -> str:
+    """Generate the complete HTML content."""
+    
+    # Generate slides HTML
+    slides_html = []
+    for idx, slide in enumerate(slides):
+        slide_number = slide.get("slide_number", idx + 1)
+        slide_html = _generate_slide_html(slide, script_map.get(slide_number), idx)
+        slides_html.append(slide_html)
+    
+    # Get theme colors based on scenario
+    theme_colors = _get_theme_colors(config)
+    
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title}</title>
+    <style>
+        {_generate_css(theme_colors)}
+    </style>
+</head>
+<body>
+    <div class="presentation-container">
+        <div class="slides-wrapper">
+            {''.join(slides_html)}
+        </div>
+        
+        <!-- Navigation -->
+        <div class="navigation">
+            <button class="nav-btn prev-btn" onclick="previousSlide()">← Previous</button>
+            <span class="slide-counter">
+                <span id="current-slide">1</span> / <span id="total-slides">{len(slides)}</span>
+            </span>
+            <button class="nav-btn next-btn" onclick="nextSlide()">Next →</button>
+        </div>
+        
+        <!-- Speaker Notes Panel (toggleable) -->
+        <button class="notes-toggle" onclick="toggleNotes()">📝 Notes</button>
+        <div class="speaker-notes-panel" id="notes-panel">
+            <div class="notes-header">
+                <h3>Speaker Notes</h3>
+                <button class="close-notes" onclick="toggleNotes()">×</button>
+            </div>
+            <div class="notes-content" id="notes-content"></div>
+        </div>
+    </div>
+    
+    <script>
+        {_generate_javascript(len(slides))}
+    </script>
+</body>
+</html>
+"""
+    return html
+
+
+def _generate_slide_html(slide: Dict, script_section: Optional[Dict], slide_index: int) -> str:
+    """Generate HTML for a single slide."""
+    slide_number = slide.get("slide_number", slide_index + 1)
+    slide_title = slide.get("title", "")
+    content = slide.get("content", {})
+    bullet_points = content.get("bullet_points", [])
+    main_text = content.get("main_text")
+    visual_elements = slide.get("visual_elements", {})
+    design_spec = slide.get("design_spec", {})
+    
+    # Get speaker notes
+    speaker_notes = slide.get("speaker_notes", "")
+    if script_section:
+        # Combine speaker notes with script content
+        script_content = []
+        if script_section.get("opening_line"):
+            script_content.append(f"<p><strong>Opening:</strong> {script_section['opening_line']}</p>")
+        for point in script_section.get("main_content", []):
+            script_content.append(f"<p><strong>{point.get('point', '')}:</strong> {point.get('explanation', '')}</p>")
+        if script_content:
+            speaker_notes = f"<div>{speaker_notes}</div><div class='script-content'>{''.join(script_content)}</div>"
+    
+    # Generate content HTML
+    content_html = ""
+    if main_text:
+        content_html += f'<div class="main-text">{main_text}</div>'
+    if bullet_points:
+        content_html += '<ul class="bullet-points">'
+        for point in bullet_points:
+            content_html += f'<li>{point}</li>'
+        content_html += '</ul>'
+    
+    # Generate chart HTML if available
+    chart_html = ""
+    chart_data = visual_elements.get("chart_data")
+    if chart_data and chart_data != "PLACEHOLDER_CHART_DATA" and isinstance(chart_data, str) and len(chart_data) > 100:
+        # Chart is base64 PNG - ensure it's properly formatted
+        # Remove any JSON wrapper if present
+        if chart_data.startswith('"') and chart_data.endswith('"'):
+            chart_data = chart_data[1:-1]
+        chart_html = f'<div class="chart-container"><img src="data:image/png;base64,{chart_data}" alt="Chart" class="chart-image"></div>'
+    
+    # Generate icons HTML if available
+    icons_html = ""
+    icons_fetched = visual_elements.get("icons_fetched", [])
+    if icons_fetched:
+        icons_html = '<div class="icons-container">'
+        for icon in icons_fetched:
+            icon_url = icon.get("icon_url", "")
+            if icon_url:
+                icons_html += f'<img src="{icon_url}" alt="{icon.get("icon_name", "icon")}" class="slide-icon">'
+        icons_html += '</div>'
+    
+    # Determine slide layout
+    charts_needed = visual_elements.get("charts_needed", False)
+    has_chart = chart_html != ""
+    layout_class = "slide-with-chart" if (charts_needed and has_chart) else "slide-text-only"
+    
+    # Apply design spec styles
+    title_font_size = design_spec.get("title_font_size", 36)
+    body_font_size = design_spec.get("body_font_size", 16)
+    alignment = design_spec.get("alignment", {})
+    title_align = alignment.get("title", "left")
+    body_align = alignment.get("body", "left")
+    
+    slide_html = f"""
+    <div class="slide {layout_class}" data-slide-number="{slide_number}" data-notes='{json.dumps(speaker_notes)}'>
+        <div class="slide-content">
+            <h1 class="slide-title" style="font-size: {title_font_size}pt; text-align: {title_align};">{slide_title}</h1>
+            <div class="slide-body" style="font-size: {body_font_size}pt; text-align: {body_align};">
+                {content_html}
+            </div>
+            {chart_html}
+            {icons_html}
+        </div>
+    </div>
+"""
+    return slide_html
+
+
+def _generate_css(theme_colors: Dict) -> str:
+    """Generate CSS styles."""
+    primary_color = theme_colors.get("primary", "#7C3AED")
+    secondary_color = theme_colors.get("secondary", "#EC4899")
+    background_color = theme_colors.get("background", "#FFFFFF")
+    text_color = theme_colors.get("text", "#1F2937")
+    
+    return f"""
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: {text_color};
+            overflow: hidden;
+            height: 100vh;
+        }}
+        
+        .presentation-container {{
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }}
+        
+        .slides-wrapper {{
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }}
+        
+        .slide {{
+            width: 100vw;
+            height: 100vh;
+            display: none;
+            padding: 60px 80px;
+            background: {background_color};
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            overflow-y: auto;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }}
+        
+        .slide.active {{
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+        }}
+        
+        .slide-content {{
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }}
+        
+        .slide-text-only .slide-content {{
+            justify-content: center;
+        }}
+        
+        .slide-with-chart .slide-content {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            align-items: center;
+        }}
+        
+        .slide-title {{
+            color: {primary_color};
+            margin-bottom: 30px;
+            font-weight: 700;
+            line-height: 1.2;
+        }}
+        
+        .slide-body {{
+            flex: 1;
+            line-height: 1.6;
+        }}
+        
+        .main-text {{
+            margin-bottom: 20px;
+            font-size: 1.1em;
+        }}
+        
+        .bullet-points {{
+            list-style: none;
+            padding-left: 0;
+        }}
+        
+        .bullet-points li {{
+            margin-bottom: 16px;
+            padding-left: 30px;
+            position: relative;
+        }}
+        
+        .bullet-points li:before {{
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: {primary_color};
+            font-size: 1.5em;
+            line-height: 1;
+        }}
+        
+        .chart-container {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            background: #F9FAFB;
+            border-radius: 8px;
+        }}
+        
+        .chart-image {{
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+        }}
+        
+        .icons-container {{
+            display: flex;
+            gap: 16px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }}
+        
+        .slide-icon {{
+            width: 48px;
+            height: 48px;
+            opacity: 0.8;
+        }}
+        
+        .navigation {{
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 12px 24px;
+            border-radius: 50px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+        }}
+        
+        .nav-btn {{
+            background: {primary_color};
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }}
+        
+        .nav-btn:hover {{
+            background: {secondary_color};
+            transform: translateY(-2px);
+        }}
+        
+        .nav-btn:disabled {{
+            background: #D1D5DB;
+            cursor: not-allowed;
+            transform: none;
+        }}
+        
+        .slide-counter {{
+            font-weight: 600;
+            color: {text_color};
+            min-width: 60px;
+            text-align: center;
+        }}
+        
+        .notes-toggle {{
+            position: fixed;
+            top: 30px;
+            right: 30px;
+            background: {primary_color};
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            z-index: 1001;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }}
+        
+        .notes-toggle:hover {{
+            background: {secondary_color};
+        }}
+        
+        .speaker-notes-panel {{
+            position: fixed;
+            right: -400px;
+            top: 0;
+            width: 400px;
+            height: 100vh;
+            background: white;
+            box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
+            transition: right 0.3s ease;
+            z-index: 1002;
+            display: flex;
+            flex-direction: column;
+        }}
+        
+        .speaker-notes-panel.open {{
+            right: 0;
+        }}
+        
+        .notes-header {{
+            padding: 20px;
+            border-bottom: 1px solid #E5E7EB;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        
+        .notes-header h3 {{
+            margin: 0;
+            color: {primary_color};
+        }}
+        
+        .close-notes {{
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #6B7280;
+        }}
+        
+        .notes-content {{
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }}
+        
+        .notes-content .script-content {{
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #E5E7EB;
+        }}
+        
+        .notes-content .script-content p {{
+            margin-bottom: 12px;
+        }}
+        
+        /* Responsive design */
+        @media (max-width: 1024px) {{
+            .slide {{
+                padding: 40px 40px;
+            }}
+            
+            .slide-with-chart .slide-content {{
+                grid-template-columns: 1fr;
+            }}
+            
+            .chart-container {{
+                margin-top: 30px;
+            }}
+        }}
+        
+        @media (max-width: 768px) {{
+            .slide {{
+                padding: 30px 20px;
+            }}
+            
+            .navigation {{
+                bottom: 20px;
+                padding: 10px 16px;
+            }}
+            
+            .nav-btn {{
+                padding: 8px 16px;
+                font-size: 12px;
+            }}
+        }}
+        
+        /* Keyboard navigation hint */
+        .keyboard-hint {{
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 999;
+        }}
+        
+        .keyboard-hint.show {{
+            opacity: 1;
+        }}
+    """
+
+
+def _generate_javascript(total_slides: int) -> str:
+    """Generate JavaScript for slide navigation."""
+    return f"""
+        let currentSlideIndex = 0;
+        const totalSlides = {total_slides};
+        
+        function showSlide(index) {{
+            // Hide all slides
+            const slides = document.querySelectorAll('.slide');
+            slides.forEach(slide => slide.classList.remove('active'));
+            
+            // Show current slide
+            if (slides[index]) {{
+                slides[index].classList.add('active');
+                currentSlideIndex = index;
+                
+                // Update counter
+                document.getElementById('current-slide').textContent = index + 1;
+                
+                // Update navigation buttons
+                document.querySelector('.prev-btn').disabled = (index === 0);
+                document.querySelector('.next-btn').disabled = (index === totalSlides - 1);
+                
+                // Update speaker notes
+                const notesContent = document.getElementById('notes-content');
+                const currentSlide = slides[index];
+                const notes = currentSlide.getAttribute('data-notes');
+                if (notes) {{
+                    try {{
+                        notesContent.innerHTML = JSON.parse(notes);
+                    }} catch (e) {{
+                        notesContent.textContent = notes;
+                    }}
+                }} else {{
+                    notesContent.textContent = 'No notes for this slide.';
+                }}
+            }}
+        }}
+        
+        function nextSlide() {{
+            if (currentSlideIndex < totalSlides - 1) {{
+                showSlide(currentSlideIndex + 1);
+            }}
+        }}
+        
+        function previousSlide() {{
+            if (currentSlideIndex > 0) {{
+                showSlide(currentSlideIndex - 1);
+            }}
+        }}
+        
+        function toggleNotes() {{
+            const panel = document.getElementById('notes-panel');
+            panel.classList.toggle('open');
+        }}
+        
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {{
+            if (e.key === 'ArrowRight' || e.key === ' ') {{
+                e.preventDefault();
+                nextSlide();
+            }} else if (e.key === 'ArrowLeft') {{
+                e.preventDefault();
+                previousSlide();
+            }} else if (e.key === 'n' || e.key === 'N') {{
+                e.preventDefault();
+                toggleNotes();
+            }}
+        }});
+        
+        // Initialize
+        showSlide(0);
+        
+        // Touch/swipe support for mobile
+        let touchStartX = 0;
+        let touchEndX = 0;
+        
+        document.addEventListener('touchstart', (e) => {{
+            touchStartX = e.changedTouches[0].screenX;
+        }});
+        
+        document.addEventListener('touchend', (e) => {{
+            touchEndX = e.changedTouches[0].screenX;
+            handleSwipe();
+        }});
+        
+        function handleSwipe() {{
+            const swipeThreshold = 50;
+            if (touchEndX < touchStartX - swipeThreshold) {{
+                nextSlide();
+            }}
+            if (touchEndX > touchStartX + swipeThreshold) {{
+                previousSlide();
+            }}
+        }}
+    """
+
+
+def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, config: Optional[Dict]) -> Dict:
+    """
+    Generate frontend-ready JSON format with individual slide HTML fragments.
+    
+    Returns:
+        Dict with:
+        - metadata: Basic config (title, total_slides, scenario, etc.)
+        - slides: Array of slide objects, each with:
+          - slide_number: int
+          - html: HTML fragment for this slide
+          - css: CSS styles needed for this slide
+          - design_spec: Design specifications
+          - speaker_notes: Notes for this slide
+          - script: Script content for this slide
+    """
+    theme_colors = _get_theme_colors(config)
+    global_css = _generate_global_css(theme_colors)
+    
+    slides_data = []
+    for idx, slide in enumerate(slides):
+        slide_number = slide.get("slide_number", idx + 1)
+        script_section = script_map.get(slide_number)
+        
+        # Generate HTML fragment for this slide only
+        slide_html = _generate_slide_html_fragment(slide, script_section, idx)
+        
+        # Extract slide-specific CSS (if any)
+        slide_css = _generate_slide_css(slide, theme_colors)
+        
+        # Extract visual elements for chart information
+        visual_elements = slide.get("visual_elements", {})
+        chart_spec = visual_elements.get("chart_spec")
+        charts_needed = visual_elements.get("charts_needed", False)
+        
+        slide_data = {
+            "slide_number": slide_number,
+            "html": slide_html,
+            "css": slide_css,
+            "design_spec": slide.get("design_spec", {}),
+            "speaker_notes": slide.get("speaker_notes", ""),
+            "script": script_section if script_section else None,
+            "title": slide.get("title", ""),
+            "has_icons": bool(visual_elements.get("icons_fetched")),
+            # Chart configuration for frontend to generate charts
+            "charts_needed": charts_needed,
+            "chart_spec": chart_spec if chart_spec else None
+        }
+        slides_data.append(slide_data)
+    
+    return {
+        "metadata": {
+            "title": title,
+            "total_slides": len(slides),
+            "scenario": config.get("scenario", "") if config else "",
+            "duration": config.get("duration", "") if config else "",
+            "target_audience": config.get("target_audience", "") if config else "",
+            "theme_colors": theme_colors
+        },
+        "global_css": global_css,
+        "slides": slides_data
+    }
+
+
+def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], slide_index: int) -> str:
+    """
+    Generate HTML fragment for a single slide (without wrapper HTML structure).
+    This is the HTML that will be inserted into the frontend's slide container.
+    """
+    slide_number = slide.get("slide_number", slide_index + 1)
+    slide_title = slide.get("title", "")
+    content = slide.get("content", {})
+    bullet_points = content.get("bullet_points", [])
+    main_text = content.get("main_text")
+    visual_elements = slide.get("visual_elements", {})
+    design_spec = slide.get("design_spec", {})
+    
+    # Generate content HTML
+    content_html = ""
+    if main_text:
+        content_html += f'<div class="main-text">{main_text}</div>'
+    if bullet_points:
+        content_html += '<ul class="bullet-points">'
+        for point in bullet_points:
+            content_html += f'<li>{point}</li>'
+        content_html += '</ul>'
+    
+    # Generate chart HTML if available
+    chart_html = ""
+    chart_data = visual_elements.get("chart_data")
+    if chart_data and chart_data != "PLACEHOLDER_CHART_DATA" and isinstance(chart_data, str) and len(chart_data) > 100:
+        if chart_data.startswith('"') and chart_data.endswith('"'):
+            chart_data = chart_data[1:-1]
+        chart_html = f'<div class="chart-container"><img src="data:image/png;base64,{chart_data}" alt="Chart" class="chart-image"></div>'
+    
+    # Generate icons HTML if available
+    icons_html = ""
+    icons_fetched = visual_elements.get("icons_fetched", [])
+    if icons_fetched:
+        icons_html = '<div class="icons-container">'
+        for icon in icons_fetched:
+            icon_url = icon.get("icon_url", "")
+            if icon_url:
+                icons_html += f'<img src="{icon_url}" alt="{icon.get("icon_name", "icon")}" class="slide-icon">'
+        icons_html += '</div>'
+    
+    # Determine slide layout
+    charts_needed = visual_elements.get("charts_needed", False)
+    has_chart = chart_html != ""
+    layout_class = "slide-with-chart" if (charts_needed and has_chart) else "slide-text-only"
+    
+    # Apply design spec styles
+    title_font_size = design_spec.get("title_font_size", 36)
+    body_font_size = design_spec.get("body_font_size", 16)
+    alignment = design_spec.get("alignment", {})
+    title_align = alignment.get("title", "left")
+    body_align = alignment.get("body", "left")
+    
+    # Generate HTML fragment (just the slide content, no wrapper)
+    slide_html = f"""
+    <div class="slide-content {layout_class}">
+        <h1 class="slide-title" style="font-size: {title_font_size}pt; text-align: {title_align};">{slide_title}</h1>
+        <div class="slide-body" style="font-size: {body_font_size}pt; text-align: {body_align};">
+            {content_html}
+        </div>
+        {chart_html}
+        {icons_html}
+    </div>
+"""
+    return slide_html.strip()
+
+
+def _generate_slide_css(slide: Dict, theme_colors: Dict) -> str:
+    """Generate slide-specific CSS (if needed). Most styles are in global_css."""
+    # For now, return empty string - all styles are global
+    # But this allows for future slide-specific styling if needed
+    return ""
+
+
+def _generate_global_css(theme_colors: Dict) -> str:
+    """Generate global CSS that applies to all slides."""
+    primary_color = theme_colors.get("primary", "#7C3AED")
+    secondary_color = theme_colors.get("secondary", "#EC4899")
+    text_color = theme_colors.get("text", "#1F2937")
+    
+    return f"""
+        .slide-content {{
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            padding: 40px 60px;
+        }}
+        
+        .slide-content.slide-with-chart {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            align-items: center;
+        }}
+        
+        .slide-title {{
+            color: {primary_color};
+            margin-bottom: 30px;
+            font-weight: 700;
+            line-height: 1.2;
+        }}
+        
+        .slide-body {{
+            flex: 1;
+            line-height: 1.6;
+        }}
+        
+        .main-text {{
+            margin-bottom: 20px;
+            font-size: 1.1em;
+        }}
+        
+        .bullet-points {{
+            list-style: none;
+            padding-left: 0;
+        }}
+        
+        .bullet-points li {{
+            margin-bottom: 16px;
+            padding-left: 30px;
+            position: relative;
+        }}
+        
+        .bullet-points li:before {{
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: {primary_color};
+            font-size: 1.5em;
+            line-height: 1;
+        }}
+        
+        .chart-container {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            background: #F9FAFB;
+            border-radius: 8px;
+        }}
+        
+        .chart-image {{
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+        }}
+        
+        .icons-container {{
+            display: flex;
+            gap: 16px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }}
+        
+        .slide-icon {{
+            width: 48px;
+            height: 48px;
+            opacity: 0.8;
+        }}
+        
+        @media (max-width: 1024px) {{
+            .slide-content.slide-with-chart {{
+                grid-template-columns: 1fr;
+            }}
+            
+            .chart-container {{
+                margin-top: 30px;
+            }}
+        }}
+    """
+
+
+def _get_theme_colors(config: Optional[Dict]) -> Dict[str, str]:
+    """Get theme colors based on scenario."""
+    if not config:
+        return {
+            "primary": "#7C3AED",
+            "secondary": "#EC4899",
+            "background": "#FFFFFF",
+            "text": "#1F2937"
+        }
+    
+    scenario = config.get("scenario", "").lower()
+    
+    if "academic" in scenario:
+        return {
+            "primary": "#1E40AF",  # Blue
+            "secondary": "#3B82F6",
+            "background": "#FFFFFF",
+            "text": "#1F2937"
+        }
+    elif "business" in scenario:
+        return {
+            "primary": "#059669",  # Green
+            "secondary": "#10B981",
+            "background": "#FFFFFF",
+            "text": "#1F2937"
+        }
+    else:
+        return {
+            "primary": "#7C3AED",  # Purple
+            "secondary": "#EC4899",
+            "background": "#FFFFFF",
+            "text": "#1F2937"
+        }
+

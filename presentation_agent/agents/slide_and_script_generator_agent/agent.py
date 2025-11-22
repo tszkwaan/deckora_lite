@@ -25,6 +25,13 @@ agent = LlmAgent(
 
 Your role is to generate BOTH slide content AND presentation script in a single response.
 
+⚠️⚠️⚠️ CRITICAL: YOU MUST ALWAYS RETURN VALID JSON ⚠️⚠️⚠️
+- Your output MUST be valid JSON in the format specified below
+- NEVER return plain text error messages or explanations
+- If you encounter missing data, still generate slides but adapt (e.g., set charts_needed: false if data is unavailable)
+- Extract quantitative data from text descriptions if exact table data is not available
+- Your response will be parsed as JSON - any non-JSON response will cause the pipeline to fail
+
 ---
 OBJECTIVES
 ---
@@ -258,10 +265,13 @@ CRITICAL REQUIREMENTS
         * The tool response format: `{"status": "success", "chart_data": "<base64_string>", ...}`
         * Extract `chart_data` from the response and put it directly in your JSON output.
    - **Data Extraction from Report:**
-     * Extract actual numeric values from report_knowledge (e.g., from "Results" section, tables, key takeaways)
+     * Extract actual numeric values from report_knowledge (e.g., from "Results" section, tables, key takeaways, key_points, summaries)
      * Use real data from the report, do NOT invent numbers
      * If report mentions "GPT-3.5 Zero-shot: 21%", use exactly that value
      * If report mentions "92% vs. 21%", extract both values for comparison
+     * **IMPORTANT: Even if data is not in a perfect table format, extract percentages and numbers mentioned in text (e.g., "92% vs. 21% human" from key_points)**
+     * Look for quantitative data in: sections[].key_points, sections[].summary, key_takeaways, and any text descriptions
+     * If you find numbers like "92%", "21%", "52% discrepancy", etc. in the text, use them to create chart data
    - **Chart Styling Guidelines:**
      * Use professional colors: "#7C3AED" (purple), "#EC4899" (pink), "#10B981" (green), "#F59E0B" (amber)
      * For comparison charts (e.g., automated vs human), use contrasting colors: ["#EC4899", "#7C3AED"]
@@ -316,9 +326,12 @@ CRITICAL REQUIREMENTS
    - The number of script_sections must match the number of slides
 
 6. **Output:**
-   - Output must be valid JSON without additional explanations
-   - Both slide_deck and presentation_script must be present
+   - **CRITICAL: You MUST always return valid JSON, even if you encounter issues or missing data. Never return plain text error messages.**
+   - If quantitative data is mentioned in report_knowledge (even in text form like "92% vs. 21%"), extract and use those values for charts
+   - If exact table data is not available, use the quantitative values mentioned in key_points, summaries, or key_takeaways from report_knowledge
+   - Both slide_deck and presentation_script must be present in your JSON output
    - Do NOT invent any facts, numbers, or technical details not in the report_knowledge
+   - If you cannot find specific numbers, still generate the slides but set `charts_needed: false` for those slides
    - **Chart Output Verification:**
      * If ANY slide has `charts_needed: true`, you MUST have called `generate_chart_tool` for that slide
      * The `chart_data` field MUST be present and non-empty in `visual_elements.chart_data` for that slide

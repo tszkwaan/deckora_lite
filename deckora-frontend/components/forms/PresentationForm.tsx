@@ -61,7 +61,25 @@ const PresentationForm: React.FC = () => {
 
       setResult(response);
 
-      // If successful and we have a shareable URL, open it
+      // If successful, check for web slides result and redirect to presentation view
+      const webSlidesResult = response.outputs?.web_slides_result;
+      if (response.status === 'success' && webSlidesResult?.slides_data) {
+        // Generate a presentation ID (use timestamp or get from backend if available)
+        const presentationId = Date.now().toString();
+        
+        // Store slides data in sessionStorage for immediate access
+        sessionStorage.setItem(`presentation_${presentationId}`, JSON.stringify(webSlidesResult.slides_data));
+        
+        // Also store in a way that the API route can access it (for future requests)
+        // For now, we'll use sessionStorage and pass it directly
+        
+        // Redirect to presentation view with the data
+        // We'll pass the data via sessionStorage and the page will read it
+        window.location.href = `/presentation/${presentationId}`;
+        return;
+      }
+
+      // Fallback: If we have Google Slides URL, open it
       const slidesResult = response.outputs?.slideshow_export_result || response.outputs?.slides_export_result;
       if (response.status === 'success' && slidesResult?.shareable_url) {
         window.open(slidesResult.shareable_url, '_blank');
