@@ -107,23 +107,15 @@ Respond with only valid JSON in the following structure:
     "slides": [
       {
         "slide_number": 1,
-        "title": "<slide title>",
+        "title": "<presentation title>",
         "content": {
-          "main_text": "<main text or null>",
-          "bullet_points": [
-            "<bullet 1>",
-            "<bullet 2>"
-          ],
-          "subheadings": [
-            {
-              "heading": "<subheading>",
-              "content": "<content or bullet points>"
-            }
-          ]
+          "main_text": "<subtitle text - e.g., 'Presented by [Name] | [Event/Date]'>",
+          "bullet_points": [],
+          "subheadings": []
         },
         "visual_elements": {
-          "figures": ["<figure_id>"],
-          "charts_needed": true,
+          "figures": [],
+          "charts_needed": false,
           "chart_spec": {
             "chart_type": "<bar | line | pie>",
             "data": {
@@ -222,6 +214,19 @@ CRITICAL REQUIREMENTS
    - Ensure content depth matches audience level from report_knowledge
    - Include speaker notes that provide context not on slides
    - **IMPORTANT: For academic settings (scenario == "academic_teaching" or "academic_student_presentation"), it is critical to present experiment results in numbers. Include specific metrics, percentages, accuracy scores, performance improvements, and other quantitative data from the report when generating slides about experimental results.**
+   - **COVER SLIDE REQUIREMENT (slide_number: 1):**
+     * The first slide (slide_number: 1) is a COVER/TITLE slide and MUST follow these strict rules:
+     * **MUST have:** A title and a subtitle (subtitle goes in `content.main_text`)
+     * **MUST NOT have:** Any bullet points - `content.bullet_points` MUST be an empty array `[]`
+     * **MUST NOT have:** Any subheadings - `content.subheadings` MUST be an empty array `[]`
+     * **MUST NOT have:** Any charts - `visual_elements.charts_needed` MUST be `false`
+     * **MUST NOT have:** Any figures - `visual_elements.figures` MUST be an empty array `[]`
+     * **Subtitle content:** The subtitle (`main_text`) should be a single line of text, such as:
+       - Presenter name and affiliation (e.g., "Presented by [Your Name]")
+       - Event/venue information (e.g., "Conference Name 2024")
+       - Date or location (e.g., "November 2024")
+       - A brief tagline related to the presentation topic
+     * **Example:** For slide_number: 1, use: `"main_text": "Presented by [Your Name] | Conference Name 2024"`, `"bullet_points": []`, `"subheadings": []`, `"charts_needed": false`, `"figures": []`
 
 2. **Chart Generation (Visual Elements):**
    - **When to Generate Charts:** If a slide contains quantitative data (percentages, metrics, comparisons, trends), consider generating a chart to visualize the data.
@@ -275,6 +280,14 @@ CRITICAL REQUIREMENTS
    - **Font Size Hierarchy:** Title font size MUST be larger than subtitle. Subtitle MUST be larger than body text. Typical ranges:
      * Title slides: title 40-48pt, subtitle 24-28pt, body 16-18pt
      * Regular slides: title 32-40pt, subtitle 20-24pt, body 14-18pt
+   - **Cover Slide (slide_number: 1) Special Rules:**
+     * Title slide MUST have: title + subtitle (in main_text) only
+     * bullet_points MUST be empty array []
+     * subheadings MUST be empty array []
+     * charts_needed MUST be false
+     * figures MUST be empty array []
+     * No charts, no bullet points, no detailed content, no figures
+     * Subtitle should be concise (1-2 lines max)
    - **Positioning & Overlap Prevention:** 
      * Calculate vertical positions to prevent overlap. Use this formula:
        - Title: y_percent = 10-15% (top area)
@@ -323,6 +336,10 @@ CRITICAL REQUIREMENTS
    - **DO NOT return a single slide object - you MUST wrap all slides in a "slide_deck" object with a "slides" array**
    - **Example of CORRECT structure: `{"slide_deck": {"slides": [...]}, "presentation_script": {...}}`**
    - **Example of WRONG structure: `{"slide_number": 1, "title": "...", ...}` (this is a single slide, not the full structure)**
+   - **Cover Slide Validation:**
+     * For slide_number: 1, verify that bullet_points is an empty array []
+     * Verify that main_text contains subtitle text (not empty)
+     * If you accidentally include bullet points in slide 1, remove them and put the content in main_text as subtitle instead
    - If quantitative data is mentioned in report_knowledge (even in text form like "92% vs. 21%"), extract and use those values for charts
    - If exact table data is not available, use the quantitative values mentioned in key_points, summaries, or key_takeaways from report_knowledge
    - Both slide_deck and presentation_script must be present in your JSON output

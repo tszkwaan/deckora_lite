@@ -72,6 +72,10 @@ class AgentExecutor:
         
         # Parse JSON if requested and output is a string
         if parse_json and isinstance(output, str):
+            logger.debug(f"Attempting to parse JSON for key '{output_key}' (output length: {len(output)})")
+            logger.debug(f"First 500 chars: {output[:500]}")
+            logger.debug(f"Last 500 chars: {output[-500:]}")
+            
             parsed = parse_json_robust(output)
             if parsed:
                 return parsed
@@ -80,19 +84,31 @@ class AgentExecutor:
             from presentation_agent.core.json_parser import extract_json_from_text
             json_str = extract_json_from_text(output)
             if json_str:
+                logger.debug(f"Extracted JSON string length: {len(json_str)}")
+                logger.debug(f"Extracted JSON first 500 chars: {json_str[:500]}")
+                logger.debug(f"Extracted JSON last 500 chars: {json_str[-500:]}")
                 try:
                     parsed = json.loads(json_str)
                     if isinstance(parsed, dict):
                         logger.info(f"✅ Successfully parsed JSON after direct extraction for key '{output_key}'")
                         return parsed
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSONDecodeError after extraction: {e}")
+                    logger.error(f"Error at position: {e.pos if hasattr(e, 'pos') else 'unknown'}")
+                    # Try to show context around the error
+                    if hasattr(e, 'pos') and e.pos is not None:
+                        start = max(0, e.pos - 100)
+                        end = min(len(json_str), e.pos + 100)
+                        logger.error(f"Context around error: {json_str[start:end]}")
             # If all parsing attempts fail, raise exception
+            logger.error(f"All JSON parsing attempts failed for key '{output_key}'")
+            logger.error(f"Output type: {type(output)}")
+            logger.error(f"Output length: {len(output)}")
             raise JSONParseError(
                 f"Failed to parse JSON from agent output for key '{output_key}'",
                 agent_name=agent_name,
                 output_key=output_key,
-                raw_output=output[:1000] if len(output) > 1000 else output  # Include first 1000 chars for debugging
+                raw_output=output[:2000] if len(output) > 2000 else output  # Include first 2000 chars for debugging
             )
         
         return output
