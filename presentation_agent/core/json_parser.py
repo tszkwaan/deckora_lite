@@ -103,6 +103,14 @@ def extract_json_from_text(text: str) -> Optional[str]:
             logger.debug("No JSON objects found in code block, trying whole content")
             return code_block_content
     
+    # If text doesn't start with {, find the first { and extract from there
+    # This handles cases like "Here's the JSON: {...}"
+    if not text.strip().startswith('{'):
+        first_brace = text.find('{')
+        if first_brace != -1:
+            logger.debug(f"Text doesn't start with {{, found first brace at position {first_brace}, extracting from there")
+            text = text[first_brace:]
+    
     # If no markdown block, find ALL JSON objects and return the largest one
     # This ensures we get the outermost/complete object, not a fragment
     json_objects = []

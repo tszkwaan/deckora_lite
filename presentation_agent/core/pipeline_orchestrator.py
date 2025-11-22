@@ -27,6 +27,7 @@ from presentation_agent.agents.utils.quality_check import check_outline_quality
 from presentation_agent.core.agent_executor import AgentExecutor
 from presentation_agent.core.retry_handler import OutlineRetryHandler, LayoutRetryHandler
 from presentation_agent.core.json_parser import parse_json_robust
+from presentation_agent.core.exceptions import AgentExecutionError, JSONParseError, AgentOutputError
 
 logger = logging.getLogger(__name__)
 
@@ -158,22 +159,16 @@ class PipelineOrchestrator:
 
 {custom_instruction_section}Extract structured knowledge from this report. Analyze the content, identify key sections, figures, and takeaways. Infer scenario and target_audience if not provided."""
         
-        report_knowledge = await self.executor.run_agent(
-            report_understanding_agent,
-            initial_message,
-            "report_knowledge",
-            parse_json=True
-        )
-        
-        if not report_knowledge:
-            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, "No output generated", has_output=False)
-            raise ValueError("ReportUnderstandingAgent failed to generate output")
-        
-        # Parse if string
-        if isinstance(report_knowledge, str):
-            parsed = parse_json_robust(report_knowledge)
-            if parsed:
-                report_knowledge = parsed
+        try:
+            report_knowledge = await self.executor.run_agent(
+                report_understanding_agent,
+                initial_message,
+                "report_knowledge",
+                parse_json=True
+            )
+        except (AgentExecutionError, JSONParseError) as e:
+            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+            raise
         
         # Log inference results
         self._log_inference_results(report_knowledge, scenario_provided, target_audience_provided)
@@ -223,16 +218,18 @@ class PipelineOrchestrator:
             # Generate outline
             self.obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline", retry_count=outline_retries)
             
-            presentation_outline = await self.executor.run_agent(
-                outline_generator_agent,
-                f"Based on the report knowledge:\n{json.dumps(report_knowledge, indent=2)}\n\nGenerate a presentation outline.",
-                "presentation_outline",
-                parse_json=True
-            )
-            
-            if not presentation_outline:
-                self.obs_logger.finish_agent_execution(AgentStatus.FAILED, "No outline generated", has_output=False)
+            try:
+                presentation_outline = await self.executor.run_agent(
+                    outline_generator_agent,
+                    f"Based on the report knowledge:\n{json.dumps(report_knowledge, indent=2)}\n\nGenerate a presentation outline.",
+                    "presentation_outline",
+                    parse_json=True
+                )
+            except (AgentExecutionError, JSONParseError) as e:
+                self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
                 outline_retries += 1
+                if outline_retries > LAYOUT_MAX_RETRY_LOOPS:
+                    raise
                 continue
             
             self.session.state["presentation_outline"] = presentation_outline
@@ -248,35 +245,39 @@ class PipelineOrchestrator:
                     self.config.custom_instruction
                 )
                 
-                critic_review = await self.executor.run_agent(
-                    outline_critic_agent,
-                    critic_input,
-                    "critic_review_outline",
-                    parse_json=True
-                )
-                
-                if critic_review:
-                    passed, quality_details = check_outline_quality(critic_review)
-                    self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
-                    
-                    if passed:
-                        print(f"✅ Outline quality check passed")
-                        break
-                    else:
-                        failure_reasons = quality_details.get('failure_reasons', ['Quality check failed'])
-                        feedback = '; '.join(failure_reasons)
-                        print(f"⚠️  Outline quality check failed: {feedback}")
-                        outline_retries += 1
-                        self.obs_logger.log_retry("OutlineGeneratorAgent", outline_retries, feedback)
-                        continue
-                else:
-                    self.obs_logger.finish_agent_execution(AgentStatus.FAILED, "No critic review generated", has_output=False)
+                try:
+                    critic_review = await self.executor.run_agent(
+                        outline_critic_agent,
+                        critic_input,
+                        "critic_review_outline",
+                        parse_json=True
+                    )
+                except (AgentExecutionError, JSONParseError) as e:
+                    self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
                     break
+                
+                passed, quality_details = check_outline_quality(critic_review)
+                self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
+                
+                if passed:
+                    print(f"✅ Outline quality check passed")
+                    break
+                else:
+                    failure_reasons = quality_details.get('failure_reasons', ['Quality check failed'])
+                    feedback = '; '.join(failure_reasons)
+                    print(f"⚠️  Outline quality check failed: {feedback}")
+                    outline_retries += 1
+                    self.obs_logger.log_retry("OutlineGeneratorAgent", outline_retries, feedback)
+                    continue
             else:
                 break
         
         if not presentation_outline:
-            raise ValueError("OutlineGeneratorAgent failed to generate outline after retries")
+            raise AgentExecutionError(
+                "Failed to generate outline after retries",
+                agent_name="OutlineGeneratorAgent",
+                output_key="presentation_outline"
+            )
         
         self.outputs["presentation_outline"] = presentation_outline
         if self.save_intermediate:
@@ -291,39 +292,73 @@ class PipelineOrchestrator:
         presentation_outline = self.outputs["presentation_outline"]
         report_knowledge = self.outputs["report_knowledge"]
         
-        slide_and_script = await self.executor.run_agent(
-            slide_and_script_generator_agent,
-            f"Generate slides and script based on:\nOutline: {json.dumps(presentation_outline, indent=2)}\nReport Knowledge: {json.dumps(report_knowledge, indent=2)}",
-            "slide_and_script",
-            parse_json=True
-        )
-        
-        if not slide_and_script:
-            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, "No slide_and_script generated", has_output=False)
-            raise ValueError("SlideAndScriptGeneratorAgent failed to generate output")
-        
-        # Parse if still string - try multiple parsing strategies
-        if isinstance(slide_and_script, str):
-            logger.debug(f"slide_and_script is a string (length: {len(slide_and_script)}). Attempting to parse...")
-            logger.debug(f"First 500 chars: {slide_and_script[:500]}")
-            
-            parsed = parse_json_robust(slide_and_script, extract_wrapped=True)
-            if parsed:
-                logger.info(f"✅ Successfully parsed slide_and_script from string (keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'N/A'})")
-                slide_and_script = parsed
-            else:
-                logger.warning(f"⚠️ parse_json_robust failed. Trying alternative parsing...")
-                # If parse_json_robust failed, try extracting JSON from markdown code block
-                import re
-                # Look for ```json ... ``` or ``` ... ```
-                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', slide_and_script, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group(1)
-                    try:
-                        slide_and_script = json.loads(json_str)
-                        logger.info(f"✅ Successfully parsed JSON from markdown code block")
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Failed to parse JSON from markdown block: {e}")
+        try:
+            slide_and_script = await self.executor.run_agent(
+                slide_and_script_generator_agent,
+                f"Generate slides and script based on:\nOutline: {json.dumps(presentation_outline, indent=2)}\nReport Knowledge: {json.dumps(report_knowledge, indent=2)}",
+                "slide_and_script",
+                parse_json=True
+            )
+        except AgentExecutionError as e:
+            # Agent failed to return output
+            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+            raise
+        except JSONParseError as e:
+            # If JSON parsing failed, try fallback parsing strategies
+            logger.warning(f"JSONParseError from agent executor, trying fallback parsing: {e}")
+            # Try to get raw output without JSON parsing
+            try:
+                slide_and_script = await self.executor.run_agent(
+                    slide_and_script_generator_agent,
+                    f"Generate slides and script based on:\nOutline: {json.dumps(presentation_outline, indent=2)}\nReport Knowledge: {json.dumps(report_knowledge, indent=2)}",
+                    "slide_and_script",
+                    parse_json=False  # Get raw string output
+                )
+            except AgentExecutionError as e2:
+                self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e2), has_output=False)
+                raise
+            # Now try fallback parsing
+            if isinstance(slide_and_script, str):
+                logger.debug(f"slide_and_script is a string (length: {len(slide_and_script)}). Attempting to parse...")
+                logger.debug(f"First 500 chars: {slide_and_script[:500]}")
+                
+                parsed = parse_json_robust(slide_and_script, extract_wrapped=True)
+                if parsed:
+                    logger.info(f"✅ Successfully parsed slide_and_script from string (keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'N/A'})")
+                    slide_and_script = parsed
+                else:
+                    logger.warning(f"⚠️ parse_json_robust failed. Trying alternative parsing...")
+                    # If parse_json_robust failed, try extracting JSON from markdown code block
+                    import re
+                    # Look for ```json ... ``` or ``` ... ```
+                    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', slide_and_script, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(1)
+                        try:
+                            slide_and_script = json.loads(json_str)
+                            logger.info(f"✅ Successfully parsed JSON from markdown code block")
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse JSON from markdown block: {e}")
+                            # Try direct JSON parsing as last resort
+                            try:
+                                cleaned = slide_and_script.strip()
+                                if cleaned.startswith("```json"):
+                                    cleaned = cleaned[7:].lstrip()
+                                elif cleaned.startswith("```"):
+                                    cleaned = cleaned[3:].lstrip()
+                                if cleaned.endswith("```"):
+                                    cleaned = cleaned[:-3].rstrip()
+                                slide_and_script = json.loads(cleaned)
+                            except json.JSONDecodeError as e2:
+                                logger.error(f"Failed to parse slide_and_script: {e2}")
+                                logger.error(f"First 1000 chars: {slide_and_script[:1000]}")
+                                raise JSONParseError(
+                                    f"Failed to parse slide_and_script as JSON: {e2}",
+                                    agent_name="SlideAndScriptGeneratorAgent",
+                                    output_key="slide_and_script",
+                                    raw_output=slide_and_script[:1000]
+                                )
+                    else:
                         # Try direct JSON parsing as last resort
                         try:
                             cleaned = slide_and_script.strip()
@@ -334,38 +369,35 @@ class PipelineOrchestrator:
                             if cleaned.endswith("```"):
                                 cleaned = cleaned[:-3].rstrip()
                             slide_and_script = json.loads(cleaned)
-                        except json.JSONDecodeError as e2:
-                            logger.error(f"Failed to parse slide_and_script: {e2}")
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse slide_and_script: {e}")
                             logger.error(f"First 1000 chars: {slide_and_script[:1000]}")
-                            raise ValueError(f"Failed to parse slide_and_script as JSON: {e2}")
-                else:
-                    # Try direct JSON parsing as last resort
-                    try:
-                        cleaned = slide_and_script.strip()
-                        if cleaned.startswith("```json"):
-                            cleaned = cleaned[7:].lstrip()
-                        elif cleaned.startswith("```"):
-                            cleaned = cleaned[3:].lstrip()
-                        if cleaned.endswith("```"):
-                            cleaned = cleaned[:-3].rstrip()
-                        slide_and_script = json.loads(cleaned)
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Failed to parse slide_and_script: {e}")
-                        logger.error(f"First 1000 chars: {slide_and_script[:1000]}")
-                        # Check if it looks like an error message
-                        if "unable" in slide_and_script.lower() or "error" in slide_and_script.lower() or "cannot" in slide_and_script.lower():
-                            raise ValueError(
-                                f"SlideAndScriptGeneratorAgent returned a plain text error message instead of JSON. "
-                                f"This usually means the agent encountered an issue (e.g., missing data) but failed to return JSON. "
-                                f"Error message: {slide_and_script[:500]}"
+                            # Check if it looks like an error message
+                            if "unable" in slide_and_script.lower() or "error" in slide_and_script.lower() or "cannot" in slide_and_script.lower():
+                                raise JSONParseError(
+                                    f"Agent returned a plain text error message instead of JSON. "
+                                    f"This usually means the agent encountered an issue (e.g., missing data) but failed to return JSON. "
+                                    f"Error message: {slide_and_script[:500]}",
+                                    agent_name="SlideAndScriptGeneratorAgent",
+                                    output_key="slide_and_script",
+                                    raw_output=slide_and_script[:500]
+                                )
+                            raise JSONParseError(
+                                f"Failed to parse slide_and_script as JSON: {e}",
+                                agent_name="SlideAndScriptGeneratorAgent",
+                                output_key="slide_and_script",
+                                raw_output=slide_and_script[:1000]
                             )
-                        raise ValueError(f"Failed to parse slide_and_script as JSON: {e}")
         
         # Ensure it's a dict
         if not isinstance(slide_and_script, dict):
             logger.error(f"slide_and_script is not a dict, got {type(slide_and_script).__name__}")
             logger.error(f"slide_and_script value (first 500 chars): {str(slide_and_script)[:500]}")
-            raise ValueError(f"slide_and_script is not a dict, got {type(slide_and_script).__name__}")
+            raise AgentOutputError(
+                f"slide_and_script is not a dict, got {type(slide_and_script).__name__}",
+                agent_name="SlideAndScriptGeneratorAgent",
+                output_key="slide_and_script"
+            )
         
         # Log what we got for debugging
         logger.info(f"✅ slide_and_script parsed successfully. Keys: {list(slide_and_script.keys())}")
@@ -378,11 +410,21 @@ class PipelineOrchestrator:
             logger.error(f"   Available keys: {list(slide_and_script.keys())}")
             logger.error(f"   slide_and_script type: {type(slide_and_script)}")
             logger.error(f"   slide_and_script preview (first 1000 chars): {json.dumps(slide_and_script, indent=2)[:1000]}")
-            raise ValueError(f"slide_and_script missing 'slide_deck' field. Available keys: {list(slide_and_script.keys())}")
+            raise AgentOutputError(
+                f"slide_and_script missing 'slide_deck' field",
+                agent_name="SlideAndScriptGeneratorAgent",
+                output_key="slide_deck",
+                available_keys=list(slide_and_script.keys())
+            )
         if not presentation_script:
             logger.error(f"❌ slide_and_script missing 'presentation_script' field")
             logger.error(f"   Available keys: {list(slide_and_script.keys())}")
-            raise ValueError(f"slide_and_script missing 'presentation_script' field. Available keys: {list(slide_and_script.keys())}")
+            raise AgentOutputError(
+                f"slide_and_script missing 'presentation_script' field",
+                agent_name="SlideAndScriptGeneratorAgent",
+                output_key="presentation_script",
+                available_keys=list(slide_and_script.keys())
+            )
         
         # Store outputs
         self.outputs["slide_deck"] = slide_deck
@@ -419,12 +461,16 @@ class PipelineOrchestrator:
             print(f"   📊 Found {len(slides_with_charts)} slide(s) needing charts: {slides_with_charts}")
             
             chart_input = json.dumps({"slide_deck": slide_deck}, separators=(',', ':'))
-            chart_status = await self.executor.run_agent(
-                chart_generator_agent,
-                chart_input,
-                "chart_generation_status",
-                parse_json=False
-            )
+            try:
+                chart_status = await self.executor.run_agent(
+                    chart_generator_agent,
+                    chart_input,
+                    "chart_generation_status",
+                    parse_json=False
+                )
+            except AgentExecutionError as e:
+                self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+                raise
             
             # Get updated slide_deck from session.state
             updated_slide_deck = self.session.state.get("slide_deck") or slide_deck
@@ -459,7 +505,10 @@ class PipelineOrchestrator:
         
         if not slide_deck or not presentation_script:
             self.obs_logger.finish_agent_execution(AgentStatus.FAILED, "Missing slide_deck or presentation_script", has_output=False)
-            raise ValueError("Cannot generate web slides: missing slide_deck or presentation_script")
+            raise AgentOutputError(
+                "Cannot generate web slides: missing slide_deck or presentation_script",
+                agent_name="WebSlidesGenerator"
+            )
         
         config_dict = {
             'scenario': self.config.scenario,
@@ -502,7 +551,10 @@ class PipelineOrchestrator:
         else:
             error_msg = web_result.get('error', 'Unknown error')
             self.obs_logger.finish_agent_execution(AgentStatus.FAILED, error_msg, has_output=False)
-            raise ValueError(f"Failed to generate web slides: {error_msg}")
+            raise AgentExecutionError(
+                f"Failed to generate web slides: {error_msg}",
+                agent_name="WebSlidesGenerator"
+            )
     
     async def _step_export_slides(self):
         """Step 4: Google Slides Export."""
@@ -514,7 +566,10 @@ class PipelineOrchestrator:
         
         if not slide_deck or not presentation_script:
             self.obs_logger.finish_agent_execution(AgentStatus.FAILED, "Missing slide_deck or presentation_script", has_output=False)
-            raise ValueError("Cannot export: missing slide_deck or presentation_script")
+            raise AgentOutputError(
+                "Cannot export: missing slide_deck or presentation_script",
+                agent_name="SlidesExportAgent"
+            )
         
         config_dict = {
             'scenario': self.config.scenario,

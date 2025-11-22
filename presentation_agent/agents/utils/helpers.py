@@ -93,11 +93,21 @@ def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
                             if hasattr(part, 'text') and part.text:
                                 text_content = part.text
                                 logger.debug(f"   Event {len(events)-1-i} ({agent_name}), part {part_idx}: Found text content (length: {len(text_content)})")
-                                # For slide_and_script, the text should contain JSON
-                                if output_key == "slide_and_script" and text_content:
-                                    raw = text_content
-                                    logger.info(f"✅ Found '{output_key}' as text content in Event {len(events)-1-i} ({agent_name})")
-                                    break
+                                # For slide_and_script or any output_key, if text looks like JSON (starts with {), use it
+                                # This handles cases where ADK doesn't automatically extract to state_delta
+                                if text_content and text_content.strip().startswith('{'):
+                                    # Check if this looks like the expected output structure
+                                    # For slide_and_script, it should have "slide_deck" and "presentation_script" keys
+                                    if output_key == "slide_and_script":
+                                        if '"slide_deck"' in text_content and '"presentation_script"' in text_content:
+                                            raw = text_content
+                                            logger.info(f"✅ Found '{output_key}' as JSON text content in Event {len(events)-1-i} ({agent_name})")
+                                            break
+                                    else:
+                                        # For other output keys, if text is JSON, use it
+                                        raw = text_content
+                                        logger.info(f"✅ Found '{output_key}' as JSON text content in Event {len(events)-1-i} ({agent_name})")
+                                        break
                             # Check for function_response (tool responses)
                             if hasattr(part, 'function_response') and part.function_response:
                                 if hasattr(part.function_response, 'response'):
