@@ -23,31 +23,36 @@ def _get_loader():
 logger = logging.getLogger(__name__)
 
 
-def render_comparison_section_html(section_data: Dict, theme_colors: Optional[Dict] = None) -> str:
+def render_comparison_section_html(section_data: Dict, theme_colors: Optional[Dict] = None, image_cache: Optional[Dict] = None) -> str:
     """
     Render a comparison section with proper image handling.
     
     Args:
         section_data: Dict with title, content, image, image_url, image_keyword, etc.
         theme_colors: Optional theme colors
+        image_cache: Optional pre-generated image cache (keyword -> image_url)
         
     Returns:
         Rendered HTML string
     """
+    # Default empty cache if not provided
+    if image_cache is None:
+        image_cache = {}
+    
     # Build icon_html (now supports image/image_url/image_keyword)
     icon_html = ""
     if section_data.get('image_url'):
         icon_html = f'<img src="{section_data["image_url"]}" class="section-icon" alt="{section_data.get("title", "")}" />'
     elif section_data.get('image_keyword'):
-        # Generate image using generative model based on keyword
-        image_url = get_image_url(section_data['image_keyword'], source="generative")
+        # Use cache if available, otherwise generate
+        image_url = _get_image_from_cache_or_generate(section_data['image_keyword'], image_cache)
         icon_html = f'<img src="{image_url}" class="section-icon" alt="{section_data.get("title", "")}" />'
     elif section_data.get('image'):
         # Legacy support: if image is a URL, use it; otherwise treat as keyword
         if section_data['image'].startswith('http'):
             icon_html = f'<img src="{section_data["image"]}" class="section-icon" alt="{section_data.get("title", "")}" />'
         else:
-            image_url = get_image_url(section_data['image'], source="generative")
+            image_url = _get_image_from_cache_or_generate(section_data['image'], image_cache)
             icon_html = f'<img src="{image_url}" class="section-icon" alt="{section_data.get("title", "")}" />'
     elif section_data.get('icon_url'):  # Legacy support
         icon_html = f'<img src="{section_data["icon_url"]}" class="section-icon" alt="{section_data.get("icon", "")}" />'
@@ -75,7 +80,8 @@ def render_comparison_grid_html(
     sections: List[Dict],
     theme_colors: Optional[Dict] = None,
     title_font_size: int = 36,
-    title_align: str = "left"
+    title_align: str = "left",
+    image_cache: Optional[Dict] = None
 ) -> str:
     """
     Render a comparison grid layout with multiple sections.
@@ -98,10 +104,14 @@ def render_comparison_grid_html(
         logger.warning("comparison-grid supports max 4 sections, truncating to 4")
         sections = sections[:4]
     
+    # Default empty cache if not provided
+    if image_cache is None:
+        image_cache = {}
+    
     # Render each section
     rendered_sections = []
     for section in sections:
-        rendered_section = render_comparison_section_html(section, theme_colors)
+        rendered_section = render_comparison_section_html(section, theme_colors, image_cache=image_cache)
         rendered_sections.append(rendered_section)
     
     # Prepare variables for layout template
@@ -337,7 +347,8 @@ def render_icon_feature_card_html(
     image_keyword: Optional[str] = None,
     icon: Optional[str] = None,  # Legacy support
     icon_url: Optional[str] = None,  # Legacy support
-    highlight: Optional[str] = None
+    highlight: Optional[str] = None,
+    image_cache: Optional[Dict] = None
 ) -> str:
     """
     Render an icon feature card component.
@@ -361,15 +372,15 @@ def render_icon_feature_card_html(
     if image_url:
         icon_html = f'<img src="{image_url}" class="feature-icon" alt="{title}" />'
     elif image_keyword:
-        # Fetch image from Storyset/Unsplash based on keyword
-        image_url = get_image_url(image_keyword, source="generative")
+        # Use cache if available, otherwise generate
+        image_url = _get_image_from_cache_or_generate(image_keyword, image_cache)
         icon_html = f'<img src="{image_url}" class="feature-icon" alt="{title}" />'
     elif image:
         # If image is a URL, use it; otherwise treat as keyword
         if image.startswith('http'):
             icon_html = f'<img src="{image}" class="feature-icon" alt="{title}" />'
         else:
-            image_url = get_image_url(image, source="generative")
+            image_url = _get_image_from_cache_or_generate(image, image_cache)
             icon_html = f'<img src="{image_url}" class="feature-icon" alt="{title}" />'
     elif icon_url:  # Legacy support
         icon_html = f'<img src="{icon_url}" class="feature-icon" alt="{icon or title}" />'
@@ -393,7 +404,8 @@ def render_icon_row_html(
     title: str,
     icon_items: List[Dict],
     theme_colors: Optional[Dict] = None,
-    subtitle: Optional[str] = None
+    subtitle: Optional[str] = None,
+    image_cache: Optional[Dict] = None
 ) -> str:
     """
     Render an icon-row layout with horizontal icons and labels.
@@ -409,18 +421,22 @@ def render_icon_row_html(
     """
     loader = _get_loader()
     
+    # Default empty cache if not provided
+    if image_cache is None:
+        image_cache = {}
+    
     # Build icon items HTML
     icon_items_html = ""
     for item in icon_items:
         # Get image URL
         image_url = item.get('image_url')
         if not image_url and item.get('image_keyword'):
-            image_url = get_image_url(item['image_keyword'], source="generative")
+            image_url = _get_image_from_cache_or_generate(item['image_keyword'], image_cache)
         elif not image_url and item.get('image'):
             if item['image'].startswith('http'):
                 image_url = item['image']
             else:
-                image_url = get_image_url(item['image'], source="generative")
+                image_url = _get_image_from_cache_or_generate(item['image'], image_cache)
         
         icon_html = f'<img src="{image_url}" alt="{item.get("label", "")}" />' if image_url else ''
         label = item.get('label', '')
@@ -448,7 +464,8 @@ def render_icon_sequence_html(
     title: str,
     sequence_items: List[Dict],
     theme_colors: Optional[Dict] = None,
-    goal_text: Optional[str] = None
+    goal_text: Optional[str] = None,
+    image_cache: Optional[Dict] = None
 ) -> str:
     """
     Render an icon-sequence layout with icons and connectors.
@@ -464,18 +481,22 @@ def render_icon_sequence_html(
     """
     loader = _get_loader()
     
+    # Default empty cache if not provided
+    if image_cache is None:
+        image_cache = {}
+    
     # Build sequence items HTML
     sequence_items_html = ""
     for i, item in enumerate(sequence_items):
         # Get image URL
         image_url = item.get('image_url')
         if not image_url and item.get('image_keyword'):
-            image_url = get_image_url(item['image_keyword'], source="generative")
+            image_url = _get_image_from_cache_or_generate(item['image_keyword'], image_cache)
         elif not image_url and item.get('image'):
             if item['image'].startswith('http'):
                 image_url = item['image']
             else:
-                image_url = get_image_url(item['image'], source="generative")
+                image_url = _get_image_from_cache_or_generate(item['image'], image_cache)
         
         icon_html = f'<img src="{image_url}" alt="{item.get("label", "")}" />' if image_url else ''
         label = item.get('label', '')
@@ -512,7 +533,8 @@ def render_linear_process_html(
     title: str,
     process_steps: List[Dict],
     theme_colors: Optional[Dict] = None,
-    section_header: Optional[str] = None
+    section_header: Optional[str] = None,
+    image_cache: Optional[Dict] = None
 ) -> str:
     """
     Render a linear-process layout with numbered steps.
@@ -528,6 +550,10 @@ def render_linear_process_html(
     """
     loader = _get_loader()
     
+    # Default empty cache if not provided
+    if image_cache is None:
+        image_cache = {}
+    
     # Build process steps HTML
     process_steps_html = ""
     for i, step in enumerate(process_steps):
@@ -536,12 +562,12 @@ def render_linear_process_html(
         # Get image URL
         image_url = step.get('image_url')
         if not image_url and step.get('image_keyword'):
-            image_url = get_image_url(step['image_keyword'], source="generative")
+            image_url = _get_image_from_cache_or_generate(step['image_keyword'], image_cache)
         elif not image_url and step.get('image'):
             if step['image'].startswith('http'):
                 image_url = step['image']
             else:
-                image_url = get_image_url(step['image'], source="generative")
+                image_url = _get_image_from_cache_or_generate(step['image'], image_cache)
         
         icon_html = f'<img src="{image_url}" alt="{step.get("label", "")}" />' if image_url else ''
         label = step.get('label', f'Step {step_number}')
@@ -575,7 +601,8 @@ def render_workflow_diagram_html(
     workflow: Dict,
     theme_colors: Optional[Dict] = None,
     subtitle: Optional[str] = None,
-    evaluation_criteria: Optional[List[str]] = None
+    evaluation_criteria: Optional[List[str]] = None,
+    image_cache: Optional[Dict] = None
 ) -> str:
     """
     Render a workflow-diagram layout with inputs, processes, and outputs.
@@ -602,7 +629,7 @@ def render_workflow_diagram_html(
         for inp in inputs:
             image_url = inp.get('image_url')
             if not image_url and inp.get('image_keyword'):
-                image_url = get_image_url(inp['image_keyword'], source="generative")
+                image_url = _get_image_from_cache_or_generate(inp['image_keyword'], image_cache)
             
             icon_html = f'<img src="{image_url}" alt="{inp.get("label", "")}" />' if image_url else ''
             label = inp.get('label', '')
@@ -623,7 +650,7 @@ def render_workflow_diagram_html(
     for proc in processes:
         image_url = proc.get('image_url')
         if not image_url and proc.get('image_keyword'):
-            image_url = get_image_url(proc['image_keyword'], source="generative")
+            image_url = _get_image_from_cache_or_generate(proc['image_keyword'], image_cache)
         
         icon_html = f'<img src="{image_url}" alt="{proc.get("label", "")}" />' if image_url else ''
         label = proc.get('label', '')
@@ -644,7 +671,7 @@ def render_workflow_diagram_html(
         for out in outputs:
             image_url = out.get('image_url')
             if not image_url and out.get('image_keyword'):
-                image_url = get_image_url(out['image_keyword'], source="generative")
+                image_url = _get_image_from_cache_or_generate(out['image_keyword'], image_cache)
             
             icon_html = f'<img src="{image_url}" alt="{out.get("label", "")}" />' if image_url else ''
             label = out.get('label', '')
@@ -689,7 +716,8 @@ def render_process_flow_html(
     title: str,
     flow_stages: List[Dict],
     theme_colors: Optional[Dict] = None,
-    section_header: Optional[str] = None
+    section_header: Optional[str] = None,
+    image_cache: Optional[Dict] = None
 ) -> str:
     """
     Render a process-flow layout with multiple stages.
@@ -717,7 +745,7 @@ def render_process_flow_html(
         for inp in inputs:
             image_url = inp.get('image_url')
             if not image_url and inp.get('image_keyword'):
-                image_url = get_image_url(inp['image_keyword'], source="generative")
+                image_url = _get_image_from_cache_or_generate(inp['image_keyword'], image_cache)
             
             icon_html = f'<img src="{image_url}" alt="{inp.get("label", "")}" />' if image_url else ''
             label = inp.get('label', '')
@@ -734,7 +762,7 @@ def render_process_flow_html(
         process = stage.get('process', {})
         process_image_url = process.get('image_url')
         if not process_image_url and process.get('image_keyword'):
-            process_image_url = get_image_url(process['image_keyword'], source="generative")
+            process_image_url = _get_image_from_cache_or_generate(process['image_keyword'], image_cache)
         
         process_icon_html = f'<img src="{process_image_url}" alt="{process.get("label", "")}" />' if process_image_url else ''
         process_label = process.get('label', '')
@@ -751,7 +779,7 @@ def render_process_flow_html(
         output = stage.get('output', {})
         output_image_url = output.get('image_url')
         if not output_image_url and output.get('image_keyword'):
-            output_image_url = get_image_url(output['image_keyword'], source="generative")
+            output_image_url = _get_image_from_cache_or_generate(output['image_keyword'], image_cache)
         
         output_icon_html = f'<img src="{output_image_url}" alt="{output.get("label", "")}" />' if output_image_url else ''
         output_label = output.get('label', '')

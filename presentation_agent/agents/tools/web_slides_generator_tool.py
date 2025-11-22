@@ -26,6 +26,150 @@ from presentation_agent.templates.template_helpers import (
 logger = logging.getLogger(__name__)
 
 
+def _collect_all_image_keywords(slides: list) -> list:
+    """
+    Collect all image keywords from all slides, including from template layouts.
+    
+    This function scans all slides to find:
+    - image_keywords from visual_elements
+    - icons_suggested from visual_elements
+    - image_keyword from figures
+    - image_keyword from template layouts (comparison-grid sections, icon-feature-card, etc.)
+    
+    NOTE: We preserve duplicates because same keyword on different slides/positions
+    should get different images (allow_deduplication=False in generation).
+    
+    Args:
+        slides: List of slide dicts
+        
+    Returns:
+        List of image keywords (strings) to generate (may contain duplicates)
+    """
+    all_keywords = []
+    
+    for slide in slides:
+        visual_elements = slide.get("visual_elements", {})
+        design_spec = slide.get("design_spec", {})
+        layout_type = design_spec.get("layout_type")
+        
+        # Collect from standard visual_elements
+        image_keywords = visual_elements.get("image_keywords", [])
+        if image_keywords:
+            all_keywords.extend([kw for kw in image_keywords if kw and kw.strip()])
+        
+        icons_suggested = visual_elements.get("icons_suggested", [])
+        if icons_suggested and not image_keywords:  # Only use if no explicit image_keywords
+            all_keywords.extend([kw for kw in icons_suggested if kw and kw.strip()])
+        
+        # Collect from figures
+        figures = visual_elements.get("figures", [])
+        for fig in figures:
+            if isinstance(fig, dict):
+                image_keyword = fig.get("image_keyword")
+                if image_keyword and image_keyword.strip():
+                    all_keywords.append(image_keyword.strip())
+        
+        # Collect from template layouts
+        if layout_type == "comparison-grid":
+            sections = visual_elements.get("sections", [])
+            for section in sections:
+                if isinstance(section, dict):
+                    image_keyword = section.get("image_keyword")
+                    if image_keyword and image_keyword.strip():
+                        all_keywords.append(image_keyword.strip())
+                    # Also check legacy 'image' field
+                    image = section.get("image")
+                    if image and isinstance(image, str) and not image.startswith('http'):
+                        all_keywords.append(image.strip())
+        
+        elif layout_type == "icon-row":
+            icon_items = visual_elements.get("icon_items", [])
+            for item in icon_items:
+                if isinstance(item, dict):
+                    image_keyword = item.get("image_keyword")
+                    if image_keyword and image_keyword.strip():
+                        all_keywords.append(image_keyword.strip())
+                    image = item.get("image")
+                    if image and isinstance(image, str) and not image.startswith('http'):
+                        all_keywords.append(image.strip())
+        
+        elif layout_type == "icon-sequence":
+            sequence_items = visual_elements.get("sequence_items", [])
+            for item in sequence_items:
+                if isinstance(item, dict):
+                    image_keyword = item.get("image_keyword")
+                    if image_keyword and image_keyword.strip():
+                        all_keywords.append(image_keyword.strip())
+                    image = item.get("image")
+                    if image and isinstance(image, str) and not image.startswith('http'):
+                        all_keywords.append(image.strip())
+        
+        elif layout_type == "linear-process":
+            process_steps = visual_elements.get("process_steps", [])
+            for step in process_steps:
+                if isinstance(step, dict):
+                    image_keyword = step.get("image_keyword")
+                    if image_keyword and image_keyword.strip():
+                        all_keywords.append(image_keyword.strip())
+                    image = step.get("image")
+                    if image and isinstance(image, str) and not image.startswith('http'):
+                        all_keywords.append(image.strip())
+        
+        elif layout_type == "workflow-diagram":
+            workflow = visual_elements.get("workflow", {})
+            if isinstance(workflow, dict):
+                # Collect from inputs
+                inputs = workflow.get("inputs", [])
+                for inp in inputs:
+                    if isinstance(inp, dict):
+                        image_keyword = inp.get("image_keyword")
+                        if image_keyword and image_keyword.strip():
+                            all_keywords.append(image_keyword.strip())
+                # Collect from processes
+                processes = workflow.get("processes", [])
+                for proc in processes:
+                    if isinstance(proc, dict):
+                        image_keyword = proc.get("image_keyword")
+                        if image_keyword and image_keyword.strip():
+                            all_keywords.append(image_keyword.strip())
+                # Collect from outputs
+                outputs = workflow.get("outputs", [])
+                for out in outputs:
+                    if isinstance(out, dict):
+                        image_keyword = out.get("image_keyword")
+                        if image_keyword and image_keyword.strip():
+                            all_keywords.append(image_keyword.strip())
+        
+        elif layout_type == "process-flow":
+            flow_stages = visual_elements.get("flow_stages", [])
+            for stage in flow_stages:
+                if isinstance(stage, dict):
+                    # Collect from inputs
+                    inputs = stage.get("inputs", [])
+                    for inp in inputs:
+                        if isinstance(inp, dict):
+                            image_keyword = inp.get("image_keyword")
+                            if image_keyword and image_keyword.strip():
+                                all_keywords.append(image_keyword.strip())
+                    # Collect from process
+                    process = stage.get("process", {})
+                    if isinstance(process, dict):
+                        image_keyword = process.get("image_keyword")
+                        if image_keyword and image_keyword.strip():
+                            all_keywords.append(image_keyword.strip())
+                    # Collect from output
+                    output = stage.get("output", {})
+                    if isinstance(output, dict):
+                        image_keyword = output.get("image_keyword")
+                        if image_keyword and image_keyword.strip():
+                            all_keywords.append(image_keyword.strip())
+    
+    # Return all keywords (preserve duplicates - each occurrence needs separate image)
+    # Filter out empty/invalid keywords
+    valid_keywords = [kw for kw in all_keywords if kw and kw.strip()]
+    return valid_keywords
+
+
 def generate_web_slides_tool(
     slide_deck: Dict,
     presentation_script: Dict,
@@ -63,8 +207,63 @@ def generate_web_slides_tool(
         # Create script map for easy lookup
         script_map = {section.get("slide_number"): section for section in script_sections}
         
-        # Generate frontend-ready JSON format (theme_colors will be computed inside)
-        slides_data = _generate_frontend_slides_data(slides, script_map, title, config)
+        # OPTIMIZATION: Pre-generate all images in parallel before HTML generation
+        logger.info("🔄 Collecting all image keywords from all slides...")
+        all_image_keywords = _collect_all_image_keywords(slides)
+        
+        # Pre-generate all images in one parallel batch
+        # image_cache maps keyword -> list of image URLs (to handle duplicates)
+        image_cache = {}  # Maps keyword -> list of image_urls
+        keyword_usage_tracker = {}  # Maps keyword -> current index (for round-robin usage)
+        
+        if all_image_keywords:
+            logger.info(f"🖼️  Pre-generating {len(all_image_keywords)} images in parallel...")
+            from presentation_agent.templates.image_helper import generate_images_parallel
+            try:
+                # Generate all images in parallel (no deduplication - each keyword occurrence gets separate image)
+                image_results = generate_images_parallel(
+                    all_image_keywords,
+                    source="generative",
+                    is_logo=False,
+                    max_workers=10,  # Increased workers for batch generation
+                    allow_deduplication=False  # Generate separate images for duplicates
+                )
+                
+                # Convert results to cache format: keyword -> list of URLs
+                # Since allow_deduplication=False, results maps each keyword (preserving order)
+                # Group by keyword and collect all images for that keyword (preserving order)
+                # Note: results dict may have duplicate keys (last one wins), so we iterate in order
+                for keyword in all_image_keywords:
+                    keyword_lower = keyword.lower().strip()
+                    # Check results dict (may have duplicates, but we iterate in order)
+                    if keyword in image_results:
+                        image_url = image_results[keyword]
+                        if keyword_lower not in image_cache:
+                            image_cache[keyword_lower] = []
+                        image_cache[keyword_lower].append(image_url)
+                    elif keyword_lower in image_results:
+                        image_url = image_results[keyword_lower]
+                        if keyword_lower not in image_cache:
+                            image_cache[keyword_lower] = []
+                        image_cache[keyword_lower].append(image_url)
+                
+                # Initialize usage tracker (round-robin index for each keyword)
+                for keyword_lower in image_cache:
+                    keyword_usage_tracker[keyword_lower] = 0
+                
+                logger.info(f"✅ Successfully pre-generated images for {len(image_cache)} unique keywords (total {len(all_image_keywords)} images)")
+            except Exception as e:
+                logger.error(f"❌ Failed to pre-generate images: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                # Continue without pre-generated images (will generate on-demand)
+                image_cache = {}
+                keyword_usage_tracker = {}
+        else:
+            logger.info("ℹ️  No images to pre-generate")
+        
+        # Generate frontend-ready JSON format (pass image_cache and usage tracker for use during HTML generation)
+        slides_data = _generate_frontend_slides_data(slides, script_map, title, config, image_cache=image_cache, keyword_usage_tracker=keyword_usage_tracker)
         output_path.write_text(json.dumps(slides_data, indent=2, ensure_ascii=False), encoding='utf-8')
         
         logger.info(f"✅ Frontend slides data generated: {output_path}")
@@ -660,7 +859,7 @@ def _generate_javascript(total_slides: int) -> str:
     """
 
 
-def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, config: Optional[Dict], theme_colors: Optional[Dict] = None) -> Dict:
+def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, config: Optional[Dict], theme_colors: Optional[Dict] = None, image_cache: Optional[Dict] = None, keyword_usage_tracker: Optional[Dict] = None) -> Dict:
     """
     Generate frontend-ready JSON format with individual slide HTML fragments.
     
@@ -680,13 +879,19 @@ def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, c
         theme_colors = _get_theme_colors(config)
     global_css = _generate_global_css(theme_colors)
     
+    # Default empty cache if not provided
+    if image_cache is None:
+        image_cache = {}
+    if keyword_usage_tracker is None:
+        keyword_usage_tracker = {}
+    
     slides_data = []
     for idx, slide in enumerate(slides):
         slide_number = slide.get("slide_number", idx + 1)
         script_section = script_map.get(slide_number)
         
-        # Generate HTML fragment for this slide only
-        slide_html = _generate_slide_html_fragment(slide, script_section, idx, theme_colors)
+        # Generate HTML fragment for this slide only (pass image_cache and usage tracker)
+        slide_html = _generate_slide_html_fragment(slide, script_section, idx, theme_colors, image_cache=image_cache, keyword_usage_tracker=keyword_usage_tracker)
         
         # Extract slide-specific CSS (if any)
         slide_css = _generate_slide_css(slide, theme_colors)
@@ -725,7 +930,7 @@ def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, c
     }
 
 
-def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], slide_index: int, theme_colors: Optional[Dict] = None) -> str:
+def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], slide_index: int, theme_colors: Optional[Dict] = None, image_cache: Optional[Dict] = None, keyword_usage_tracker: Optional[Dict] = None) -> str:
     """
     Generate HTML fragment for a single slide (without wrapper HTML structure).
     This is the HTML that will be inserted into the frontend's slide container.
@@ -752,6 +957,10 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
             "background": "#FFFFFF",
             "text": "#1F2937"
         }
+    
+    # Default empty cache if not provided
+    if image_cache is None:
+        image_cache = {}
     
     # Generate content HTML
     content_html = ""
@@ -836,38 +1045,37 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         icons_html += '</div>'
     
     # Generate images HTML from image_keywords, icons_suggested, or figures
-    # OPTIMIZATION: Collect all keywords first, then generate in parallel
+    # OPTIMIZATION: Use pre-generated images from image_cache instead of generating on-the-fly
     images_html = ""
     image_keywords = visual_elements.get("image_keywords", [])  # List of keywords for images
     icons_suggested = visual_elements.get("icons_suggested", [])  # Suggested icon keywords
     figures = visual_elements.get("figures", [])  # Figure IDs or dicts with image_url
     
-    # Collect all keywords and metadata for parallel generation
-    from presentation_agent.templates.image_helper import generate_images_parallel
-    keywords_to_generate = []  # List of (keyword, alt_text, priority) tuples
+    # Collect all keywords and metadata (for lookup in cache)
+    keywords_to_lookup = []  # List of (keyword, alt_text, priority) tuples
     image_items = []  # List of (url, alt_text) tuples
     
     # Priority 1: Use image_keywords if provided (explicit image keywords)
     if image_keywords:
         for keyword in image_keywords:
             if keyword and keyword.strip():
-                keywords_to_generate.append((keyword.strip(), keyword, 1))
+                keywords_to_lookup.append((keyword.strip(), keyword, 1))
     
     # Priority 2: Use icons_suggested if no image_keywords (agent suggested icons)
     elif icons_suggested:
         for keyword in icons_suggested:
             if keyword and keyword.strip():
-                keywords_to_generate.append((keyword.strip(), keyword, 2))
+                keywords_to_lookup.append((keyword.strip(), keyword, 2))
     
     # Priority 3: Process figures - check for image_keyword or image_url
-    if figures and not keywords_to_generate:
+    if figures and not keywords_to_lookup:
         for fig in figures:
             if isinstance(fig, dict):
                 # Check for image_keyword first (generate image from keyword)
                 image_keyword = fig.get("image_keyword")
                 if image_keyword and image_keyword.strip():
                     alt_text = fig.get("caption") or fig.get("alt_text") or image_keyword
-                    keywords_to_generate.append((image_keyword.strip(), alt_text, 3))
+                    keywords_to_lookup.append((image_keyword.strip(), alt_text, 3))
                 # Otherwise check for image_url (use directly, no generation needed)
                 elif fig.get("image_url"):
                     image_url = fig.get("image_url")
@@ -876,57 +1084,45 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
             # Skip string figure IDs (like "fig1", "table1") - they're report references, not image keywords
     
     # Fallback: If still no keywords and icons_suggested exists, use them
-    if not keywords_to_generate and not image_items and icons_suggested:
+    if not keywords_to_lookup and not image_items and icons_suggested:
         for keyword in icons_suggested:
             if keyword and keyword.strip():
-                keywords_to_generate.append((keyword.strip(), keyword, 4))
+                keywords_to_lookup.append((keyword.strip(), keyword, 4))
     
-    # Generate all images in parallel (if we have keywords to generate)
-    if keywords_to_generate:
-        # Extract just the keywords for parallel generation
-        keywords_list = [kw for kw, _, _ in keywords_to_generate]
-        
-        # Generate all images in parallel (concurrent API calls)
-        # allow_deduplication=False: Generate separate images for duplicate keywords on same slide
-        try:
-            logger.info(f"🔄 Generating {len(keywords_list)} images in parallel for slide {slide_index + 1} (no deduplication - each keyword gets separate image)")
-            image_results = generate_images_parallel(
-                keywords_list, 
-                source="generative", 
-                is_logo=False, 
-                max_workers=5,
-                allow_deduplication=False  # Generate separate images for duplicates on same slide
-            )
+    # Look up images from pre-generated cache (or generate on-demand if not in cache)
+    if keywords_to_lookup:
+        from presentation_agent.templates.image_helper import get_image_url
+        for keyword, alt_text, priority in keywords_to_lookup:
+            # Try cache first (case-insensitive lookup)
+            keyword_lower = keyword.lower().strip()
+            image_url = None
             
-            # Map results back to keywords with their metadata
-            # Iterate through keywords_list in order to preserve order and handle duplicates
-            for i, (keyword, alt_text, priority) in enumerate(keywords_to_generate):
-                # Use the keyword from keywords_list (same order) to look up result
-                # This ensures each occurrence gets its own image, even if keyword is duplicate
-                lookup_keyword = keywords_list[i] if i < len(keywords_list) else keyword
-                if lookup_keyword in image_results:
-                    image_url = image_results[lookup_keyword]
-                    # Each keyword occurrence gets its own image (even duplicates)
-                    image_items.append((image_url, alt_text))
-                else:
-                    logger.warning(f"⚠️ Image generation result not found for keyword '{keyword}' (index {i})")
-        except Exception as e:
-            logger.error(f"❌ Parallel image generation failed: {e}")
-            import traceback
-            logger.error(f"   Full traceback: {traceback.format_exc()}")
-            # Fallback: Try sequential generation for remaining keywords
-            logger.info("🔄 Falling back to sequential generation")
-            from presentation_agent.templates.image_helper import get_image_url
-            for keyword, alt_text, priority in keywords_to_generate:
+            # Check cache - image_cache maps keyword -> list of URLs
+            if keyword_lower in image_cache:
+                image_urls = image_cache[keyword_lower]
+                if image_urls:
+                    # Use round-robin: get next image from list, wrap around if needed
+                    current_idx = keyword_usage_tracker.get(keyword_lower, 0)
+                    image_url = image_urls[current_idx % len(image_urls)]
+                    keyword_usage_tracker[keyword_lower] = (current_idx + 1) % len(image_urls)
+            elif keyword in image_cache:
+                # Try exact match (fallback)
+                image_urls = image_cache[keyword]
+                if image_urls:
+                    current_idx = keyword_usage_tracker.get(keyword, 0)
+                    image_url = image_urls[current_idx % len(image_urls)]
+                    keyword_usage_tracker[keyword] = (current_idx + 1) % len(image_urls)
+            else:
+                # Not in cache - generate on-demand (shouldn't happen if pre-generation worked)
+                logger.warning(f"⚠️ Image for keyword '{keyword}' not found in cache, generating on-demand")
                 try:
-                    # Bypass cache for same-slide duplicates by calling generate_image directly
-                    from presentation_agent.agents.tools.image_generator_tool import generate_image
-                    cache_dir = Path("presentation_agent/output/generated_images")
-                    image_url = generate_image(keyword, source="generative", output_dir=cache_dir, is_logo=False)
-                    image_items.append((image_url, alt_text))
-                except Exception as e2:
-                    logger.error(f"❌ Failed to generate image for keyword '{keyword}': {e2}")
+                    image_url = get_image_url(keyword, source="generative", is_logo=False)
+                except Exception as e:
+                    logger.error(f"❌ Failed to generate image for keyword '{keyword}': {e}")
                     continue
+            
+            if image_url:
+                image_items.append((image_url, alt_text))
     
     # Generate HTML from collected image items
     if image_items:
@@ -966,7 +1162,9 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 sections=sections,
                 theme_colors=theme_colors,
                 title_font_size=title_font_size,
-                title_align=title_align
+                title_align=title_align,
+                image_cache=image_cache,
+                keyword_usage_tracker=keyword_usage_tracker
             )
     
     elif layout_type == "data-table":
@@ -1062,7 +1260,9 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 title=slide_title,
                 icon_items=icon_items,
                 theme_colors=theme_colors,
-                subtitle=subtitle
+                subtitle=subtitle,
+                image_cache=image_cache,
+                keyword_usage_tracker=keyword_usage_tracker
             )
     
     elif layout_type == "icon-sequence":
@@ -1073,7 +1273,9 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 title=slide_title,
                 sequence_items=sequence_items,
                 theme_colors=theme_colors,
-                goal_text=goal_text
+                goal_text=goal_text,
+                image_cache=image_cache,
+                keyword_usage_tracker=keyword_usage_tracker
             )
     
     elif layout_type == "linear-process":
@@ -1084,7 +1286,9 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 title=slide_title,
                 process_steps=process_steps,
                 theme_colors=theme_colors,
-                section_header=section_header
+                section_header=section_header,
+                image_cache=image_cache,
+                keyword_usage_tracker=keyword_usage_tracker
             )
     
     elif layout_type == "workflow-diagram":
@@ -1097,7 +1301,9 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 workflow=workflow,
                 theme_colors=theme_colors,
                 subtitle=subtitle,
-                evaluation_criteria=evaluation_criteria
+                evaluation_criteria=evaluation_criteria,
+                image_cache=image_cache,
+                keyword_usage_tracker=keyword_usage_tracker
             )
     
     elif layout_type == "process-flow":
@@ -1108,7 +1314,9 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 title=slide_title,
                 flow_stages=flow_stages,
                 theme_colors=theme_colors,
-                section_header=section_header
+                section_header=section_header,
+                image_cache=image_cache,
+                keyword_usage_tracker=keyword_usage_tracker
             )
     
     # Default layout (existing behavior)
