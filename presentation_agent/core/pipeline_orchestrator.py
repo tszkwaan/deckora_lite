@@ -67,6 +67,10 @@ class PipelineOrchestrator:
         
         # Pipeline outputs
         self.outputs: Dict[str, Any] = {}
+        
+        # JSON serialization cache (performance optimization)
+        # Cache serialized strings to avoid repeated expensive JSON serialization
+        self._serialized_cache: Dict[str, str] = {}
     
     async def initialize(self):
         """Initialize session and executor."""
@@ -116,6 +120,92 @@ class PipelineOrchestrator:
         except Exception as e:
             self.obs_logger.finish_pipeline()
             raise
+    
+    def _get_serialized_report_knowledge(self, pretty: bool = False) -> str:
+        """
+        Get serialized report_knowledge, caching result for performance.
+        
+        Args:
+            pretty: If True, use indent=2 for pretty printing (for logs).
+                   If False, use compact format (for agent messages).
+        
+        Returns:
+            Serialized JSON string
+        """
+        cache_key = f"report_knowledge_{'pretty' if pretty else 'compact'}"
+        
+        if cache_key not in self._serialized_cache:
+            report_knowledge = self.outputs.get("report_knowledge")
+            if report_knowledge is None:
+                raise ValueError("report_knowledge not available in outputs")
+            
+            if pretty:
+                # Pretty format for logs/debugging
+                self._serialized_cache[cache_key] = json.dumps(
+                    report_knowledge,
+                    indent=2,
+                    ensure_ascii=False
+                )
+            else:
+                # Compact format for agent messages (better performance)
+                self._serialized_cache[cache_key] = json.dumps(
+                    report_knowledge,
+                    ensure_ascii=False,
+                    separators=(',', ':')  # Compact: no spaces
+                )
+        
+        return self._serialized_cache[cache_key]
+    
+    def _get_serialized_presentation_outline(self, pretty: bool = False) -> str:
+        """
+        Get serialized presentation_outline, caching result for performance.
+        
+        Args:
+            pretty: If True, use indent=2 for pretty printing (for logs).
+                   If False, use compact format (for agent messages).
+        
+        Returns:
+            Serialized JSON string
+        """
+        cache_key = f"presentation_outline_{'pretty' if pretty else 'compact'}"
+        
+        if cache_key not in self._serialized_cache:
+            presentation_outline = self.outputs.get("presentation_outline")
+            if presentation_outline is None:
+                raise ValueError("presentation_outline not available in outputs")
+            
+            if pretty:
+                # Pretty format for logs/debugging
+                self._serialized_cache[cache_key] = json.dumps(
+                    presentation_outline,
+                    indent=2,
+                    ensure_ascii=False
+                )
+            else:
+                # Compact format for agent messages (better performance)
+                self._serialized_cache[cache_key] = json.dumps(
+                    presentation_outline,
+                    ensure_ascii=False,
+                    separators=(',', ':')  # Compact: no spaces
+                )
+        
+        return self._serialized_cache[cache_key]
+    
+    def _invalidate_serialization_cache(self, key: Optional[str] = None):
+        """
+        Invalidate serialization cache when data changes.
+        
+        Args:
+            key: Specific cache key to invalidate, or None to clear all
+        """
+        if key:
+            # Remove specific key and related keys
+            keys_to_remove = [k for k in self._serialized_cache.keys() if k.startswith(key)]
+            for k in keys_to_remove:
+                self._serialized_cache.pop(k, None)
+        else:
+            # Clear all cache
+            self._serialized_cache.clear()
     
     async def _step_report_understanding(self):
         """Step 1: Report Understanding Agent."""
@@ -175,6 +265,8 @@ class PipelineOrchestrator:
         
         self.outputs["report_knowledge"] = report_knowledge
         self.session.state["report_knowledge"] = report_knowledge
+        # Invalidate cache when report_knowledge is updated
+        self._invalidate_serialization_cache("report_knowledge")
         self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
         
         if self.save_intermediate:
@@ -224,9 +316,12 @@ class PipelineOrchestrator:
                 if self.config.custom_instruction and self.config.custom_instruction.strip():
                     custom_instr_note = f"\n\n[CUSTOM_INSTRUCTION]\n{self.config.custom_instruction}\n\nIMPORTANT: If the custom instruction requires icon-feature cards, timeline, flowchart, or table layouts, you MUST suggest those specific layout types in the relevant slide's content_notes (e.g., 'Use a comparison-grid layout with icon-feature cards' instead of just 'use an icon').\n"
                 
+                # Use cached serialization for performance
+                serialized_report_knowledge = self._get_serialized_report_knowledge(pretty=False)
+                
                 presentation_outline = await self.executor.run_agent(
                     outline_generator_agent,
-                    f"Based on the report knowledge:\n{json.dumps(report_knowledge, indent=2)}{custom_instr_note}\n\nGenerate a presentation outline.",
+                    f"Based on the report knowledge:\n{serialized_report_knowledge}{custom_instr_note}\n\nGenerate a presentation outline.",
                     "presentation_outline",
                     parse_json=True
                 )
@@ -238,16 +333,24 @@ class PipelineOrchestrator:
                 continue
             
             self.session.state["presentation_outline"] = presentation_outline
+            # Store in outputs for cache access (temporary, will be updated later)
+            self.outputs["presentation_outline"] = presentation_outline
             
             # Critic review (if enabled)
             if self.include_critics:
                 self.obs_logger.start_agent_execution("OutlineCriticAgent", output_key="critic_review_outline")
                 
+                # Use cached serialization for performance
+                serialized_outline = self._get_serialized_presentation_outline(pretty=False)
+                serialized_report_knowledge = self._get_serialized_report_knowledge(pretty=False)
+                
                 critic_input = self.executor.build_critic_input(
                     presentation_outline,
                     report_knowledge,
                     self.config,
-                    self.config.custom_instruction
+                    self.config.custom_instruction,
+                    serialized_outline=serialized_outline,
+                    serialized_report_knowledge=serialized_report_knowledge
                 )
                 
                 try:
@@ -285,6 +388,9 @@ class PipelineOrchestrator:
             )
         
         self.outputs["presentation_outline"] = presentation_outline
+        # Invalidate cache when outline is updated (e.g., after critic feedback)
+        self._invalidate_serialization_cache("presentation_outline")
+        
         if self.save_intermediate:
             save_json_output(presentation_outline, str(self.output_dir / "presentation_outline.json"))
             print(f"✅ Presentation outline saved")
@@ -394,10 +500,14 @@ DO NOT ask for clarification - just generate the keywords automatically and dist
                     custom_instruction_note = f"\n\n[CUSTOM_INSTRUCTION]\n{self.config.custom_instruction}\n\nIMPORTANT: You MUST follow this custom instruction.\n"
             
             # Build the message with custom instruction at the TOP if present
+            # Use cached serialization for performance
+            serialized_outline = self._get_serialized_presentation_outline(pretty=False)
+            serialized_report_knowledge = self._get_serialized_report_knowledge(pretty=False)
+            
             message_parts = []
             if custom_instruction_note:
                 message_parts.append(custom_instruction_note)
-            message_parts.append(f"Generate slides and script based on:\nOutline: {json.dumps(presentation_outline, indent=2)}\nReport Knowledge: {json.dumps(report_knowledge, indent=2)}")
+            message_parts.append(f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {serialized_report_knowledge}")
             
             slide_and_script = await self.executor.run_agent(
                 slide_and_script_generator_agent,
@@ -429,9 +539,13 @@ DO NOT ask for clarification - just generate the keywords automatically and dist
             logger.warning(f"JSONParseError from agent executor, trying fallback parsing: {e}")
             # Try to get raw output without JSON parsing
             try:
+                # Use cached serialization for performance
+                serialized_outline = self._get_serialized_presentation_outline(pretty=False)
+                serialized_report_knowledge = self._get_serialized_report_knowledge(pretty=False)
+                
                 slide_and_script = await self.executor.run_agent(
                     slide_and_script_generator_agent,
-                    f"Generate slides and script based on:\nOutline: {json.dumps(presentation_outline, indent=2)}\nReport Knowledge: {json.dumps(report_knowledge, indent=2)}",
+                    f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {serialized_report_knowledge}",
                     "slide_and_script",
                     parse_json=False  # Get raw string output
                 )

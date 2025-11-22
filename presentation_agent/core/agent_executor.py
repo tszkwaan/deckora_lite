@@ -156,7 +156,9 @@ class AgentExecutor:
         presentation_outline: Dict,
         report_knowledge: Dict,
         config: Any,
-        custom_instruction: Optional[str] = None
+        custom_instruction: Optional[str] = None,
+        serialized_outline: Optional[str] = None,
+        serialized_report_knowledge: Optional[str] = None
     ) -> str:
         """
         Build input message for critic agents.
@@ -166,6 +168,8 @@ class AgentExecutor:
             report_knowledge: The report knowledge for context
             config: PresentationConfig object
             custom_instruction: Optional custom instruction
+            serialized_outline: Optional pre-serialized outline (for performance)
+            serialized_report_knowledge: Optional pre-serialized report knowledge (for performance)
             
         Returns:
             Formatted input message
@@ -186,12 +190,16 @@ class AgentExecutor:
             else ""
         )
         
+        # Use pre-serialized strings if provided (performance optimization)
+        outline_str = serialized_outline if serialized_outline else json.dumps(presentation_outline, indent=2)
+        report_knowledge_str = serialized_report_knowledge if serialized_report_knowledge else json.dumps(report_knowledge, indent=2)
+        
         return f"""[PRESENTATION_OUTLINE]
-{json.dumps(presentation_outline, indent=2)}
+{outline_str}
 [END_PRESENTATION_OUTLINE]
 
 [REPORT_KNOWLEDGE]
-{json.dumps(report_knowledge, indent=2)}
+{report_knowledge_str}
 [END_REPORT_KNOWLEDGE]
 
 {scenario_section}[DURATION]
