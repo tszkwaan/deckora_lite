@@ -10,6 +10,13 @@ from pathlib import Path
 import logging
 
 from presentation_agent.agents.utils.helpers import is_valid_chart_data, clean_chart_data
+from presentation_agent.templates.template_helpers import (
+    render_comparison_grid_html,
+    render_data_table_html,
+    render_flowchart_html,
+    render_timeline_html,
+    render_icon_feature_card_html
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +58,7 @@ def generate_web_slides_tool(
         # Create script map for easy lookup
         script_map = {section.get("slide_number"): section for section in script_sections}
         
-        # Generate frontend-ready JSON format
+        # Generate frontend-ready JSON format (theme_colors will be computed inside)
         slides_data = _generate_frontend_slides_data(slides, script_map, title, config)
         output_path.write_text(json.dumps(slides_data, indent=2, ensure_ascii=False), encoding='utf-8')
         
@@ -648,7 +655,7 @@ def _generate_javascript(total_slides: int) -> str:
     """
 
 
-def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, config: Optional[Dict]) -> Dict:
+def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, config: Optional[Dict], theme_colors: Optional[Dict] = None) -> Dict:
     """
     Generate frontend-ready JSON format with individual slide HTML fragments.
     
@@ -663,7 +670,9 @@ def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, c
           - speaker_notes: Notes for this slide
           - script: Script content for this slide
     """
-    theme_colors = _get_theme_colors(config)
+    # Get theme colors (use provided or get from config)
+    if theme_colors is None:
+        theme_colors = _get_theme_colors(config)
     global_css = _generate_global_css(theme_colors)
     
     slides_data = []
@@ -672,7 +681,7 @@ def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, c
         script_section = script_map.get(slide_number)
         
         # Generate HTML fragment for this slide only
-        slide_html = _generate_slide_html_fragment(slide, script_section, idx)
+        slide_html = _generate_slide_html_fragment(slide, script_section, idx, theme_colors)
         
         # Extract slide-specific CSS (if any)
         slide_css = _generate_slide_css(slide, theme_colors)
@@ -711,10 +720,16 @@ def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, c
     }
 
 
-def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], slide_index: int) -> str:
+def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], slide_index: int, theme_colors: Optional[Dict] = None) -> str:
     """
     Generate HTML fragment for a single slide (without wrapper HTML structure).
     This is the HTML that will be inserted into the frontend's slide container.
+    
+    Args:
+        slide: Slide data dict
+        script_section: Optional script section dict
+        slide_index: Slide index (0-based)
+        theme_colors: Optional theme colors dict
     """
     slide_number = slide.get("slide_number", slide_index + 1)
     slide_title = slide.get("title", "")
@@ -723,6 +738,15 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     main_text = content.get("main_text")
     visual_elements = slide.get("visual_elements", {})
     design_spec = slide.get("design_spec", {})
+    
+    # Default theme colors if not provided
+    if theme_colors is None:
+        theme_colors = {
+            "primary": "#7C3AED",
+            "secondary": "#EC4899",
+            "background": "#FFFFFF",
+            "text": "#1F2937"
+        }
     
     # Generate content HTML
     content_html = ""
@@ -806,15 +830,84 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 icons_html += f'<img src="{icon_url}" alt="{icon.get("icon_name", "icon")}" class="slide-icon">'
         icons_html += '</div>'
     
-    # Determine slide layout
-    has_chart = chart_html != ""
-    layout_class = "slide-with-chart" if charts_needed else "slide-text-only"
+    # Check if slide uses a custom template layout
+    layout_type = design_spec.get("layout_type")
     
     # Apply design spec styles
     title_font_size = design_spec.get("title_font_size", 36)
-    body_font_size = design_spec.get("body_font_size", 16)
     alignment = design_spec.get("alignment", {})
     title_align = alignment.get("title", "left")
+    
+    # Handle custom template layouts
+    if layout_type == "comparison-grid":
+        # Extract sections from content or visual_elements
+        sections = visual_elements.get("sections", [])
+        if not sections:
+            # Try to build sections from bullet_points or other content
+            sections = []
+            bullet_points = content.get("bullet_points", [])
+            if bullet_points:
+                # Create sections from bullet points (max 4)
+                for i, point in enumerate(bullet_points[:4]):
+                    sections.append({
+                        "title": f"Section {i+1}",
+                        "content": point,
+                        "highlight": False
+                    })
+        
+        if len(sections) >= 2:
+            return render_comparison_grid_html(
+                title=slide_title,
+                sections=sections,
+                theme_colors=theme_colors,
+                title_font_size=title_font_size,
+                title_align=title_align
+            )
+    
+    elif layout_type == "data-table":
+        # Extract table data from visual_elements or content
+        table_data = visual_elements.get("table_data", {})
+        if table_data:
+            headers = table_data.get("headers", [])
+            rows = table_data.get("rows", [])
+            if headers and rows:
+                table_html = render_data_table_html(
+                    headers=headers,
+                    rows=rows,
+                    theme_colors=theme_colors,
+                    style=table_data.get("style", "default"),
+                    highlight_rows=table_data.get("highlight_rows"),
+                    highlight_columns=table_data.get("highlight_columns"),
+                    caption=table_data.get("caption")
+                )
+                
+                # Render page layout with table
+                from presentation_agent.templates.template_loader import render_page_layout
+                variables = {
+                    "title": slide_title,
+                    "table_html": table_html,
+                    "title_font_size": title_font_size,
+                    "title_align": title_align,
+                    "additional_content_html": content_html if content_html else ""
+                }
+                return render_page_layout("data-table", variables, theme_colors)
+    
+    elif layout_type == "timeline":
+        timeline_items = visual_elements.get("timeline_items", [])
+        if timeline_items:
+            return render_timeline_html(
+                title=slide_title,
+                timeline_items=timeline_items,
+                theme_colors=theme_colors,
+                title_font_size=title_font_size,
+                title_align=title_align,
+                orientation=visual_elements.get("timeline_orientation", "vertical")
+            )
+    
+    # Default layout (existing behavior)
+    has_chart = chart_html != ""
+    layout_class = "slide-with-chart" if charts_needed else "slide-text-only"
+    body_font_size = design_spec.get("body_font_size", 16)
     body_align = alignment.get("body", "left")
     
     # Generate HTML fragment (just the slide content, no wrapper)

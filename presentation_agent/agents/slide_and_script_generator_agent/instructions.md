@@ -135,6 +135,7 @@ Respond with only valid JSON in the following structure:
           "icons_suggested": ["<icon_type1>", "<icon_type2>"]
         },
         "design_spec": {
+          "layout_type": "<cover-slide | content-text | content-with-chart | comparison-grid | data-table | timeline | null>",
           "title_font_size": <number in PT, typically 36-48 for title slides, 28-36 for regular slides>,
           "subtitle_font_size": <number in PT, typically 20-28, must be smaller than title_font_size>,
           "body_font_size": <number in PT, typically 14-18 for body text>,
@@ -214,6 +215,16 @@ CRITICAL REQUIREMENTS
    - Ensure content depth matches audience level from report_knowledge
    - Include speaker notes that provide context not on slides
    - **IMPORTANT: For academic settings (scenario == "academic_teaching" or "academic_student_presentation"), it is critical to present experiment results in numbers. Include specific metrics, percentages, accuracy scores, performance improvements, and other quantitative data from the report when generating slides about experimental results.**
+   - **Layout Type Selection:**
+     * Select appropriate `layout_type` in `design_spec` based on content:
+       - Use `"comparison-grid"` when comparing 2-4 items/concepts (e.g., models, methods, scenarios)
+       - Use `"data-table"` when displaying structured tabular data (e.g., results table, metrics comparison)
+       - Use `"timeline"` when showing progression, steps, or chronological flow
+       - Use `"content-with-chart"` when you have both text content and a chart
+       - Use `"content-text"` for standard text-only slides
+     * For `comparison-grid`: Provide `visual_elements.sections` array with 2-4 section objects: `[{"title": "...", "content": "...", "icon": "..."}, ...]`
+     * For `data-table`: Provide `visual_elements.table_data` object: `{"headers": [{"text": "...", "width": "..."}], "rows": [["...", "..."], ...], "style": "default|striped|bordered|minimal"}`
+     * For `timeline`: Provide `visual_elements.timeline_items` array: `[{"year": "...", "title": "...", "description": "..."}, ...]`
    - **COVER SLIDE REQUIREMENT (slide_number: 1):**
      * The first slide (slide_number: 1) is a COVER/TITLE slide and MUST follow these strict rules:
      * **MUST have:** A title and a subtitle (subtitle goes in `content.main_text`)
@@ -276,6 +287,14 @@ CRITICAL REQUIREMENTS
      * If you fail to call the tool or include chart_data, the chart will NOT appear in the slides
 
 3. **Layout Requirements (Commonsense Layout Checking):**
+   - **Layout Type Selection:** You MUST select an appropriate `layout_type` in `design_spec` based on slide content:
+     * `"cover-slide"`: For slide_number: 1 (title + subtitle only)
+     * `"content-text"`: For text-only slides (title + bullet points)
+     * `"content-with-chart"`: For slides with charts (title + content + chart side-by-side)
+     * `"comparison-grid"`: For comparing 2-4 items side-by-side (requires `visual_elements.sections` array with 2-4 section objects)
+     * `"data-table"`: For displaying tabular data (requires `visual_elements.table_data` with headers and rows)
+     * `"timeline"`: For showing progression/chronological flow (requires `visual_elements.timeline_items` array)
+     * `null` or omit: Default layout (auto-selected based on charts_needed)
    - **Design Specification:** You MUST provide a "design_spec" object for each slide with font sizes, positions, spacing, and alignment.
    - **Font Size Hierarchy:** Title font size MUST be larger than subtitle. Subtitle MUST be larger than body text. Typical ranges:
      * Title slides: title 40-48pt, subtitle 24-28pt, body 16-18pt
@@ -286,6 +305,7 @@ CRITICAL REQUIREMENTS
      * subheadings MUST be empty array []
      * charts_needed MUST be false
      * figures MUST be empty array []
+     * layout_type MUST be "cover-slide" or null
      * No charts, no bullet points, no detailed content, no figures
      * Subtitle should be concise (1-2 lines max)
    - **Positioning & Overlap Prevention:** 
