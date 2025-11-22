@@ -80,49 +80,62 @@ MANDATORY STYLE REQUIREMENTS (MUST FOLLOW):
    - Think: "How would I draw this as a simple icon?"
    - Use universal symbols: magnifying glass, speech bubbles, checkmarks, shields, arrows, charts, etc.
 
-3. SIMPLE GEOMETRIC SHAPES:
-   - Circles, squares, rectangles, triangles, lines, arrows
+3. SIMPLE GEOMETRIC SHAPES AND THICK OUTLINES:
+   - Circles, squares, rectangles, triangles, lines, arrows, rounded shapes
    - Simple stick figures or basic shapes (NOT detailed people)
    - Repeating patterns (dots, lines, grids) for concepts like "many" or "multiple"
+   - **ALL shapes MUST have a distinct, thick, dark outline (e.g., dark blue/purple or black).**
+   - **Internal details should be kept to an absolute minimum, favoring large, simple shapes.**
 
 4. SOLID FLAT COLORS:
    - NO gradients, NO shadows, NO 3D shading
-   - Use solid, flat colors: purple (#7C3AED), lavender, teal, cyan, orange, light blue, green, yellow, pink, grey
-   - Each element should be a single solid color
+   - Use solid, flat colors of any hue (purple, blue, teal, orange, pink, green, yellow, red, etc.)
+   - Each element should be a single solid color.
+   - **The outline color should be distinct from the fill, typically a darker version of a primary color or a neutral dark tone.**
 
-5. ICON-LIKE APPEARANCE:
+5. ICON-LIKE APPEARANCE (APP ICON/DOODLE STYLE):
    - Simple, recognizable, scalable (like an app icon)
    - Clean and minimal design
    - Center-focused composition
+   - **Emphasize a slightly rounded, friendly, and 'doodle' or 'app icon' aesthetic, similar to the "KEYWORD" and "CV" examples.**
 
-EXAMPLES OF CORRECT STYLE:
-- "Vast amount" → Dense grid of simple black stick figures (flat, no detail)
-- "Various format" → Grid of flat colored speech bubbles with simple symbols inside (flat shapes, solid colors)
-- "Search/Keyword" → Simple flat magnifying glass (outline only) over flat text bubble with "KEYWORD" text
-- "Security" → Simple flat shield or lock icon (outline or solid shape, no 3D)
-- "Evaluation/Comparison" → Two flat shapes (circles or squares) with an arrow or equals sign between them
-- "Data/Analytics" → Simple flat bar chart or line graph (geometric shapes only)
+EXAMPLES OF CORRECT STYLE (UPDATED):
+- "Vast amount" → Dense grid of simple outlined stick figures (flat, no detail, thick outlines)
+- "Various format" → Grid of flat colored speech bubbles with simple outlined symbols inside (flat shapes, solid colors, thick outlines)
+- "Search/Keyword" → Simple **outlined** magnifying glass over **outlined** flat text bubble with "KEYWORD" text. **(Like the example provided)**
+- "Security" → Simple **outlined** flat shield or lock icon (outline or solid shape, no 3D). **(More minimal than your current AI safeguard)**
+- "Evaluation/Comparison" → Two **outlined** flat shapes (circles or squares) with an **outlined** arrow or equals sign between them
+- "Data/Analytics" → Simple **outlined** flat bar chart or line graph (geometric shapes only)
 
 ABSOLUTELY FORBIDDEN:
 - ❌ NO realistic photographs (lakes, sunsets, flags, landscapes, people, objects)
 - ❌ NO 3D rendering, shadows, depth, gradients
-- ❌ NO complex illustrations or detailed artwork
+- ❌ NO complex illustrations or detailed artwork with many small elements
 - ❌ NO photorealistic images of any kind
 
 REQUIRED OUTPUT:
 - ✅ FLAT 2D geometric shapes only
 - ✅ Solid colors, no gradients
 - ✅ Simple symbols and patterns
-- ✅ Icon/logo style, like a vector graphic
+- ✅ Icon/logo style, like a vector graphic, with **distinct thick outlines**
 
-Transparent background.
+CRITICAL BACKGROUND REQUIREMENTS:
+- ✅ **MUST have a SOLID WHITE background.**
+- ❌ **ABSOLUTELY NO transparent background, NO colored background, NO checkerboard pattern, NO grid pattern.**
+- ✅ The icon itself should be the ONLY visible content, centered on the white background.
+- ❌ ABSOLUTELY NO borders, frames, circles, squares, or decorative elements around the icon, on the white background.
+- ❌ NO black borders, NO colored borders, NO outlines around the entire icon.
+- ❌ NO background shapes (circles, squares, etc.) behind the icon on the white background.
+- ❌ NO decorative frames or containers.
+- ❌ NO checkerboard/grid patterns in the background or anywhere in the image.
+- ❌ NO black backgrounds, NO dark backgrounds, NO solid color backgrounds of any kind (EXCEPT for the required solid white background).
 
 Size: Maximum {max_width}x{max_height} pixels.
 
 Theme/Concept: {topic}
 
-Generate a FLAT 2D SEMANTIC LOGO ICON (NOT a photo, NOT 3D) that represents "{topic}" using ONLY flat geometric shapes, solid colors, and simple symbols."""
-
+Generate a FLAT 2D SEMANTIC LOGO ICON (NOT a photo, NOT 3D) that represents "{topic}" using ONLY flat geometric shapes, solid colors, and simple symbols, **with distinct thick outlines and a minimal, app-icon/doodle aesthetic**. The icon must have a **SOLID WHITE background** with NO borders, frames, or decorative elements.
+"""
 
 def _resize_image_if_needed(image_bytes: bytes, max_width: int, max_height: int) -> bytes:
     """

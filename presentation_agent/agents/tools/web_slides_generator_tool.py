@@ -1237,6 +1237,14 @@ def _generate_global_css(theme_colors: Dict) -> str:
             height: auto;
             object-fit: contain;
             border-radius: 8px;
+            background: transparent;
+            /* Ensure transparent PNGs display properly without checkerboard */
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            /* Remove any default borders */
+            border: none;
+            outline: none;
+            box-shadow: none;
         }}
         
         @media (max-width: 1024px) {{
