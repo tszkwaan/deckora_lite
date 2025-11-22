@@ -4,6 +4,62 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import type { SlidesData, SlideData } from '@/types/slides';
 
+// Dynamic import for Mermaid (client-side only)
+let mermaid: any = null;
+const loadMermaid = async () => {
+  if (typeof window !== 'undefined' && !mermaid) {
+    try {
+      const mermaidModule = await import('mermaid');
+      mermaid = mermaidModule.default;
+      mermaid.initialize({ 
+        startOnLoad: false,
+        theme: 'default',
+        themeVariables: {
+          primaryColor: '#7C3AED',
+          primaryTextColor: '#1F2937',
+          primaryBorderColor: '#7C3AED',
+          lineColor: '#7C3AED',
+          secondaryColor: '#EC4899',
+          tertiaryColor: '#10B981'
+        }
+      });
+    } catch (error) {
+      console.error('Failed to load Mermaid:', error);
+    }
+  }
+  return mermaid;
+};
+
+// Helper function to render Mermaid diagrams in any container
+const renderMermaidInContainer = async (container: HTMLElement) => {
+  const mermaidLib = await loadMermaid();
+  if (mermaidLib && container) {
+    const mermaidElements = container.querySelectorAll('pre.mermaid, .mermaid');
+    if (mermaidElements.length > 0) {
+      mermaidElements.forEach((element, index) => {
+        const id = `mermaid-${Date.now()}-${index}`;
+        if (!element.id) {
+          element.id = id;
+        }
+        try {
+          // Mermaid v10+ API
+          if (mermaidLib.run) {
+            mermaidLib.run({
+              nodes: [element],
+              suppressErrors: true
+            });
+          } else {
+            // Fallback for older API
+            mermaidLib.init(undefined, element);
+          }
+        } catch (error) {
+          console.error('Mermaid rendering error:', error);
+        }
+      });
+    }
+  }
+};
+
 // Component to render slide HTML and fix layout for charts if needed
 function SlideContent({ 
   html, 
@@ -19,6 +75,9 @@ function SlideContent({
 
     // Set the HTML content
     containerRef.current.innerHTML = html;
+    
+    // Render Mermaid diagrams
+    setTimeout(() => renderMermaidInContainer(containerRef.current!), 100);
 
     // If chart is needed but layout is wrong, fix it: title on top, content and chart side by side
     if (chartsNeeded) {
@@ -72,6 +131,39 @@ function SlideContent({
   }, [html, chartsNeeded]);
 
   return <div ref={containerRef} className="w-full h-full overflow-hidden" />;
+}
+
+// Component for thumbnail previews (scaled down)
+function ThumbnailSlideContent({ html }: { html: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    // Set the HTML content
+    containerRef.current.innerHTML = html;
+    
+    // Render Mermaid diagrams in thumbnail (with smaller scale)
+    setTimeout(() => {
+      if (containerRef.current) {
+        renderMermaidInContainer(containerRef.current);
+      }
+    }, 150);
+  }, [html]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="absolute inset-0"
+      style={{
+        transform: 'scale(0.15)',
+        transformOrigin: 'top left',
+        width: '666.67%', // 100 / 0.15
+        height: '666.67%',
+        pointerEvents: 'none',
+      }}
+    />
+  );
 }
 
 export default function PresentationViewPage() {
@@ -300,17 +392,7 @@ export default function PresentationViewPage() {
                     {/* Thumbnail - render slide HTML in a small container */}
                     <div className="aspect-[16/9] w-full rounded-md bg-white overflow-hidden relative">
                       {/* Render slide HTML scaled down for thumbnail */}
-                      <div
-                        className="absolute inset-0"
-                        style={{
-                          transform: 'scale(0.15)',
-                          transformOrigin: 'top left',
-                          width: '666.67%',
-                          height: '666.67%',
-                          pointerEvents: 'none',
-                        }}
-                        dangerouslySetInnerHTML={{ __html: slide.html }}
-                      />
+                      <ThumbnailSlideContent html={slide.html} />
                     </div>
                     <span className="absolute left-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-xs font-medium text-white">
                       {slide.slide_number}

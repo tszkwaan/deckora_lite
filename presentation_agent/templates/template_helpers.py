@@ -170,38 +170,64 @@ def render_flowchart_html(
     style: str = "default"
 ) -> str:
     """
-    Render a flowchart component.
+    Render a flowchart component using Mermaid.js syntax.
     
     Args:
         steps: List of step dicts with 'label' and 'description'
-        theme_colors: Optional theme colors
-        orientation: 'horizontal' or 'vertical'
-        style: Flowchart style (default, minimal, detailed)
+        theme_colors: Optional theme colors (for future use with Mermaid themes)
+        orientation: 'horizontal' or 'vertical' (Mermaid handles this automatically)
+        style: Flowchart style (default, minimal, detailed) - not used with Mermaid
         
     Returns:
-        Rendered HTML string
+        HTML string with Mermaid diagram code
     """
-    # Render steps with arrows
-    steps_html = ""
+    if not steps:
+        return '<div class="mermaid-flowchart-placeholder">No flowchart steps provided</div>'
+    
+    # Generate Mermaid flowchart syntax
+    # Format: flowchart LR (left-right) or TD (top-down)
+    direction = "LR" if orientation == "horizontal" else "TD"
+    
+    # Build Mermaid diagram code
+    mermaid_code = f"flowchart {direction}\n"
+    
+    # Create nodes with IDs and labels
+    # Use step index as node ID, sanitize labels for Mermaid
+    node_ids = []
     for i, step in enumerate(steps):
-        label = step.get('label', '')
+        label = step.get('label', f'Step {i+1}')
         description = step.get('description', '')
-        steps_html += f'''<div class="flow-step">
-  <div class="flow-step-label">{label}</div>
-  <div class="flow-step-description">{description}</div>
-</div>'''
         
-        # Add arrow between steps (not after last)
-        if i < len(steps) - 1:
-            steps_html += '<div class="flow-arrow"></div>'
+        # Sanitize for Mermaid (remove special chars, limit length)
+        node_id = f"step{i+1}"
+        node_ids.append(node_id)
+        
+        # Combine label and description for node text
+        # Mermaid supports line breaks with <br/> or \n
+        if description:
+            node_text = f"{label}<br/>{description}"
+        else:
+            node_text = label
+        
+        # Escape quotes and special characters
+        node_text = node_text.replace('"', '&quot;').replace("'", "&apos;")
+        
+        # Add node definition
+        mermaid_code += f'    {node_id}["{node_text}"]\n'
     
-    variables = {
-        'steps_html': steps_html,  # Template expects 'steps_html', not 'steps'
-        'orientation': orientation,
-        'style': style
-    }
+    # Add edges (arrows) between nodes
+    for i in range(len(node_ids) - 1):
+        mermaid_code += f"    {node_ids[i]} --> {node_ids[i+1]}\n"
     
-    return render_component('flowchart', variables, theme_colors)
+    # Wrap in Mermaid div with unique ID
+    import uuid
+    diagram_id = f"mermaid-{uuid.uuid4().hex[:8]}"
+    
+    # Return HTML with Mermaid code block
+    return f'''<div class="mermaid-flowchart-container" data-mermaid-id="{diagram_id}">
+<pre class="mermaid">
+{mermaid_code}</pre>
+</div>'''
 
 
 def render_timeline_item_html(
