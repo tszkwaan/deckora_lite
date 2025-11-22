@@ -28,7 +28,7 @@ async def main():
     # Note: target_audience is optional - if not provided (or set to None), LLM will infer from scenario and report
     config = PresentationConfig(
         # scenario="academic_teaching",
-        duration="5 minute",
+        duration="1 minute",
         # target_audience="students",  # Optional - can be None to let LLM infer from scenario and report content
         custom_instruction="",
         report_url="https://investors.paloaltonetworks.com/static-files/78860cb6-7d51-4096-82f9-aa63043b70a5",

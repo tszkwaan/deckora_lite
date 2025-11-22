@@ -14,7 +14,6 @@ from google.adk.sessions import InMemorySessionService
 from config import PresentationConfig, LAYOUT_MAX_RETRY_LOOPS
 from presentation_agent.agents.report_understanding_agent.agent import agent as report_understanding_agent
 from presentation_agent.agents.outline_generator_agent.agent import agent as outline_generator_agent
-from presentation_agent.agents.outline_critic_agent.agent import agent as outline_critic_agent
 from presentation_agent.agents.slide_and_script_generator_agent.agent import agent as slide_and_script_generator_agent
 from presentation_agent.agents.chart_generator_agent.agent import agent as chart_generator_agent
 from presentation_agent.agents.layout_critic_agent.agent import agent as layout_critic_agent
@@ -23,7 +22,6 @@ from presentation_agent.agents.tools.web_slides_generator_tool import generate_w
 from presentation_agent.agents.utils.pdf_loader import load_pdf
 from presentation_agent.agents.utils.helpers import save_json_output, is_valid_chart_data
 from presentation_agent.agents.utils.observability import get_observability_logger, AgentStatus
-from presentation_agent.agents.utils.quality_check import check_outline_quality
 from presentation_agent.core.agent_executor import AgentExecutor
 from presentation_agent.core.retry_handler import OutlineRetryHandler, LayoutRetryHandler
 from presentation_agent.core.json_parser import parse_json_robust
@@ -80,6 +78,10 @@ class PipelineOrchestrator:
         )
         self.executor = AgentExecutor(self.session)
         self.obs_logger.start_pipeline("presentation_pipeline")
+        
+        # Clear image cache at the start of each pipeline run
+        from presentation_agent.templates.image_helper import clear_image_cache
+        clear_image_cache()
     
     async def run(self) -> Dict[str, Any]:
         """
@@ -299,96 +301,43 @@ class PipelineOrchestrator:
         print("=" * 60)
     
     async def _step_outline_generation(self):
-        """Step 2: Outline Generation with Critic Loop."""
-        print("\n📝 Step 2: Outline Generation with Critic Loop")
+        """Step 2: Outline Generation."""
+        print("\n📝 Step 2: Outline Generation")
         
         report_knowledge = self.outputs["report_knowledge"]
-        outline_retries = 0
-        max_outline_retries = 3
         
-        while outline_retries < max_outline_retries:
-            # Generate outline
-            self.obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline", retry_count=outline_retries)
+        # Generate outline
+        self.obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline")
+        
+        try:
+            # Include custom instruction in outline generation message if present
+            custom_instr_note = ""
+            if self.config.custom_instruction and self.config.custom_instruction.strip():
+                custom_instr_note = f"\n\n[CUSTOM_INSTRUCTION]\n{self.config.custom_instruction}\n\nIMPORTANT: If the custom instruction requires icon-feature cards, timeline, flowchart, or table layouts, you MUST suggest those specific layout types in the relevant slide's content_notes (e.g., 'Use a comparison-grid layout with icon-feature cards' instead of just 'use an icon').\n"
             
-            try:
-                # Include custom instruction in outline generation message if present
-                custom_instr_note = ""
-                if self.config.custom_instruction and self.config.custom_instruction.strip():
-                    custom_instr_note = f"\n\n[CUSTOM_INSTRUCTION]\n{self.config.custom_instruction}\n\nIMPORTANT: If the custom instruction requires icon-feature cards, timeline, flowchart, or table layouts, you MUST suggest those specific layout types in the relevant slide's content_notes (e.g., 'Use a comparison-grid layout with icon-feature cards' instead of just 'use an icon').\n"
-                
-                # Use cached serialization for performance
-                serialized_report_knowledge = self._get_serialized_report_knowledge(pretty=False)
-                
-                presentation_outline = await self.executor.run_agent(
-                    outline_generator_agent,
-                    f"Based on the report knowledge:\n{serialized_report_knowledge}{custom_instr_note}\n\nGenerate a presentation outline.",
-                    "presentation_outline",
-                    parse_json=True
-                )
-            except (AgentExecutionError, JSONParseError) as e:
-                self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
-                outline_retries += 1
-                if outline_retries > LAYOUT_MAX_RETRY_LOOPS:
-                    raise
-                continue
+            # Use cached serialization for performance
+            serialized_report_knowledge = self._get_serialized_report_knowledge(pretty=False)
             
-            self.session.state["presentation_outline"] = presentation_outline
-            # Store in outputs for cache access (temporary, will be updated later)
-            self.outputs["presentation_outline"] = presentation_outline
-            
-            # Critic review (if enabled)
-            if self.include_critics:
-                self.obs_logger.start_agent_execution("OutlineCriticAgent", output_key="critic_review_outline")
-                
-                # Use cached serialization for performance
-                serialized_outline = self._get_serialized_presentation_outline(pretty=False)
-                serialized_report_knowledge = self._get_serialized_report_knowledge(pretty=False)
-                
-                critic_input = self.executor.build_critic_input(
-                    presentation_outline,
-                    report_knowledge,
-                    self.config,
-                    self.config.custom_instruction,
-                    serialized_outline=serialized_outline,
-                    serialized_report_knowledge=serialized_report_knowledge
-                )
-                
-                try:
-                    critic_review = await self.executor.run_agent(
-                        outline_critic_agent,
-                        critic_input,
-                        "critic_review_outline",
-                        parse_json=True
-                    )
-                except (AgentExecutionError, JSONParseError) as e:
-                    self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
-                    break
-                
-                passed, quality_details = check_outline_quality(critic_review)
-                self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
-                
-                if passed:
-                    print(f"✅ Outline quality check passed")
-                    break
-                else:
-                    failure_reasons = quality_details.get('failure_reasons', ['Quality check failed'])
-                    feedback = '; '.join(failure_reasons)
-                    print(f"⚠️  Outline quality check failed: {feedback}")
-                    outline_retries += 1
-                    self.obs_logger.log_retry("OutlineGeneratorAgent", outline_retries, feedback)
-                    continue
-            else:
-                break
+            presentation_outline = await self.executor.run_agent(
+                outline_generator_agent,
+                f"Based on the report knowledge:\n{serialized_report_knowledge}{custom_instr_note}\n\nGenerate a presentation outline.",
+                "presentation_outline",
+                parse_json=True
+            )
+        except (AgentExecutionError, JSONParseError) as e:
+            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+            raise
         
         if not presentation_outline:
             raise AgentExecutionError(
-                "Failed to generate outline after retries",
+                "Failed to generate outline",
                 agent_name="OutlineGeneratorAgent",
                 output_key="presentation_outline"
             )
         
         self.outputs["presentation_outline"] = presentation_outline
-        # Invalidate cache when outline is updated (e.g., after critic feedback)
+        self.session.state["presentation_outline"] = presentation_outline
+        # Invalidate cache when outline is updated
         self._invalidate_serialization_cache("presentation_outline")
         
         if self.save_intermediate:

@@ -5,18 +5,63 @@ Uses Google Imagen API (if available) or fallback services to generate
 bubble-style illustrations based on keywords.
 
 Supports:
-- Cross-slide caching (cache across slides, allow duplicates on same slide)
+- Persistent cache across pipeline runs (reuse images from previous runs)
+- Different images for same keyword within same pipeline run
 - Parallel generation (generate multiple images concurrently)
 """
 
 import logging
 import base64
 import hashlib
-from typing import Optional, Dict, List
+import json
+from typing import Optional, Dict, List, Set
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
+
+# Persistent cache file path
+_CACHE_FILE = Path("presentation_agent/output/image_cache.json")
+
+# Persistent cache: maps (keyword, source, is_logo) -> list of image_urls (base64 data URLs)
+# Format: {"keyword_source_islogo": [image_url1, image_url2, ...], ...}
+_persistent_cache: Dict[str, List[str]] = {}
+
+# Current run usage tracker: tracks which cached images have been used in this run
+# Format: {(keyword, source, is_logo): set of used_indices}
+_current_run_used: Dict[tuple, Set[int]] = {}
+
+
+def _load_persistent_cache():
+    """Load persistent cache from disk."""
+    global _persistent_cache
+    if _CACHE_FILE.exists():
+        try:
+            with open(_CACHE_FILE, 'r') as f:
+                _persistent_cache = json.load(f)
+            logger.debug(f"✅ Loaded persistent image cache: {len(_persistent_cache)} keywords")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load persistent cache: {e}")
+            _persistent_cache = {}
+    else:
+        _persistent_cache = {}
+        logger.debug("📝 No existing persistent cache found, starting fresh")
+
+
+def _save_persistent_cache():
+    """Save persistent cache to disk."""
+    global _persistent_cache
+    try:
+        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(_CACHE_FILE, 'w') as f:
+            json.dump(_persistent_cache, f, indent=2)
+        logger.debug(f"✅ Saved persistent image cache: {len(_persistent_cache)} keywords")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to save persistent cache: {e}")
+
+
+# Load persistent cache on module import
+_load_persistent_cache()
 
 # Import image generation tool
 try:
@@ -27,11 +72,25 @@ except (ImportError, Exception) as e:
     IMAGE_GENERATION_AVAILABLE = False
     generate_image = None
 
+
+def clear_image_cache():
+    """
+    Reset the current run usage tracker (called at start of each pipeline run).
+    This allows same keyword to generate different images within the same run,
+    but can reuse images from persistent cache across different runs.
+    """
+    global _current_run_used
+    _current_run_used.clear()
+    _load_persistent_cache()  # Load cache from disk
+    logger.debug("🔄 Current run usage tracker cleared, persistent cache loaded")
+
 def get_image_url(keyword: str, source: str = "generative", is_logo: bool = False) -> str:
     """
     Generate an image URL for a keyword using generative models.
     
-    NO CACHING: Every call generates a fresh image, even for the same keyword.
+    CACHING BEHAVIOR:
+    - Same keyword in SAME pipeline run → generates DIFFERENT images (no reuse within run)
+    - Same keyword in DIFFERENT pipeline runs → can reuse images from persistent cache
     
     Args:
         keyword: Image topic/keyword (e.g., "security", "warning", "analytics")
@@ -45,17 +104,45 @@ def get_image_url(keyword: str, source: str = "generative", is_logo: bool = Fals
         logger.error("❌ Empty keyword provided for image generation")
         raise ValueError("Empty keyword provided for image generation")
     
-    keyword = keyword.strip().lower()
+    keyword_normalized = keyword.strip().lower()
+    cache_key_tuple = (keyword_normalized, source, is_logo)
+    cache_key_str = f"{keyword_normalized}_{source}_{is_logo}"
     
-    # Generate new image (no caching - always fresh)
+    # Check persistent cache for unused images from previous runs
+    if cache_key_str in _persistent_cache:
+        cached_images = _persistent_cache[cache_key_str]
+        used_indices = _current_run_used.get(cache_key_tuple, set())
+        
+        # Find first unused image from cache
+        for idx, cached_url in enumerate(cached_images):
+            if idx not in used_indices:
+                # Mark as used in this run
+                if cache_key_tuple not in _current_run_used:
+                    _current_run_used[cache_key_tuple] = set()
+                _current_run_used[cache_key_tuple].add(idx)
+                logger.debug(f"✅ Reusing cached image {idx+1}/{len(cached_images)} for keyword: '{keyword}' (from previous run)")
+                return cached_url
+    
+    # No unused cached image found - generate new one
     if IMAGE_GENERATION_AVAILABLE and generate_image:
         try:
-            # Set output directory for saving generated images (for debugging, but not used for cache)
+            # Set output directory for saving generated images (for debugging)
             cache_dir = Path("presentation_agent/output/generated_images")
-            logger.info(f"🔄 Generating fresh image for keyword: '{keyword}' (source: {source}, is_logo: {is_logo})")
-            image_url = generate_image(keyword, source=source, output_dir=cache_dir, is_logo=is_logo)
+            logger.info(f"🔄 Generating new image for keyword: '{keyword}' (source: {source}, is_logo: {is_logo})")
+            image_url = generate_image(keyword_normalized, source=source, output_dir=cache_dir, is_logo=is_logo)
             if image_url:
-                logger.info(f"✅ Successfully generated image for '{keyword}': {image_url[:100]}...")
+                # Add to persistent cache for future runs
+                if cache_key_str not in _persistent_cache:
+                    _persistent_cache[cache_key_str] = []
+                _persistent_cache[cache_key_str].append(image_url)
+                _save_persistent_cache()  # Save to disk
+                
+                # Mark as used in this run (so if same keyword appears again, we generate another)
+                if cache_key_tuple not in _current_run_used:
+                    _current_run_used[cache_key_tuple] = set()
+                _current_run_used[cache_key_tuple].add(len(_persistent_cache[cache_key_str]) - 1)
+                
+                logger.info(f"✅ Successfully generated and cached image for '{keyword}': {image_url[:100]}...")
                 return image_url
             else:
                 logger.error(f"❌ Image generation returned None for keyword: '{keyword}'")
@@ -164,31 +251,75 @@ def generate_images_parallel(
         logger.info(f"🔄 Generating {len(keywords_to_generate_with_index)} images in parallel (no deduplication - each occurrence gets separate image, max_workers={max_workers})")
     
     if allow_deduplication:
-        # Deduplication path: generate unique keywords only, but NO caching
+        # Deduplication path: generate unique keywords only, using persistent cache
         results: Dict[str, str] = {}  # Maps normalized keyword to image URL
         errors: Dict[str, Exception] = {}
         
-        # Generate all unique keywords in parallel (no cache - always fresh)
-        from presentation_agent.agents.tools.image_generator_tool import generate_image
-        cache_dir = Path("presentation_agent/output/generated_images")
-        
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Generate all keywords in parallel (bypass cache - always fresh)
-            future_to_keyword = {
-                executor.submit(generate_image, kw, source, cache_dir, is_logo): kw
-                for kw in keywords_to_generate
-            }
+        # Check persistent cache for unused images from previous runs
+        keywords_to_generate_uncached = []
+        for kw in keywords_to_generate:
+            cache_key_tuple = (kw.lower(), source, is_logo)
+            cache_key_str = f"{kw.lower()}_{source}_{is_logo}"
             
-            # Collect results as they complete
-            for future in as_completed(future_to_keyword):
-                keyword = future_to_keyword[future]
-                try:
-                    image_url = future.result()
-                    results[keyword] = image_url
-                    logger.debug(f"✅ Generated image for '{keyword}'")
-                except Exception as e:
-                    logger.error(f"❌ Failed to generate image for '{keyword}': {e}")
-                    errors[keyword] = e
+            # Check if we have unused cached images
+            if cache_key_str in _persistent_cache:
+                cached_images = _persistent_cache[cache_key_str]
+                used_indices = _current_run_used.get(cache_key_tuple, set())
+                
+                # Find first unused image
+                for idx, cached_url in enumerate(cached_images):
+                    if idx not in used_indices:
+                        # Mark as used
+                        if cache_key_tuple not in _current_run_used:
+                            _current_run_used[cache_key_tuple] = set()
+                        _current_run_used[cache_key_tuple].add(idx)
+                        results[kw] = cached_url
+                        logger.debug(f"✅ Reusing cached image {idx+1}/{len(cached_images)} for '{kw}' (from previous run)")
+                        break
+                else:
+                    # All cached images used, need to generate new
+                    keywords_to_generate_uncached.append(kw)
+            else:
+                # No cache for this keyword, generate new
+                keywords_to_generate_uncached.append(kw)
+        
+        # Generate only uncached keywords in parallel
+        if keywords_to_generate_uncached:
+            from presentation_agent.agents.tools.image_generator_tool import generate_image
+            cache_dir = Path("presentation_agent/output/generated_images")
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Generate uncached keywords in parallel
+                future_to_keyword = {
+                    executor.submit(generate_image, kw, source, cache_dir, is_logo): kw
+                    for kw in keywords_to_generate_uncached
+                }
+                
+                # Collect results as they complete and save to persistent cache
+                for future in as_completed(future_to_keyword):
+                    keyword = future_to_keyword[future]
+                    try:
+                        image_url = future.result()
+                        # Add to persistent cache
+                        cache_key_str = f"{keyword.lower()}_{source}_{is_logo}"
+                        if cache_key_str not in _persistent_cache:
+                            _persistent_cache[cache_key_str] = []
+                        _persistent_cache[cache_key_str].append(image_url)
+                        
+                        # Mark as used in this run
+                        cache_key_tuple = (keyword.lower(), source, is_logo)
+                        if cache_key_tuple not in _current_run_used:
+                            _current_run_used[cache_key_tuple] = set()
+                        _current_run_used[cache_key_tuple].add(len(_persistent_cache[cache_key_str]) - 1)
+                        
+                        results[keyword] = image_url
+                        logger.debug(f"✅ Generated and cached image for '{keyword}'")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to generate image for '{keyword}': {e}")
+                        errors[keyword] = e
+            
+            # Save persistent cache after all generations complete
+            _save_persistent_cache()
         
         # Map all keywords (including duplicates) to results
         final_results: Dict[str, str] = {}
@@ -205,30 +336,76 @@ def generate_images_parallel(
                 logger.warning(f"⚠️ Keyword '{kw_norm}' not found in results (should not happen)")
     else:
         # No deduplication path: generate separate images for each occurrence
+        # Same keyword in same run = different images (check persistent cache for unused, then generate new)
         results: Dict[tuple, str] = {}  # Maps (index, keyword) tuple to image URL
         errors: Dict[tuple, Exception] = {}
         
-        # Generate all keywords in parallel (bypass cache to ensure separate images)
-        from presentation_agent.agents.tools.image_generator_tool import generate_image
-        cache_dir = Path("presentation_agent/output/generated_images")
-        
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks - each occurrence gets its own task
-            future_to_keyword = {
-                executor.submit(generate_image, kw_orig, source, cache_dir, is_logo): (idx, kw_orig)
-                for idx, kw_orig in keywords_to_generate_with_index
-            }
+        # Check persistent cache for unused images, but each occurrence needs different image
+        keywords_to_generate_uncached = []
+        for idx, kw_orig in keywords_to_generate_with_index:
+            cache_key_tuple = (kw_orig.lower(), source, is_logo)
+            cache_key_str = f"{kw_orig.lower()}_{source}_{is_logo}"
             
-            # Collect results as they complete
-            for future in as_completed(future_to_keyword):
-                keyword_tuple = future_to_keyword[future]
-                try:
-                    image_url = future.result()
-                    results[keyword_tuple] = image_url
-                    logger.debug(f"✅ Generated separate image for '{keyword_tuple[1]}' (occurrence {keyword_tuple[0]})")
-                except Exception as e:
-                    logger.error(f"❌ Failed to generate image for '{keyword_tuple[1]}': {e}")
-                    errors[keyword_tuple] = e
+            # Check if we have unused cached images from previous runs
+            if cache_key_str in _persistent_cache:
+                cached_images = _persistent_cache[cache_key_str]
+                used_indices = _current_run_used.get(cache_key_tuple, set())
+                
+                # Find first unused image
+                for cached_idx, cached_url in enumerate(cached_images):
+                    if cached_idx not in used_indices:
+                        # Mark as used
+                        if cache_key_tuple not in _current_run_used:
+                            _current_run_used[cache_key_tuple] = set()
+                        _current_run_used[cache_key_tuple].add(cached_idx)
+                        results[(idx, kw_orig)] = cached_url
+                        logger.debug(f"✅ Reusing cached image {cached_idx+1}/{len(cached_images)} for '{kw_orig}' (occurrence {idx}, from previous run)")
+                        break
+                else:
+                    # All cached images used, need to generate new
+                    keywords_to_generate_uncached.append((idx, kw_orig))
+            else:
+                # No cache for this keyword, generate new
+                keywords_to_generate_uncached.append((idx, kw_orig))
+        
+        # Generate only uncached keywords in parallel
+        if keywords_to_generate_uncached:
+            from presentation_agent.agents.tools.image_generator_tool import generate_image
+            cache_dir = Path("presentation_agent/output/generated_images")
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit tasks for uncached keywords
+                future_to_keyword = {
+                    executor.submit(generate_image, kw_orig, source, cache_dir, is_logo): (idx, kw_orig)
+                    for idx, kw_orig in keywords_to_generate_uncached
+                }
+                
+                # Collect results as they complete and save to persistent cache
+                for future in as_completed(future_to_keyword):
+                    keyword_tuple = future_to_keyword[future]
+                    idx, kw_orig = keyword_tuple
+                    try:
+                        image_url = future.result()
+                        # Add to persistent cache
+                        cache_key_str = f"{kw_orig.lower()}_{source}_{is_logo}"
+                        if cache_key_str not in _persistent_cache:
+                            _persistent_cache[cache_key_str] = []
+                        _persistent_cache[cache_key_str].append(image_url)
+                        
+                        # Mark as used in this run
+                        cache_key_tuple = (kw_orig.lower(), source, is_logo)
+                        if cache_key_tuple not in _current_run_used:
+                            _current_run_used[cache_key_tuple] = set()
+                        _current_run_used[cache_key_tuple].add(len(_persistent_cache[cache_key_str]) - 1)
+                        
+                        results[keyword_tuple] = image_url
+                        logger.debug(f"✅ Generated and cached image for '{kw_orig}' (occurrence {idx})")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to generate image for '{kw_orig}': {e}")
+                        errors[keyword_tuple] = e
+            
+            # Save persistent cache after all generations complete
+            _save_persistent_cache()
         
         # Map results back to original keywords from input list
         # Use index to map back to the original keyword at that position
