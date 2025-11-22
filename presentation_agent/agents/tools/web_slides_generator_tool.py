@@ -836,94 +836,99 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         icons_html += '</div>'
     
     # Generate images HTML from image_keywords, icons_suggested, or figures
+    # OPTIMIZATION: Collect all keywords first, then generate in parallel
     images_html = ""
     image_keywords = visual_elements.get("image_keywords", [])  # List of keywords for images
     icons_suggested = visual_elements.get("icons_suggested", [])  # Suggested icon keywords
     figures = visual_elements.get("figures", [])  # Figure IDs or dicts with image_url
     
-    # Track used image URLs to avoid duplicates
-    from presentation_agent.templates.image_helper import get_image_url
-    used_image_urls = set()
+    # Collect all keywords and metadata for parallel generation
+    from presentation_agent.templates.image_helper import generate_images_parallel
+    keywords_to_generate = []  # List of (keyword, alt_text, priority) tuples
     image_items = []  # List of (url, alt_text) tuples
     
     # Priority 1: Use image_keywords if provided (explicit image keywords)
     if image_keywords:
         for keyword in image_keywords:
-            # No limit on number of images - process all keywords
-            try:
-                image_url = get_image_url(keyword, source="generative")
-                if image_url and image_url not in used_image_urls:
-                    used_image_urls.add(image_url)
-                    image_items.append((image_url, keyword))
-            except Exception as e:
-                logger.error(f"❌ Failed to generate image for keyword '{keyword}': {e}")
-                import traceback
-                logger.error(f"   Full traceback: {traceback.format_exc()}")
-                # Continue to next keyword instead of crashing
-                continue
+            if keyword and keyword.strip():
+                keywords_to_generate.append((keyword.strip(), keyword, 1))
     
     # Priority 2: Use icons_suggested if no image_keywords (agent suggested icons)
     elif icons_suggested:
         for keyword in icons_suggested:
-            # No limit on number of images - process all keywords
-            try:
-                image_url = get_image_url(keyword, source="generative")
-                if image_url and image_url not in used_image_urls:
-                    used_image_urls.add(image_url)
-                    image_items.append((image_url, keyword))
-            except Exception as e:
-                logger.error(f"❌ Failed to generate image for keyword '{keyword}': {e}")
-                import traceback
-                logger.error(f"   Full traceback: {traceback.format_exc()}")
-                # Continue to next keyword instead of crashing
-                continue
+            if keyword and keyword.strip():
+                keywords_to_generate.append((keyword.strip(), keyword, 2))
     
     # Priority 3: Process figures - check for image_keyword or image_url
-    if figures and not image_items:
+    if figures and not keywords_to_generate:
         for fig in figures:
-            # No limit on number of images - process all figures
             if isinstance(fig, dict):
                 # Check for image_keyword first (generate image from keyword)
                 image_keyword = fig.get("image_keyword")
-                if image_keyword:
-                    try:
-                        image_url = get_image_url(image_keyword, source="generative")
-                        if image_url and image_url not in used_image_urls:
-                            used_image_urls.add(image_url)
-                            alt_text = fig.get("caption") or fig.get("alt_text") or image_keyword
-                            image_items.append((image_url, alt_text))
-                    except Exception as e:
-                        logger.error(f"❌ Failed to generate image for keyword '{image_keyword}': {e}")
-                        import traceback
-                        logger.error(f"   Full traceback: {traceback.format_exc()}")
-                        # Continue to next figure instead of crashing
-                        continue
-                # Otherwise check for image_url (use directly)
+                if image_keyword and image_keyword.strip():
+                    alt_text = fig.get("caption") or fig.get("alt_text") or image_keyword
+                    keywords_to_generate.append((image_keyword.strip(), alt_text, 3))
+                # Otherwise check for image_url (use directly, no generation needed)
                 elif fig.get("image_url"):
                     image_url = fig.get("image_url")
-                    if image_url and image_url not in used_image_urls:
-                        used_image_urls.add(image_url)
-                        alt_text = fig.get("caption") or fig.get("alt_text", "Image")
-                        image_items.append((image_url, alt_text))
+                    alt_text = fig.get("caption") or fig.get("alt_text", "Image")
+                    image_items.append((image_url, alt_text))
             # Skip string figure IDs (like "fig1", "table1") - they're report references, not image keywords
     
-    # Fallback: If still no images and icons_suggested exists, use them
-    if not image_items and icons_suggested:
+    # Fallback: If still no keywords and icons_suggested exists, use them
+    if not keywords_to_generate and not image_items and icons_suggested:
         for keyword in icons_suggested:
-            # No limit on number of images - process all keywords
-            try:
-                image_url = get_image_url(keyword, source="generative")
-                if image_url and image_url not in used_image_urls:
-                    used_image_urls.add(image_url)
-                    image_items.append((image_url, keyword))
-            except Exception as e:
-                logger.error(f"❌ Failed to generate image for keyword '{keyword}': {e}")
-                import traceback
-                logger.error(f"   Full traceback: {traceback.format_exc()}")
-                # Continue to next keyword instead of crashing
-                continue
+            if keyword and keyword.strip():
+                keywords_to_generate.append((keyword.strip(), keyword, 4))
     
-    # Generate HTML from collected image items (no duplicates)
+    # Generate all images in parallel (if we have keywords to generate)
+    if keywords_to_generate:
+        # Extract just the keywords for parallel generation
+        keywords_list = [kw for kw, _, _ in keywords_to_generate]
+        
+        # Generate all images in parallel (concurrent API calls)
+        # allow_deduplication=False: Generate separate images for duplicate keywords on same slide
+        try:
+            logger.info(f"🔄 Generating {len(keywords_list)} images in parallel for slide {slide_index + 1} (no deduplication - each keyword gets separate image)")
+            image_results = generate_images_parallel(
+                keywords_list, 
+                source="generative", 
+                is_logo=False, 
+                max_workers=5,
+                allow_deduplication=False  # Generate separate images for duplicates on same slide
+            )
+            
+            # Map results back to keywords with their metadata
+            # Iterate through keywords_list in order to preserve order and handle duplicates
+            for i, (keyword, alt_text, priority) in enumerate(keywords_to_generate):
+                # Use the keyword from keywords_list (same order) to look up result
+                # This ensures each occurrence gets its own image, even if keyword is duplicate
+                lookup_keyword = keywords_list[i] if i < len(keywords_list) else keyword
+                if lookup_keyword in image_results:
+                    image_url = image_results[lookup_keyword]
+                    # Each keyword occurrence gets its own image (even duplicates)
+                    image_items.append((image_url, alt_text))
+                else:
+                    logger.warning(f"⚠️ Image generation result not found for keyword '{keyword}' (index {i})")
+        except Exception as e:
+            logger.error(f"❌ Parallel image generation failed: {e}")
+            import traceback
+            logger.error(f"   Full traceback: {traceback.format_exc()}")
+            # Fallback: Try sequential generation for remaining keywords
+            logger.info("🔄 Falling back to sequential generation")
+            from presentation_agent.templates.image_helper import get_image_url
+            for keyword, alt_text, priority in keywords_to_generate:
+                try:
+                    # Bypass cache for same-slide duplicates by calling generate_image directly
+                    from presentation_agent.agents.tools.image_generator_tool import generate_image
+                    cache_dir = Path("presentation_agent/output/generated_images")
+                    image_url = generate_image(keyword, source="generative", output_dir=cache_dir, is_logo=False)
+                    image_items.append((image_url, alt_text))
+                except Exception as e2:
+                    logger.error(f"❌ Failed to generate image for keyword '{keyword}': {e2}")
+                    continue
+    
+    # Generate HTML from collected image items
     if image_items:
         images_html = '<div class="slide-images">'
         for image_url, alt_text in image_items:
