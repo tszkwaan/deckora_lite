@@ -15,7 +15,11 @@ CRITICAL: YOU MUST ALWAYS RETURN VALID JSON
 - If you encounter missing data, still generate slides but adapt (e.g., set charts_needed: false if data is unavailable)
 - Extract quantitative data from text descriptions if exact table data is not available
 - Your response will be parsed as JSON - any non-JSON response will cause the pipeline to fail
-- **AFTER calling tools (like generate_chart_tool), you MUST return JSON, not tool code or function calls**
+- **IMPORTANT: You should NOT call any tools to generate slides or scripts - you generate them directly in your JSON response**
+- **The ONLY tool you may call is `generate_chart_tool` (and ONLY when charts_needed: true)**
+- **DO NOT call any tool named "generate_slide_and_script" or similar - such tools do NOT exist**
+- **You generate slides and scripts by directly writing JSON - there is no tool for this**
+- **AFTER calling generate_chart_tool (if needed), you MUST return JSON, not tool code or function calls**
 
 ---
 OBJECTIVES
@@ -135,7 +139,7 @@ Respond with only valid JSON in the following structure:
           "icons_suggested": ["<icon_type1>", "<icon_type2>"]
         },
         "design_spec": {
-          "layout_type": "<cover-slide | content-text | content-with-chart | comparison-grid | data-table | timeline | null>",
+          "layout_type": "<cover-slide | content-text | content-with-chart | comparison-grid | data-table | timeline | flowchart | null>",
           "title_font_size": <number in PT, typically 36-48 for title slides, 28-36 for regular slides>,
           "subtitle_font_size": <number in PT, typically 20-28, must be smaller than title_font_size>,
           "body_font_size": <number in PT, typically 14-18 for body text>,
@@ -215,16 +219,25 @@ CRITICAL REQUIREMENTS
    - Ensure content depth matches audience level from report_knowledge
    - Include speaker notes that provide context not on slides
    - **IMPORTANT: For academic settings (scenario == "academic_teaching" or "academic_student_presentation"), it is critical to present experiment results in numbers. Include specific metrics, percentages, accuracy scores, performance improvements, and other quantitative data from the report when generating slides about experimental results.**
-   - **Layout Type Selection:**
+   - **Layout Type Selection (CRITICAL - Follow Outline Suggestions):**
+     * **MANDATORY RULE:** Check each slide's `content_notes` in presentation_outline. If it mentions:
+       - "flowchart" → You MUST set `layout_type: "flowchart"` and provide `visual_elements.flowchart_steps`
+       - "comparison grid" or "comparison" → You MUST set `layout_type: "comparison-grid"` and provide `visual_elements.sections`
+       - "table" → You MUST set `layout_type: "data-table"` and provide `visual_elements.table_data`
+       - "timeline" → You MUST set `layout_type: "timeline"` and provide `visual_elements.timeline_items`
+     * **Example:** If outline says "Use a flowchart to visualize the process" → Use `layout_type: "flowchart"` with `flowchart_steps: [{"label": "Step 1", "description": "..."}, ...]`
+     * **Example:** If outline says "A comparison grid or table is ideal" → Use `layout_type: "comparison-grid"` or `"data-table"` with appropriate data
      * Select appropriate `layout_type` in `design_spec` based on content:
-       - Use `"comparison-grid"` when comparing 2-4 items/concepts (e.g., models, methods, scenarios)
-       - Use `"data-table"` when displaying structured tabular data (e.g., results table, metrics comparison)
-       - Use `"timeline"` when showing progression, steps, or chronological flow
-       - Use `"content-with-chart"` when you have both text content and a chart
+       - Use `"comparison-grid"` when comparing 2-4 items/concepts (e.g., models, methods, scenarios) OR when outline suggests "comparison grid"
+       - Use `"data-table"` when displaying structured tabular data (e.g., results table, metrics comparison) OR when outline suggests "table"
+       - Use `"flowchart"` when showing a process flow OR when outline suggests "flowchart" (provide `visual_elements.flowchart_steps` array)
+       - Use `"timeline"` when showing progression, steps, or chronological flow OR when outline suggests "timeline"
+       - Use `"content-with-chart"` when you have both text content and a chart (but prefer `data-table` if data is tabular)
        - Use `"content-text"` for standard text-only slides
-     * For `comparison-grid`: Provide `visual_elements.sections` array with 2-4 section objects: `[{"title": "...", "content": "...", "icon": "..."}, ...]`
-     * For `data-table`: Provide `visual_elements.table_data` object: `{"headers": [{"text": "...", "width": "..."}], "rows": [["...", "..."], ...], "style": "default|striped|bordered|minimal"}`
-     * For `timeline`: Provide `visual_elements.timeline_items` array: `[{"year": "...", "title": "...", "description": "..."}, ...]`
+     * **For `comparison-grid`:** Provide `visual_elements.sections` array with 2-4 section objects: `[{"title": "...", "content": "...", "icon": "..."}, ...]`
+     * **For `data-table`:** Provide `visual_elements.table_data` object: `{"headers": [{"text": "...", "width": "..."}], "rows": [["...", "..."], ...], "style": "default|striped|bordered|minimal"}`
+     * **For `flowchart`:** Provide `visual_elements.flowchart_steps` array: `[{"label": "Step 1", "description": "..."}, {"label": "Step 2", "description": "..."}, ...]` and set `layout_type: "flowchart"`. Also set `visual_elements.flowchart_orientation: "horizontal"` or `"vertical"` (default: "horizontal")
+     * **For `timeline`:** Provide `visual_elements.timeline_items` array: `[{"year": "...", "title": "...", "description": "..."}, ...]`
    - **COVER SLIDE REQUIREMENT (slide_number: 1):**
      * The first slide (slide_number: 1) is a COVER/TITLE slide and MUST follow these strict rules:
      * **MUST have:** A title and a subtitle (subtitle goes in `content.main_text`)
@@ -293,6 +306,7 @@ CRITICAL REQUIREMENTS
      * `"content-with-chart"`: For slides with charts (title + content + chart side-by-side)
      * `"comparison-grid"`: For comparing 2-4 items side-by-side (requires `visual_elements.sections` array with 2-4 section objects)
      * `"data-table"`: For displaying tabular data (requires `visual_elements.table_data` with headers and rows)
+     * `"flowchart"`: For showing a process flow or sequence of steps (requires `visual_elements.flowchart_steps` array OR will be auto-generated from bullet points)
      * `"timeline"`: For showing progression/chronological flow (requires `visual_elements.timeline_items` array)
      * `null` or omit: Default layout (auto-selected based on charts_needed)
    - **Design Specification:** You MUST provide a "design_spec" object for each slide with font sizes, positions, spacing, and alignment.

@@ -64,6 +64,13 @@ class AgentExecutor:
                     if hasattr(event.actions, 'state_delta') and event.actions.state_delta:
                         delta_keys = list(event.actions.state_delta.keys())
                         logger.error(f"   Event {i} state_delta keys: {delta_keys}")
+                # Also check for text content in events
+                if hasattr(event, 'content') and event.content:
+                    if hasattr(event.content, 'parts') and event.content.parts:
+                        for part_idx, part in enumerate(event.content.parts):
+                            if hasattr(part, 'text') and part.text:
+                                text_preview = part.text[:200] if len(part.text) > 200 else part.text
+                                logger.error(f"   Event {i}, part {part_idx} has text (length {len(part.text)}): {text_preview}...")
             raise AgentExecutionError(
                 f"Agent returned no output for key '{output_key}'",
                 agent_name=agent_name,

@@ -904,6 +904,51 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 orientation=visual_elements.get("timeline_orientation", "vertical")
             )
     
+    elif layout_type == "flowchart":
+        flowchart_steps = visual_elements.get("flowchart_steps", [])
+        if not flowchart_steps:
+            # Fallback: Generate flowchart steps from bullet points
+            bullet_points = content.get("bullet_points", [])
+            if bullet_points:
+                flowchart_steps = []
+                for i, point in enumerate(bullet_points, 1):
+                    # Try to extract label and description from bullet point
+                    # Format: "Label: Description" or just use the point as description
+                    if ":" in point:
+                        parts = point.split(":", 1)
+                        label = parts[0].strip()
+                        description = parts[1].strip()
+                    else:
+                        # Use first few words as label, rest as description
+                        words = point.split()
+                        if len(words) > 3:
+                            label = " ".join(words[:2])
+                            description = " ".join(words[2:])
+                        else:
+                            label = f"Step {i}"
+                            description = point
+                    flowchart_steps.append({
+                        "label": label,
+                        "description": description
+                    })
+        
+        if flowchart_steps:
+            flowchart_html = render_flowchart_html(
+                steps=flowchart_steps,
+                theme_colors=theme_colors,
+                orientation=visual_elements.get("flowchart_orientation", "horizontal"),
+                style=visual_elements.get("flowchart_style", "default")
+            )
+            # Embed flowchart in a content slide (don't show bullet points, they're in the flowchart)
+            return f"""
+    <div class="slide-content slide-text-only">
+        <h1 class="slide-title" style="font-size: {title_font_size}pt; text-align: {title_align};">{slide_title}</h1>
+        <div class="slide-body" style="font-size: 16pt; text-align: left;">
+            {flowchart_html}
+        </div>
+    </div>
+"""
+    
     # Default layout (existing behavior)
     has_chart = chart_html != ""
     layout_class = "slide-with-chart" if charts_needed else "slide-text-only"

@@ -40,17 +40,20 @@ def render_comparison_section_html(section_data: Dict, theme_colors: Optional[Di
     elif section_data.get('icon'):
         icon_html = f'<div class="section-icon-placeholder">{section_data["icon"]}</div>'
     
-    # Add icon_html to section_data
-    section_data['icon_html'] = icon_html
-    
     # Handle highlight class
-    if section_data.get('highlight'):
-        section_data['highlight'] = 'highlighted'
-    else:
-        section_data['highlight'] = ''
+    highlight_class = 'highlighted' if section_data.get('highlight') else ''
+    
+    # Prepare variables for template (don't modify original dict)
+    template_vars = {
+        'title': section_data.get('title', ''),
+        'content': section_data.get('content', ''),
+        'background_color': section_data.get('background_color', 'transparent'),
+        'icon_html': icon_html,
+        'highlight': highlight_class
+    }
     
     # Render the component
-    return render_component('comparison-section', section_data, theme_colors)
+    return render_component('comparison-section', template_vars, theme_colors)
 
 
 def render_comparison_grid_html(
@@ -193,7 +196,7 @@ def render_flowchart_html(
             steps_html += '<div class="flow-arrow"></div>'
     
     variables = {
-        'steps': steps_html,
+        'steps_html': steps_html,  # Template expects 'steps_html', not 'steps'
         'orientation': orientation,
         'style': style
     }
