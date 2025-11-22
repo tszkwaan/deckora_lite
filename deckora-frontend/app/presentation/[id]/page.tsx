@@ -1,8 +1,78 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import type { SlidesData, SlideData } from '@/types/slides';
+
+// Component to render slide HTML and fix layout for charts if needed
+function SlideContent({ 
+  html, 
+  chartsNeeded 
+}: { 
+  html: string; 
+  chartsNeeded?: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    // Set the HTML content
+    containerRef.current.innerHTML = html;
+
+    // If chart is needed but layout is wrong, fix it: title on top, content and chart side by side
+    if (chartsNeeded) {
+      const slideContent = containerRef.current.querySelector('.slide-content');
+      if (slideContent) {
+        const slideTitle = slideContent.querySelector('.slide-title');
+        const slideBody = slideContent.querySelector('.slide-body');
+        const chartContainer = slideContent.querySelector('.chart-container');
+        
+        // Check if layout needs fixing (title should be on top, body and chart side by side)
+        if (slideTitle && slideBody && chartContainer) {
+          // Check if body and chart are direct children (wrong layout)
+          const bodyIndex = Array.from(slideContent.children).indexOf(slideBody);
+          const chartIndex = Array.from(slideContent.children).indexOf(chartContainer);
+          const titleIndex = Array.from(slideContent.children).indexOf(slideTitle);
+          
+          // If title is not first, or body/chart are not in a wrapper, restructure
+          if (titleIndex !== 0 || (bodyIndex > 0 && chartIndex > 0 && Math.abs(bodyIndex - chartIndex) > 1)) {
+            // Create wrapper for body and chart
+            const contentWrapper = document.createElement('div');
+            contentWrapper.className = 'slide-content-wrapper';
+            contentWrapper.style.display = 'grid';
+            contentWrapper.style.gridTemplateColumns = '1fr 1fr';
+            contentWrapper.style.gap = '40px';
+            contentWrapper.style.alignItems = 'center';
+            
+            // Move body and chart into wrapper
+            const bodyClone = slideBody.cloneNode(true) as HTMLElement;
+            const chartClone = chartContainer.cloneNode(true) as HTMLElement;
+            contentWrapper.appendChild(bodyClone);
+            contentWrapper.appendChild(chartClone);
+            
+            // Remove originals
+            slideBody.remove();
+            chartContainer.remove();
+            
+            // Insert wrapper after title
+            if (slideTitle.nextSibling) {
+              slideTitle.parentElement?.insertBefore(contentWrapper, slideTitle.nextSibling);
+            } else {
+              slideTitle.parentElement?.appendChild(contentWrapper);
+            }
+            
+            // Update layout class
+            slideContent.classList.remove('slide-text-only');
+            slideContent.classList.add('slide-with-chart');
+          }
+        }
+      }
+    }
+  }, [html, chartsNeeded]);
+
+  return <div ref={containerRef} className="w-full h-full" />;
+}
 
 export default function PresentationViewPage() {
   const params = useParams();
@@ -227,10 +297,12 @@ export default function PresentationViewPage() {
               <div className="flex flex-shrink-0 items-center justify-center pb-32">
                 <div className="aspect-[16/9] w-full max-w-6xl rounded-xl bg-white shadow-xl p-8 overflow-hidden">
                   {/* Render current slide HTML */}
-                  <div
-                    className="w-full h-full overflow-auto"
-                    dangerouslySetInnerHTML={{ __html: currentSlide.html }}
-                  />
+                  <div className="w-full h-full overflow-auto">
+                    <SlideContent 
+                      html={currentSlide.html} 
+                      chartsNeeded={currentSlide.charts_needed}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
