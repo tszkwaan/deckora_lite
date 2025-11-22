@@ -583,6 +583,9 @@ DO NOT ask for clarification - just generate the keywords automatically and dist
                 available_keys=list(slide_and_script.keys())
             )
         
+        # Recalculate estimated_time based on word count (estimated_seconds = total_words / 2)
+        presentation_script = self._recalculate_speech_timing(presentation_script)
+        
         # Store outputs
         self.outputs["slide_deck"] = slide_deck
         self.session.state["slide_deck"] = slide_deck
@@ -595,6 +598,68 @@ DO NOT ask for clarification - just generate the keywords automatically and dist
             print(f"✅ Slide deck and script saved")
         
         self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
+    
+    def _recalculate_speech_timing(self, presentation_script: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Recalculate estimated_time based on word count.
+        Formula: estimated_seconds = total_words / 2
+        
+        Args:
+            presentation_script: The presentation script dictionary
+            
+        Returns:
+            Updated presentation_script with recalculated estimated_time values
+        """
+        if not presentation_script or not isinstance(presentation_script, dict):
+            return presentation_script
+        
+        script_sections = presentation_script.get("script_sections", [])
+        total_estimated_time = 0
+        
+        for section in script_sections:
+            if not isinstance(section, dict):
+                continue
+            
+            # Count words in opening_line if present and store the time
+            opening_line = section.get("opening_line", "")
+            if opening_line:
+                opening_words = len(opening_line.split())
+                # Calculate opening_line time: total_words / 2
+                opening_time = round(opening_words / 2)
+                opening_time = max(1, opening_time)
+                # Store opening_line_time in the section for frontend use
+                section["opening_line_time"] = opening_time
+                total_estimated_time += opening_time
+            
+            # Recalculate estimated_time for each point in main_content
+            main_content = section.get("main_content", [])
+            for point in main_content:
+                if not isinstance(point, dict):
+                    continue
+                
+                explanation = point.get("explanation", "")
+                if explanation:
+                    # Count words in explanation
+                    word_count = len(explanation.split())
+                    # Calculate estimated_time: total_words / 2
+                    estimated_time = word_count / 2
+                    # Round to nearest integer
+                    estimated_time = round(estimated_time)
+                    # Ensure minimum of 1 second
+                    estimated_time = max(1, estimated_time)
+                    
+                    point["estimated_time"] = estimated_time
+                    total_estimated_time += estimated_time
+        
+        # Update total_estimated_time in script_metadata
+        if "script_metadata" in presentation_script:
+            script_metadata = presentation_script["script_metadata"]
+            if isinstance(script_metadata, dict):
+                script_metadata["total_estimated_time"] = f"{total_estimated_time} seconds"
+        
+        logger.info(f"✅ Recalculated speech timing: total_estimated_time = {total_estimated_time} seconds")
+        
+        return presentation_script
     
     async def _step_chart_generation(self):
         """Step 3.5: Chart Generation."""

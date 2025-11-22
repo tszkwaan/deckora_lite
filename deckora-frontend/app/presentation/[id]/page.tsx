@@ -280,7 +280,9 @@ export default function PresentationViewPage() {
 
     if (script.opening_line) {
       transcript += `<p><span class="font-bold text-primary">${formatTranscriptTime(timeOffset)}</span> ${script.opening_line}</p>`;
-      timeOffset += 5; // Estimate 5 seconds for opening
+      // Use calculated opening_line_time if available, otherwise calculate from word count
+      const openingTime = (script as any).opening_line_time || Math.max(1, Math.round(script.opening_line.split(' ').length / 2));
+      timeOffset += openingTime;
     }
 
     script.main_content.forEach((point) => {
@@ -406,7 +408,8 @@ export default function PresentationViewPage() {
           {/* Main Content Area */}
           <div className="relative flex flex-1 flex-col overflow-hidden min-h-0">
             <div className="flex flex-1 items-center justify-center p-4 sm:p-8 min-h-0 overflow-hidden">
-              <div className="w-full max-w-[95vw] rounded-xl bg-white shadow-xl p-4 overflow-hidden" style={{ aspectRatio: '16/9', maxHeight: '100%' }}>
+              {/* Slide container - responsive like Google Slides, maintains 16:9 aspect ratio, fits within red box */}
+              <div className="aspect-video rounded-xl bg-white shadow-xl overflow-hidden" style={{ maxWidth: '1200px', maxHeight: '100%', width: '100%', height: 'auto' }}>
                 {/* Render current slide HTML */}
                 <div className="w-full h-full overflow-hidden">
                   <SlideContent 
