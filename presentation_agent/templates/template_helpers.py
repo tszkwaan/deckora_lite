@@ -6,6 +6,7 @@ These handle conditional rendering, arrays, and nested components.
 import logging
 from typing import Dict, Any, List, Optional
 from .template_loader import render_component, render_template
+from .image_helper import get_image_url
 
 logger = logging.getLogger(__name__)
 
@@ -24,20 +25,33 @@ logger = logging.getLogger(__name__)
 
 def render_comparison_section_html(section_data: Dict, theme_colors: Optional[Dict] = None) -> str:
     """
-    Render a comparison section with proper icon handling.
+    Render a comparison section with proper image handling.
     
     Args:
-        section_data: Dict with title, content, icon, icon_url, etc.
+        section_data: Dict with title, content, image, image_url, image_keyword, etc.
         theme_colors: Optional theme colors
         
     Returns:
         Rendered HTML string
     """
-    # Build icon_html
+    # Build icon_html (now supports image/image_url/image_keyword)
     icon_html = ""
-    if section_data.get('icon_url'):
+    if section_data.get('image_url'):
+        icon_html = f'<img src="{section_data["image_url"]}" class="section-icon" alt="{section_data.get("title", "")}" />'
+    elif section_data.get('image_keyword'):
+        # Generate image using generative model based on keyword
+        image_url = get_image_url(section_data['image_keyword'], source="generative")
+        icon_html = f'<img src="{image_url}" class="section-icon" alt="{section_data.get("title", "")}" />'
+    elif section_data.get('image'):
+        # Legacy support: if image is a URL, use it; otherwise treat as keyword
+        if section_data['image'].startswith('http'):
+            icon_html = f'<img src="{section_data["image"]}" class="section-icon" alt="{section_data.get("title", "")}" />'
+        else:
+            image_url = get_image_url(section_data['image'], source="generative")
+            icon_html = f'<img src="{image_url}" class="section-icon" alt="{section_data.get("title", "")}" />'
+    elif section_data.get('icon_url'):  # Legacy support
         icon_html = f'<img src="{section_data["icon_url"]}" class="section-icon" alt="{section_data.get("icon", "")}" />'
-    elif section_data.get('icon'):
+    elif section_data.get('icon'):  # Legacy support for emojis
         icon_html = f'<div class="section-icon-placeholder">{section_data["icon"]}</div>'
     
     # Handle highlight class
@@ -318,8 +332,11 @@ def render_icon_feature_card_html(
     title: str,
     description: str,
     theme_colors: Optional[Dict] = None,
-    icon: Optional[str] = None,
-    icon_url: Optional[str] = None,
+    image: Optional[str] = None,
+    image_url: Optional[str] = None,
+    image_keyword: Optional[str] = None,
+    icon: Optional[str] = None,  # Legacy support
+    icon_url: Optional[str] = None,  # Legacy support
     highlight: Optional[str] = None
 ) -> str:
     """
@@ -329,18 +346,34 @@ def render_icon_feature_card_html(
         title: Feature title
         description: Feature description
         theme_colors: Optional theme colors
-        icon: Icon name/emoji
-        icon_url: Icon image URL
+        image: Image keyword or URL (preferred)
+        image_url: Direct image URL
+        image_keyword: Keyword to search for image (fetches from Storyset/Unsplash)
+        icon: Icon name/emoji (legacy - use image/image_keyword instead)
+        icon_url: Icon image URL (legacy - use image_url instead)
         highlight: Optional highlight text (e.g., "30%", "3x")
         
     Returns:
         Rendered HTML string
     """
-    # Build icon_html
+    # Build icon_html (prioritize image/image_url/image_keyword over legacy icon/icon_url)
     icon_html = ""
-    if icon_url:
-        icon_html = f'<img src="{icon_url}" class="feature-icon" alt="{icon or ""}" />'
-    elif icon:
+    if image_url:
+        icon_html = f'<img src="{image_url}" class="feature-icon" alt="{title}" />'
+    elif image_keyword:
+        # Fetch image from Storyset/Unsplash based on keyword
+        image_url = get_image_url(image_keyword, source="generative")
+        icon_html = f'<img src="{image_url}" class="feature-icon" alt="{title}" />'
+    elif image:
+        # If image is a URL, use it; otherwise treat as keyword
+        if image.startswith('http'):
+            icon_html = f'<img src="{image}" class="feature-icon" alt="{title}" />'
+        else:
+            image_url = get_image_url(image, source="generative")
+            icon_html = f'<img src="{image_url}" class="feature-icon" alt="{title}" />'
+    elif icon_url:  # Legacy support
+        icon_html = f'<img src="{icon_url}" class="feature-icon" alt="{icon or title}" />'
+    elif icon:  # Legacy support for emojis
         icon_html = f'<div class="feature-icon-placeholder">{icon}</div>'
     
     # Build highlight_html

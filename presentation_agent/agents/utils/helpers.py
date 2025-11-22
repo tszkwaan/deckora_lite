@@ -78,6 +78,20 @@ def extract_output_from_events(events: list, output_key: str) -> Optional[Any]:
                 if output_key in delta_keys:
                     raw = event.actions.state_delta.get(output_key, None)
                     logger.info(f"✅ Found '{output_key}' in state_delta of Event {len(events)-1-i} ({agent_name})")
+                    # Log the raw value type and structure for slide_and_script
+                    if output_key == "slide_and_script" and raw is not None:
+                        logger.info(f"   Raw value type: {type(raw).__name__}")
+                        if isinstance(raw, dict):
+                            logger.info(f"   Raw value keys: {list(raw.keys())}")
+                            # Check structure immediately
+                            if "slide_deck" not in raw and "presentation_script" not in raw:
+                                single_slide_keys = {'slide_number', 'title', 'content', 'visual_elements', 'design_spec'}
+                                if single_slide_keys.issubset(set(raw.keys())):
+                                    logger.error(f"   ❌ RAW VALUE IS A SINGLE SLIDE OBJECT! Keys: {list(raw.keys())}")
+                        elif isinstance(raw, str):
+                            logger.info(f"   Raw value length: {len(raw)}")
+                            logger.info(f"   Contains 'slide_deck': {'slide_deck' in raw}")
+                            logger.info(f"   Contains 'presentation_script': {'presentation_script' in raw}")
                     break
     
     # Priority 2: Check content.parts[].text (agent text output)

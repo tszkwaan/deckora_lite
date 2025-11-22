@@ -219,9 +219,14 @@ class PipelineOrchestrator:
             self.obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline", retry_count=outline_retries)
             
             try:
+                # Include custom instruction in outline generation message if present
+                custom_instr_note = ""
+                if self.config.custom_instruction and self.config.custom_instruction.strip():
+                    custom_instr_note = f"\n\n[CUSTOM_INSTRUCTION]\n{self.config.custom_instruction}\n\nIMPORTANT: If the custom instruction requires icon-feature cards, timeline, flowchart, or table layouts, you MUST suggest those specific layout types in the relevant slide's content_notes (e.g., 'Use a comparison-grid layout with icon-feature cards' instead of just 'use an icon').\n"
+                
                 presentation_outline = await self.executor.run_agent(
                     outline_generator_agent,
-                    f"Based on the report knowledge:\n{json.dumps(report_knowledge, indent=2)}\n\nGenerate a presentation outline.",
+                    f"Based on the report knowledge:\n{json.dumps(report_knowledge, indent=2)}{custom_instr_note}\n\nGenerate a presentation outline.",
                     "presentation_outline",
                     parse_json=True
                 )
@@ -293,12 +298,128 @@ class PipelineOrchestrator:
         report_knowledge = self.outputs["report_knowledge"]
         
         try:
+            # Include custom_instruction explicitly in the message if present
+            custom_instruction_note = ""
+            if self.config.custom_instruction and self.config.custom_instruction.strip():
+                custom_instr_lower = self.config.custom_instruction.lower()
+                if "icon-feature card" in custom_instr_lower or "icon feature card" in custom_instr_lower:
+                    custom_instruction_note = f"""
+
+═══════════════════════════════════════════════════════════════
+🚨 CRITICAL MANDATORY REQUIREMENT - MUST BE FOLLOWED 🚨
+═══════════════════════════════════════════════════════════════
+
+[CUSTOM_INSTRUCTION]
+{self.config.custom_instruction}
+
+⚠️⚠️⚠️ MANDATORY REQUIREMENT - THIS OVERRIDES ALL OTHER INSTRUCTIONS ⚠️⚠️⚠️
+
+You MUST create at least ONE slide (can be any slide number 2-5) with:
+  - layout_type: "comparison-grid"
+  - visual_elements.sections array with 2-4 sections
+  - Each section MUST have an "image_keyword" field
+
+Example structure:
+{{
+  "slide_number": 2,  // or 3, 4, or 5
+  "design_spec": {{
+    "layout_type": "comparison-grid"
+  }},
+  "visual_elements": {{
+    "sections": [
+      {{"title": "Security", "content": "...", "image_keyword": "security"}},
+      {{"title": "Vulnerability", "content": "...", "image_keyword": "warning"}},
+      {{"title": "Evaluation", "content": "...", "image_keyword": "analytics"}}
+    ]
+  }}
+}}
+
+This is NOT optional. You MUST include at least ONE comparison-grid slide with image_keyword fields.
+The comparison-grid will render as icon-feature cards with images generated on-the-fly.
+
+═══════════════════════════════════════════════════════════════
+"""
+                elif "timeline" in custom_instr_lower:
+                    custom_instruction_note = f"\n\n[CUSTOM_INSTRUCTION - CRITICAL]\n{self.config.custom_instruction}\n\n⚠️ MANDATORY REQUIREMENT: You MUST create at least ONE slide with layout_type: \"timeline\" AND provide visual_elements.timeline_items array with format: [{{\"year\": \"...\", \"title\": \"...\", \"description\": \"...\"}}, ...]. This is NOT optional - you MUST include a timeline slide.\n"
+                elif "flowchart" in custom_instr_lower:
+                    custom_instruction_note = f"\n\n[CUSTOM_INSTRUCTION - CRITICAL]\n{self.config.custom_instruction}\n\n⚠️ MANDATORY REQUIREMENT: You MUST create at least ONE slide with layout_type: \"flowchart\" AND provide visual_elements.flowchart_steps array. This is NOT optional.\n"
+                elif "comparison" in custom_instr_lower or "grid" in custom_instr_lower:
+                    custom_instruction_note = f"\n\n[CUSTOM_INSTRUCTION - CRITICAL]\n{self.config.custom_instruction}\n\n⚠️ MANDATORY REQUIREMENT: You MUST create at least ONE slide with layout_type: \"comparison-grid\" AND provide visual_elements.sections array. This is NOT optional.\n"
+                elif "table" in custom_instr_lower:
+                    custom_instruction_note = f"\n\n[CUSTOM_INSTRUCTION - CRITICAL]\n{self.config.custom_instruction}\n\n⚠️ MANDATORY REQUIREMENT: You MUST create at least ONE slide with layout_type: \"data-table\" AND provide visual_elements.table_data object. This is NOT optional.\n"
+                elif "image" in custom_instr_lower and ("at least" in custom_instr_lower or "least" in custom_instr_lower):
+                    # Extract number if present (e.g., "at least 3 images" -> 3)
+                    import re
+                    num_match = re.search(r'at least (\d+)|least (\d+)', custom_instr_lower)
+                    num_images = int(num_match.group(1) or num_match.group(2)) if num_match else 3
+                    custom_instruction_note = f"""
+
+═══════════════════════════════════════════════════════════════
+🚨 CRITICAL MANDATORY REQUIREMENT - MUST BE FOLLOWED 🚨
+═══════════════════════════════════════════════════════════════
+
+[CUSTOM_INSTRUCTION]
+{self.config.custom_instruction}
+
+⚠️⚠️⚠️ MANDATORY REQUIREMENT - THIS OVERRIDES ALL OTHER INSTRUCTIONS ⚠️⚠️⚠️
+
+You MUST provide at least {num_images} images TOTAL across all slides (not per slide).
+
+Distribute images across slides - you can put 1-2 images on some slides, more on others, as long as the total across all slides is at least {num_images}.
+
+For slides (except slide_number: 1), you can include:
+  - visual_elements.image_keywords array with 1-3 keywords per slide
+  - OR visual_elements.figures array with dictionaries containing "image_keyword" fields
+
+**CRITICAL: DO NOT ASK QUESTIONS - JUST GENERATE THE KEYWORDS**
+
+Interpretation: "at least {num_images} images" means "{num_images} images TOTAL ACROSS ALL SLIDES"
+- Automatically generate relevant keywords based on each slide's content
+- Choose keywords that match the slide topic (e.g., security slide → ["security"], evaluation slide → ["analytics", "chart"])
+- DO NOT use figure IDs like "fig1" or "placeholder_image_1" - use actual keywords
+- Distribute images across slides (e.g., 1 image on slide 2, 1 on slide 3, 1 on slide 4 = 3 total)
+
+Example distribution for "at least 3 images":
+- Slide 2: {{"visual_elements": {{"image_keywords": ["security"]}}}}  // 1 image
+- Slide 3: {{"visual_elements": {{"image_keywords": ["analytics"]}}}}  // 1 image
+- Slide 4: {{"visual_elements": {{"image_keywords": ["chart"]}}}}     // 1 image
+Total: 3 images across all slides ✅
+
+This is NOT optional. You MUST include at least {num_images} image keywords TOTAL across all slides (except cover slide).
+DO NOT ask for clarification - just generate the keywords automatically and distribute them across slides.
+
+═══════════════════════════════════════════════════════════════
+"""
+                else:
+                    custom_instruction_note = f"\n\n[CUSTOM_INSTRUCTION]\n{self.config.custom_instruction}\n\nIMPORTANT: You MUST follow this custom instruction.\n"
+            
+            # Build the message with custom instruction at the TOP if present
+            message_parts = []
+            if custom_instruction_note:
+                message_parts.append(custom_instruction_note)
+            message_parts.append(f"Generate slides and script based on:\nOutline: {json.dumps(presentation_outline, indent=2)}\nReport Knowledge: {json.dumps(report_knowledge, indent=2)}")
+            
             slide_and_script = await self.executor.run_agent(
                 slide_and_script_generator_agent,
-                f"Generate slides and script based on:\nOutline: {json.dumps(presentation_outline, indent=2)}\nReport Knowledge: {json.dumps(report_knowledge, indent=2)}",
+                "\n".join(message_parts),
                 "slide_and_script",
                 parse_json=True
             )
+            
+            # Validate that custom instruction was followed (for icon-feature card)
+            if custom_instruction_note and ("icon-feature card" in self.config.custom_instruction.lower() or "icon feature card" in self.config.custom_instruction.lower()):
+                has_comparison_grid = False
+                for slide in slide_and_script.get("slide_deck", {}).get("slides", []):
+                    if slide.get("design_spec", {}).get("layout_type") == "comparison-grid":
+                        sections = slide.get("visual_elements", {}).get("sections", [])
+                        if sections and any(s.get("image_keyword") for s in sections):
+                            has_comparison_grid = True
+                            break
+                
+                if not has_comparison_grid:
+                    print("\n⚠️  WARNING: Custom instruction requires comparison-grid with image_keyword, but agent did not create one.")
+                    print("   The generated slides may not fully satisfy the custom instruction.")
+                    print("   Consider re-running or adjusting the custom instruction.")
         except AgentExecutionError as e:
             # Agent failed to return output
             self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
@@ -401,6 +522,42 @@ class PipelineOrchestrator:
         
         # Log what we got for debugging
         logger.info(f"✅ slide_and_script parsed successfully. Keys: {list(slide_and_script.keys())}")
+        logger.info(f"   Full structure preview: {json.dumps(slide_and_script, indent=2)[:2000]}")
+        
+        # CRITICAL VALIDATION: Check if agent returned a single slide object instead of the required structure
+        # Single slide objects have keys like: slide_number, title, content, visual_elements, design_spec, etc.
+        # The required structure should have: slide_deck, presentation_script
+        single_slide_keys = {'slide_number', 'title', 'content', 'visual_elements', 'design_spec', 'formatting_notes', 'speaker_notes'}
+        if single_slide_keys.issubset(set(slide_and_script.keys())):
+            logger.warning(f"⚠️ Agent returned a SINGLE SLIDE OBJECT instead of the required structure!")
+            logger.warning(f"   The agent returned a slide with keys: {list(slide_and_script.keys())}")
+            logger.warning(f"   This looks like a single slide object, not the required structure with 'slide_deck' and 'presentation_script'")
+            logger.warning(f"   Attempting to auto-fix by wrapping the single slide in the required structure...")
+            
+            # AUTO-FIX: Wrap the single slide in the required structure
+            single_slide = slide_and_script.copy()
+            # Create a minimal presentation_script if missing
+            presentation_script_fallback = {
+                "script_sections": [
+                    {
+                        "slide_number": single_slide.get("slide_number", 1),
+                        "script_text": single_slide.get("speaker_notes", "Present this slide.")
+                    }
+                ],
+                "total_duration_seconds": 60,
+                "notes": "Auto-generated script from single slide output"
+            }
+            
+            # Wrap in required structure
+            slide_and_script = {
+                "slide_deck": {
+                    "slides": [single_slide]
+                },
+                "presentation_script": presentation_script_fallback
+            }
+            
+            logger.warning(f"   ✅ Auto-fixed: Wrapped single slide in required structure")
+            logger.warning(f"   ⚠️ NOTE: This is a fallback fix. The agent should return the correct structure directly.")
         
         slide_deck = slide_and_script.get("slide_deck")
         presentation_script = slide_and_script.get("presentation_script")

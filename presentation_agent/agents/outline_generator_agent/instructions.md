@@ -101,3 +101,31 @@ STYLE REQUIREMENTS
 - Output must be valid JSON without additional explanations.
 - Do NOT wrap the JSON in markdown code blocks (no ```json or ```).
 - Output ONLY the raw JSON object, nothing else.
+
+CUSTOM INSTRUCTION HANDLING
+
+If [CUSTOM_INSTRUCTION] is provided, you MUST incorporate it into your outline:
+
+1. **Icon-Feature Card Requirement:**
+   - If custom instruction mentions "icon-feature card" or "icon feature card":
+     * You MUST suggest using a "comparison-grid" layout in at least ONE slide's `content_notes`
+     * Example: "Use a comparison-grid layout with icon-feature cards to showcase [concepts]"
+     * Do NOT just say "use an icon" - explicitly mention "comparison-grid" or "icon-feature card layout"
+     * The comparison-grid requires 2-4 sections, each with a title, content, and image keyword
+
+2. **Timeline Requirement:**
+   - If custom instruction mentions "timeline":
+     * Suggest "timeline" layout in `content_notes`
+     * Example: "Use a timeline layout to show the progression of [steps/phases]"
+
+3. **Flowchart Requirement:**
+   - If custom instruction mentions "flowchart":
+     * Suggest "flowchart" layout in `content_notes`
+     * Example: "Use a flowchart layout to visualize the [process]"
+
+4. **Table Requirement:**
+   - If custom instruction mentions "table":
+     * Suggest "data-table" layout in `content_notes`
+     * Example: "Use a data-table layout to display [structured data]"
+
+**CRITICAL**: When custom instruction requires a specific layout (like comparison-grid for icon-feature cards), you MUST explicitly mention that layout type in the relevant slide's `content_notes`. Do NOT just suggest "icons" - suggest the specific layout that supports icons.

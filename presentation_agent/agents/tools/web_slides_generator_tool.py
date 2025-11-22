@@ -830,6 +830,105 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 icons_html += f'<img src="{icon_url}" alt="{icon.get("icon_name", "icon")}" class="slide-icon">'
         icons_html += '</div>'
     
+    # Generate images HTML from image_keywords, icons_suggested, or figures
+    images_html = ""
+    image_keywords = visual_elements.get("image_keywords", [])  # List of keywords for images
+    icons_suggested = visual_elements.get("icons_suggested", [])  # Suggested icon keywords
+    figures = visual_elements.get("figures", [])  # Figure IDs or dicts with image_url
+    
+    # Track used image URLs to avoid duplicates
+    from presentation_agent.templates.image_helper import get_image_url
+    used_image_urls = set()
+    image_items = []  # List of (url, alt_text) tuples
+    
+    # Priority 1: Use image_keywords if provided (explicit image keywords)
+    if image_keywords:
+        for keyword in image_keywords:
+            if len(image_items) >= 3:  # Limit to 3 images
+                break
+            try:
+                image_url = get_image_url(keyword, source="generative")
+                if image_url and image_url not in used_image_urls:
+                    used_image_urls.add(image_url)
+                    image_items.append((image_url, keyword))
+            except Exception as e:
+                logger.error(f"❌ Failed to generate image for keyword '{keyword}': {e}")
+                import traceback
+                logger.error(f"   Full traceback: {traceback.format_exc()}")
+                # Continue to next keyword instead of crashing
+                continue
+    
+    # Priority 2: Use icons_suggested if no image_keywords (agent suggested icons)
+    elif icons_suggested:
+        for keyword in icons_suggested:
+            if len(image_items) >= 3:  # Limit to 3 images
+                break
+            try:
+                image_url = get_image_url(keyword, source="generative")
+                if image_url and image_url not in used_image_urls:
+                    used_image_urls.add(image_url)
+                    image_items.append((image_url, keyword))
+            except Exception as e:
+                logger.error(f"❌ Failed to generate image for keyword '{keyword}': {e}")
+                import traceback
+                logger.error(f"   Full traceback: {traceback.format_exc()}")
+                # Continue to next keyword instead of crashing
+                continue
+    
+    # Priority 3: Process figures - check for image_keyword or image_url
+    if figures and not image_items:
+        for fig in figures:
+            if len(image_items) >= 3:  # Limit to 3 images
+                break
+            if isinstance(fig, dict):
+                # Check for image_keyword first (generate image from keyword)
+                image_keyword = fig.get("image_keyword")
+                if image_keyword:
+                    try:
+                        image_url = get_image_url(image_keyword, source="generative")
+                        if image_url and image_url not in used_image_urls:
+                            used_image_urls.add(image_url)
+                            alt_text = fig.get("caption") or fig.get("alt_text") or image_keyword
+                            image_items.append((image_url, alt_text))
+                    except Exception as e:
+                        logger.error(f"❌ Failed to generate image for keyword '{image_keyword}': {e}")
+                        import traceback
+                        logger.error(f"   Full traceback: {traceback.format_exc()}")
+                        # Continue to next figure instead of crashing
+                        continue
+                # Otherwise check for image_url (use directly)
+                elif fig.get("image_url"):
+                    image_url = fig.get("image_url")
+                    if image_url and image_url not in used_image_urls:
+                        used_image_urls.add(image_url)
+                        alt_text = fig.get("caption") or fig.get("alt_text", "Image")
+                        image_items.append((image_url, alt_text))
+            # Skip string figure IDs (like "fig1", "table1") - they're report references, not image keywords
+    
+    # Fallback: If still no images and icons_suggested exists, use them
+    if not image_items and icons_suggested:
+        for keyword in icons_suggested:
+            if len(image_items) >= 3:  # Limit to 3 images
+                break
+            try:
+                image_url = get_image_url(keyword, source="generative")
+                if image_url and image_url not in used_image_urls:
+                    used_image_urls.add(image_url)
+                    image_items.append((image_url, keyword))
+            except Exception as e:
+                logger.error(f"❌ Failed to generate image for keyword '{keyword}': {e}")
+                import traceback
+                logger.error(f"   Full traceback: {traceback.format_exc()}")
+                # Continue to next keyword instead of crashing
+                continue
+    
+    # Generate HTML from collected image items (no duplicates)
+    if image_items:
+        images_html = '<div class="slide-images">'
+        for image_url, alt_text in image_items:
+            images_html += f'<img src="{image_url}" alt="{alt_text}" class="slide-image">'
+        images_html += '</div>'
+    
     # Check if slide uses a custom template layout
     layout_type = design_spec.get("layout_type")
     
@@ -951,7 +1050,8 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     
     # Default layout (existing behavior)
     has_chart = chart_html != ""
-    layout_class = "slide-with-chart" if charts_needed else "slide-text-only"
+    has_images = images_html != ""
+    layout_class = "slide-with-chart" if charts_needed else ("slide-with-images" if has_images else "slide-text-only")
     body_font_size = design_spec.get("body_font_size", 16)
     body_align = alignment.get("body", "left")
     
@@ -970,7 +1070,22 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         {icons_html}
     </div>
 """
+    elif has_images:
+        # Slide with images (but no chart) - layout similar to chart layout
+        slide_html = f"""
+    <div class="slide-content {layout_class}">
+        <h1 class="slide-title" style="font-size: {title_font_size}pt; text-align: {title_align};">{slide_title}</h1>
+        <div class="slide-content-wrapper">
+            <div class="slide-body" style="font-size: {body_font_size}pt; text-align: {body_align};">
+                {content_html}
+            </div>
+            {images_html}
+        </div>
+        {icons_html}
+    </div>
+"""
     else:
+        # Text-only slide
         slide_html = f"""
     <div class="slide-content {layout_class}">
         <h1 class="slide-title" style="font-size: {title_font_size}pt; text-align: {title_align};">{slide_title}</h1>
@@ -1097,6 +1212,31 @@ def _generate_global_css(theme_colors: Dict) -> str:
             width: 48px;
             height: 48px;
             opacity: 0.8;
+        }}
+        
+        .slide-with-images .slide-content-wrapper {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            align-items: center;
+            flex: 1;
+        }}
+        
+        .slide-images {{
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            align-items: center;
+            justify-content: center;
+        }}
+        
+        .slide-image {{
+            max-width: 100%;
+            max-height: 200px;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            border-radius: 8px;
         }}
         
         @media (max-width: 1024px) {{

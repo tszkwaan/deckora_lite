@@ -51,8 +51,39 @@ class AgentExecutor:
         runner = InMemoryRunner(agent=agent)
         events = await runner.run_debug(user_message, session_id=self.session.id)
         
+        # Log total events for debugging
+        logger.info(f"📊 Agent '{agent_name}' execution completed. Total events: {len(events)}")
+        
         # Debug: Log event details if output is not found
         output = extract_output_from_events(events, output_key)
+        
+        # Log what we extracted (before parsing)
+        if output is not None:
+            logger.info(f"📦 Extracted output for '{output_key}': type={type(output).__name__}, size={len(str(output)) if hasattr(output, '__len__') else 'N/A'}")
+            if isinstance(output, dict):
+                logger.info(f"   Output keys: {list(output.keys())}")
+                # For slide_and_script, log structure immediately
+                if output_key == "slide_and_script":
+                    has_slide_deck = "slide_deck" in output
+                    has_presentation_script = "presentation_script" in output
+                    single_slide_keys = {'slide_number', 'title', 'content', 'visual_elements', 'design_spec'}
+                    looks_like_single_slide = single_slide_keys.issubset(set(output.keys()))
+                    logger.warning(f"   🔍 STRUCTURE CHECK for slide_and_script:")
+                    logger.warning(f"      Has 'slide_deck': {has_slide_deck}")
+                    logger.warning(f"      Has 'presentation_script': {has_presentation_script}")
+                    logger.warning(f"      Looks like single slide: {looks_like_single_slide}")
+                    if looks_like_single_slide:
+                        logger.error(f"   ❌ DETECTED: Output looks like a SINGLE SLIDE OBJECT instead of required structure!")
+                        logger.error(f"      Keys found: {list(output.keys())}")
+            elif isinstance(output, str):
+                logger.debug(f"   Output preview (first 500 chars): {output[:500]}")
+                # Check if string contains the required keys
+                if output_key == "slide_and_script":
+                    has_slide_deck_str = '"slide_deck"' in output or "'slide_deck'" in output
+                    has_presentation_script_str = '"presentation_script"' in output or "'presentation_script'" in output
+                    logger.warning(f"   🔍 STRING CHECK for slide_and_script:")
+                    logger.warning(f"      Contains 'slide_deck': {has_slide_deck_str}")
+                    logger.warning(f"      Contains 'presentation_script': {has_presentation_script_str}")
         
         if output is None:
             # Debug: Log what events we got
