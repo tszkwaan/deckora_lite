@@ -21,7 +21,8 @@ from presentation_agent.templates.template_helpers import (
     render_icon_sequence_html,
     render_linear_process_html,
     render_workflow_diagram_html,
-    render_process_flow_html
+    render_process_flow_html,
+    markdown_to_html
 )
 
 logger = logging.getLogger(__name__)
@@ -377,7 +378,9 @@ def _generate_slide_html(slide: Dict, script_section: Optional[Dict], slide_inde
     if bullet_points:
         content_html += '<ul class="bullet-points">'
         for point in bullet_points:
-            content_html += f'<li>{point}</li>'
+            # Apply markdown conversion (bold/italic)
+            point_html = markdown_to_html(point)
+            content_html += f'<li>{point_html}</li>'
         content_html += '</ul>'
     
     # Generate chart HTML if available
@@ -970,7 +973,9 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     if bullet_points:
         content_html += '<ul class="bullet-points">'
         for point in bullet_points:
-            content_html += f'<li>{point}</li>'
+            # Apply markdown conversion (bold/italic)
+            point_html = markdown_to_html(point)
+            content_html += f'<li>{point_html}</li>'
         content_html += '</ul>'
     
     # Generate chart HTML - generate chart if charts_needed but no chart_data

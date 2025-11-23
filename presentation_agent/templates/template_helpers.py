@@ -1105,22 +1105,26 @@ def render_cover_slide_html(
 
 def highlight_numbers_in_text(text: str, primary_color: str) -> str:
     """
-    Automatically highlight numbers in text with brand color and larger font.
+    Automatically highlight STATISTICAL numbers in text with brand color and larger font.
+    Skips numbers that are part of model names/versions (e.g., "GPT-4", "v2.0", "3.5-turbo").
+    
     Works for: integers, decimals, comma-separated numbers, percentages, k/m suffixes.
     
     Examples:
-    - "5 scenarios" → highlights "5"
-    - "700,000 prompts" → highlights "700,000"
-    - "25% improvement" → highlights "25%"
-    - "$2.5M revenue" → highlights "2.5M"
-    - "10 minutes" → highlights "10"
+    - "5 scenarios" → highlights "5" (statistic)
+    - "700,000 prompts" → highlights "700,000" (statistic)
+    - "25% improvement" → highlights "25%" (statistic)
+    - "$2.5M revenue" → highlights "2.5M" (statistic)
+    - "GPT-4" → does NOT highlight "4" (model name)
+    - "GPT-3.5-turbo" → does NOT highlight "3.5" (model version)
+    - "v2.0" → does NOT highlight "2.0" (version number)
     
     Args:
         text: Text string to process
         primary_color: Brand color for highlighting (hex code)
         
     Returns:
-        Text with numbers wrapped in <span> tags for styling
+        Text with statistical numbers wrapped in <span> tags for styling
     """
     # Pattern to match various number formats:
     # - Integers: 5, 10, 100
@@ -1134,9 +1138,65 @@ def highlight_numbers_in_text(text: str, primary_color: str) -> str:
     
     def replace(match):
         num = match.group(1)
+        start_pos = match.start()
+        end_pos = match.end()
+        
+        # Get context around the number (20 chars before and after)
+        context_start = max(0, start_pos - 20)
+        context_end = min(len(text), end_pos + 20)
+        context = text[context_start:context_end].lower()
+        
+        # Skip if number is part of model name/version patterns:
+        # - GPT-4, GPT-3.5, GPT-4o, etc.
+        # - v2.0, v1.5, version 2.0, etc.
+        # - 3.5-turbo, 4-turbo, etc.
+        # - Any number followed by a dash and text (e.g., "model-4", "version-3.5")
+        # - Any number preceded by "v" or "version" (e.g., "v2.0", "version 3.5")
+        # - Any number in pattern like "X.Y" where it's clearly a version (e.g., "3.5-turbo")
+        
+        # Check if preceded by model name patterns
+        before_context = text[max(0, start_pos - 10):start_pos].lower()
+        after_context = text[end_pos:min(len(text), end_pos + 10)].lower()
+        
+        # Skip if it's a version number pattern
+        if re.search(r'\b(v|version)\s*$', before_context):
+            return num  # Don't highlight version numbers
+        
+        # Skip if it's part of a model name (GPT-X, model-X, etc.)
+        if re.search(r'\b(gpt|model|llm|bert|roberta|t5|gpt-\d|model-\d|v\d)', before_context):
+            return num  # Don't highlight model names/versions
+        
+        # Skip if followed by version-like patterns (e.g., "-turbo", "-base", "-large")
+        if re.search(r'^[-.]\s*(turbo|base|large|small|mini|nano|pro|plus|max)', after_context):
+            return num  # Don't highlight version suffixes
+        
+        # Skip if it's a decimal version number (e.g., "3.5" in "GPT-3.5-turbo")
+        if '.' in num and re.search(r'^[-.]', after_context):
+            return num  # Likely a version number like "3.5-turbo"
+        
+        # Otherwise, highlight it as a statistic
         return f'<span class="fancy-number-highlight" style="color: {primary_color}; font-size: 1.4em; font-weight: 700;">{num}</span>'
     
     return re.sub(pattern, replace, text)
+
+
+def markdown_to_html(text: str) -> str:
+    """
+    Converts a subset of markdown to HTML:
+    - **text** to <strong>text</strong> (bold)
+    - *text* to <em>text</em> (italic)
+    
+    Args:
+        text: Text string with markdown formatting
+        
+    Returns:
+        Text with HTML tags replacing markdown
+    """
+    # Handle bold (**text**) - must be done before italic to avoid conflicts
+    text = re.sub(r'\*\*([^*]+?)\*\*', r'<strong>\1</strong>', text)
+    # Handle italic (*text*) - ensure it's not part of a bold marker
+    text = re.sub(r'(?<!\*)\*([^*]+?)\*(?!\*)', r'<em>\1</em>', text)
+    return text
 
 
 def render_fancy_content_text_html(
@@ -1177,8 +1237,9 @@ def render_fancy_content_text_html(
     # Generate bullet points HTML with Material Symbols icons and number highlighting
     bullets_html = ""
     for point in bullet_points:
-        # Highlight numbers in the bullet text
-        processed_text = highlight_numbers_in_text(point, primary_color)
+        # First apply markdown conversion (bold/italic), then highlight numbers
+        processed_text = markdown_to_html(point)
+        processed_text = highlight_numbers_in_text(processed_text, primary_color)
         
         bullets_html += f"""
             <li class="fancy-bullet-item">
@@ -1408,8 +1469,9 @@ def render_fancy_chart_html(
         import re
         point_cleaned = re.sub(r'^[\s\-•>>]+', '', point).strip()
         
-        # Highlight numbers in the bullet text
-        processed_text = highlight_numbers_in_text(point_cleaned, primary_color)
+        # First apply markdown conversion (bold/italic), then highlight numbers
+        processed_text = markdown_to_html(point_cleaned)
+        processed_text = highlight_numbers_in_text(processed_text, primary_color)
         
         bullets_html += f"""
             <li class="fancy-bullet-item">
