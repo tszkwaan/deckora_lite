@@ -1029,6 +1029,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                         height = spec.get('height', 350)
                         color = spec.get('color')
                         colors = spec.get('colors')
+                        highlighted_items = spec.get('highlighted_items')
                         
                         # Filter out null values from data
                         filtered_data = {k: v for k, v in data.items() if v is not None}
@@ -1046,7 +1047,8 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                                 width=width,
                                 height=height,
                                 color=color,
-                                colors=colors
+                                colors=colors,
+                                highlighted_items=highlighted_items
                             )
                             
                             if result.get('status') == 'success' and result.get('chart_data'):
@@ -1073,6 +1075,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 height = chart_spec.get('height', 600)
                 color = chart_spec.get('color')
                 colors = chart_spec.get('colors')
+                highlighted_items = chart_spec.get('highlighted_items')
                 
                 # Filter out null values from data
                 filtered_data = {k: v for k, v in data.items() if v is not None}
@@ -1090,7 +1093,8 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                         width=width,
                         height=height,
                         color=color,
-                        colors=colors
+                        colors=colors,
+                        highlighted_items=highlighted_items
                     )
                     
                     if result.get('status') == 'success' and result.get('chart_data'):
