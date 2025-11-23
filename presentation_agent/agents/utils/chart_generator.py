@@ -15,8 +15,17 @@ try:
     import plotly.express as px
     from plotly.io import to_image
     PLOTLY_AVAILABLE = True
+    # Check if kaleido is available
+    try:
+        import kaleido
+        KALEIDO_AVAILABLE = True
+    except ImportError:
+        KALEIDO_AVAILABLE = False
+        logger.warning("⚠️  Kaleido not installed. Chart image export may fail.")
+        logger.warning("   Install with: pip install kaleido")
 except ImportError:
     PLOTLY_AVAILABLE = False
+    KALEIDO_AVAILABLE = False
     logger.warning("⚠️  Plotly not installed. Chart generation will be disabled.")
     logger.warning("   Install with: pip install plotly kaleido")
 
@@ -103,14 +112,25 @@ def generate_bar_chart(
         )
         
         # Convert to PNG base64 using kaleido engine
-        try:
-            img_bytes = to_image(fig, format="png", width=width, height=height, engine="kaleido")
-        except Exception as e:
-            logger.warning(f"⚠️  Kaleido engine failed, trying default: {e}")
-            # Fallback to default engine
-            img_bytes = to_image(fig, format="png", width=width, height=height)
-        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+        img_bytes = None
+        if KALEIDO_AVAILABLE:
+            try:
+                img_bytes = to_image(fig, format="png", width=width, height=height, engine="kaleido")
+            except Exception as e:
+                logger.warning(f"⚠️  Kaleido engine failed: {e}")
+                img_bytes = None
         
+        # Fallback: try default engine (may also require kaleido)
+        if img_bytes is None:
+            try:
+                img_bytes = to_image(fig, format="png", width=width, height=height)
+            except Exception as e:
+                logger.error(f"❌ Chart image export failed: {e}")
+                if not KALEIDO_AVAILABLE:
+                    logger.error("   Kaleido is required for PNG export. Install with: pip install kaleido")
+                return None
+        
+        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
         logger.info(f"✅ Generated bar chart: {title} ({width}x{height}px)")
         return img_b64
     
@@ -188,14 +208,25 @@ def generate_line_chart(
         )
         
         # Convert to PNG base64 using kaleido engine
-        try:
-            img_bytes = to_image(fig, format="png", width=width, height=height, engine="kaleido")
-        except Exception as e:
-            logger.warning(f"⚠️  Kaleido engine failed, trying default: {e}")
-            # Fallback to default engine
-            img_bytes = to_image(fig, format="png", width=width, height=height)
-        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+        img_bytes = None
+        if KALEIDO_AVAILABLE:
+            try:
+                img_bytes = to_image(fig, format="png", width=width, height=height, engine="kaleido")
+            except Exception as e:
+                logger.warning(f"⚠️  Kaleido engine failed: {e}")
+                img_bytes = None
         
+        # Fallback: try default engine (may also require kaleido)
+        if img_bytes is None:
+            try:
+                img_bytes = to_image(fig, format="png", width=width, height=height)
+            except Exception as e:
+                logger.error(f"❌ Chart image export failed: {e}")
+                if not KALEIDO_AVAILABLE:
+                    logger.error("   Kaleido is required for PNG export. Install with: pip install kaleido")
+                return None
+        
+        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
         logger.info(f"✅ Generated line chart: {title} ({width}x{height}px)")
         return img_b64
     
@@ -261,14 +292,25 @@ def generate_pie_chart(
         )
         
         # Convert to PNG base64 using kaleido engine
-        try:
-            img_bytes = to_image(fig, format="png", width=width, height=height, engine="kaleido")
-        except Exception as e:
-            logger.warning(f"⚠️  Kaleido engine failed, trying default: {e}")
-            # Fallback to default engine
-            img_bytes = to_image(fig, format="png", width=width, height=height)
-        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+        img_bytes = None
+        if KALEIDO_AVAILABLE:
+            try:
+                img_bytes = to_image(fig, format="png", width=width, height=height, engine="kaleido")
+            except Exception as e:
+                logger.warning(f"⚠️  Kaleido engine failed: {e}")
+                img_bytes = None
         
+        # Fallback: try default engine (may also require kaleido)
+        if img_bytes is None:
+            try:
+                img_bytes = to_image(fig, format="png", width=width, height=height)
+            except Exception as e:
+                logger.error(f"❌ Chart image export failed: {e}")
+                if not KALEIDO_AVAILABLE:
+                    logger.error("   Kaleido is required for PNG export. Install with: pip install kaleido")
+                return None
+        
+        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
         logger.info(f"✅ Generated pie chart: {title} ({width}x{height}px)")
         return img_b64
     

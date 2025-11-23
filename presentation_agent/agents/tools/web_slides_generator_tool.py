@@ -924,9 +924,9 @@ def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, c
         "metadata": {
             "title": title,
             "total_slides": len(slides),
-            "scenario": config.get("scenario", "") if config else "",
-            "duration": config.get("duration", "") if config else "",
-            "target_audience": config.get("target_audience", "") if config else "",
+            "scenario": config.get("scenario", "") if isinstance(config, dict) else "",
+            "duration": config.get("duration", "") if isinstance(config, dict) else "",
+            "target_audience": config.get("target_audience", "") if isinstance(config, dict) else "",
             "theme_colors": theme_colors
         },
         "global_css": global_css,
@@ -1055,6 +1055,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 height = chart_spec.get('height', 600)
                 color = chart_spec.get('color')
                 colors = chart_spec.get('colors')
+                highlighted_items = chart_spec.get('highlighted_items')
                 
                 # Filter out null values from data
                 filtered_data = {k: v for k, v in data.items() if v is not None}
@@ -1072,7 +1073,8 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                         width=width,
                         height=height,
                         color=color,
-                        colors=colors
+                        colors=colors,
+                        highlighted_items=highlighted_items
                     )
                     
                     if result.get('status') == 'success' and result.get('chart_data'):
@@ -1186,11 +1188,11 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 image_items.append((image_url, alt_text))
     
     # Generate HTML from collected image items
+    # Multi-image template removed - only use first image if available
     if image_items:
-        images_html = '<div class="slide-images">'
-        for image_url, alt_text in image_items:
-            images_html += f'<img src="{image_url}" alt="{alt_text}" class="slide-image">'
-        images_html += '</div>'
+        # Use only the first image (for decorative purposes in content-text layout)
+        first_image_url, first_alt_text = image_items[0]
+        images_html = f'<div class="slide-image-single"><img src="{first_image_url}" alt="{first_alt_text}" class="slide-image"></div>'
     
     # Check if slide uses a custom template layout
     layout_type = design_spec.get("layout_type")
@@ -1211,11 +1213,11 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
             subtitle = bullet_points[0]  # Use first bullet as subtitle if no main_text
         
         # Extract author info if available (from config or slide metadata)
-        author_name = config.get("author_name") if config else None
-        author_title = config.get("author_title") if config else None
+        author_name = config.get("author_name") if isinstance(config, dict) else None
+        author_title = config.get("author_title") if isinstance(config, dict) else None
         
         # Get presentation title from config or use slide title
-        presentation_title = config.get("title") if config else slide_title
+        presentation_title = config.get("title") if isinstance(config, dict) else slide_title
         
         return render_cover_slide_html(
             title=slide_title,
@@ -1480,7 +1482,8 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     # Default layout (existing behavior)
     has_chart = chart_html != ""
     has_images = images_html != ""
-    layout_class = "slide-with-chart" if charts_needed else ("slide-with-images" if has_images else "slide-text-only")
+    # Multi-image template removed - use slide-text-only even if images present
+    layout_class = "slide-with-chart" if charts_needed else "slide-text-only"
     body_font_size = design_spec.get("body_font_size", 16)
     body_align = alignment.get("body", "left")
     
@@ -1781,27 +1784,7 @@ def _generate_global_css(theme_colors: Dict) -> str:
             color: {primary_color};
         }}
         
-        .slide-with-images .slide-content-wrapper {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 40px;
-            align-items: flex-start;
-            flex: 1;
-            min-height: 0;
-            overflow: visible;
-        }}
-        
-        .slide-images {{
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            align-items: center;
-            justify-content: flex-start;
-            overflow-y: auto;
-            overflow-x: visible;
-            max-height: 100%;
-            min-height: 0;
-            padding: 10px 0;
+        /* Multi-image template CSS removed */
         }}
         
         .slide-image {{
@@ -1836,7 +1819,7 @@ def _generate_global_css(theme_colors: Dict) -> str:
 
 def _get_theme_colors(config: Optional[Dict]) -> Dict[str, str]:
     """Get theme colors based on scenario."""
-    if not config:
+    if not config or not isinstance(config, dict):
         return {
             "primary": "#7C3AED",
             "secondary": "#EC4899",
