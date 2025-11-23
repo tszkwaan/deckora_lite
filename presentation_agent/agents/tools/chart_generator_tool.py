@@ -25,7 +25,8 @@ def generate_chart_tool(
     width: int = 800,
     height: int = 600,
     color: Optional[str] = None,
-    colors: Optional[List[str]] = None
+    colors: Optional[List[str]] = None,
+    highlighted_items: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """
     Generate a chart image (PNG) as base64 string for insertion into Google Slides.
@@ -115,6 +116,8 @@ def generate_chart_tool(
             chart_spec["color"] = color
         if colors:
             chart_spec["colors"] = colors
+        if highlighted_items:
+            chart_spec["highlighted_items"] = highlighted_items
         
         # Generate chart
         chart_data_b64 = generate_chart_from_spec(chart_spec)

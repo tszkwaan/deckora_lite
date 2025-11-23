@@ -1543,6 +1543,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         {icons_html}
     </div>
 """
+        return slide_html.strip()
     elif has_images:
         # Slide with images (but no chart) - layout similar to chart layout
         slide_html = f"""
@@ -1557,6 +1558,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         {icons_html}
     </div>
 """
+        return slide_html.strip()
     else:
         # Text-only slide - use fancy template if it's a content-text layout with bullet points
         # Ensure bullet_points is defined (it should be from line 947)
@@ -1735,6 +1737,22 @@ def _generate_global_css(theme_colors: Dict) -> str:
             width: 48px;
             height: 48px;
             opacity: 0.8;
+        }}
+        
+        /* Table highlighting styles */
+        .data-table .highlight-row {{
+            background-color: {secondary_color}15 !important;
+            font-weight: 600;
+        }}
+        
+        .data-table .highlight-row td {{
+            color: {primary_color};
+        }}
+        
+        .data-table .highlight-cell {{
+            background-color: {secondary_color}15 !important;
+            font-weight: 600;
+            color: {primary_color};
         }}
         
         .slide-with-images .slide-content-wrapper {{

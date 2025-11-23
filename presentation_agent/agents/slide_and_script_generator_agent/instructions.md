@@ -419,7 +419,10 @@ CRITICAL REQUIREMENTS
        - `content`: Section description/content (required)
        - `icon`: Icon name or emoji (e.g., "shield", "lock", "🛡️", "🔒") - this will render as an icon-feature-card
        - Optional: `icon_url`, `highlight`, `background_color`
-     * **For `data-table`:** Provide `visual_elements.table_data` object: `{"headers": [{"text": "...", "width": "..."}], "rows": [["...", "..."], ...], "style": "default|striped|bordered|minimal"}`
+     * **For `data-table`:** Provide `visual_elements.table_data` object: `{"headers": [{"text": "...", "width": "..."}], "rows": [["...", "..."], ...], "style": "default|striped|bordered|minimal", "highlight_rows": [0, 1], "highlight_columns": [1, 2]}`
+       - `highlight_rows`: Optional array of row indices (0-based) to highlight in brand color (e.g., `[0, 1]` highlights first two rows)
+       - `highlight_columns`: Optional array of column indices (0-based) to highlight important metric columns (e.g., `[1, 2]` highlights columns 1 and 2)
+       - Use highlighting to emphasize key findings mentioned in slide content (e.g., models with highest/lowest values, notable comparisons)
      * **For `flowchart`:** Provide `visual_elements.flowchart_steps` array: `[{"label": "Step 1", "description": "..."}, {"label": "Step 2", "description": "..."}, ...]` and set `layout_type: "flowchart"`. Also set `visual_elements.flowchart_orientation: "horizontal"` or `"vertical"` (default: "horizontal")
      * **For `timeline`:** Provide `visual_elements.timeline_items` array: `[{"year": "...", "title": "...", "description": "..."}, ...]`
    - **IMAGE GENERATION REQUIREMENTS (CRITICAL):**
@@ -476,6 +479,23 @@ CRITICAL REQUIREMENTS
      * **Example:** For slide_number: 1, use: `"main_text": "Presented by [Your Name] | Conference Name 2024"`, `"bullet_points": []`, `"subheadings": []`, `"charts_needed": false`, `"figures": []`
 
 2. **Chart Generation (Visual Elements):**
+   - **AUTOMATIC DETECTION FOR EXPERIMENTAL RESULTS (CRITICAL):**
+     * **When slide title/content contains keywords:** "results", "findings", "experimental", "evaluation", "performance", "comparison", "metrics", "statistics", "data", "analysis", "effectiveness", "vulnerability", "success rate"
+     * **AND report_knowledge contains quantitative data** (numbers, percentages, metrics, comparisons)
+     * **THEN automatically:**
+       - Set `layout_type: "data-table"` if data is tabular (rows/columns of structured data)
+       - OR set `layout_type: "content-with-chart"` with `charts_needed: true` if data is comparative/trend-based
+       - Extract quantitative data from report_knowledge and create chart/table
+     * **Data Extraction Priority:**
+       1. Check `report_knowledge.sections[]` for sections labeled "Results", "Experiments", "Evaluation", "Findings", "Analysis"
+       2. Extract from `key_points`, `summary`, or `key_takeaways` that contain numbers
+       3. Look for patterns: "Model X: Y%", "X vs Y", "X showed higher/lower Y", "X achieved Y%"
+       4. Extract comparative data (e.g., "GPT-4: 92%, GPT-3.5-turbo: 85%")
+     * **Key Findings Highlighting:**
+       - Identify items mentioned as key findings in slide content (e.g., "GPT-4 and GPT-3.5-turbo showed higher success rates")
+       - For charts: Add `highlighted_items: ["GPT-4", "GPT-3.5-turbo"]` to chart_spec, use brand color (#EC4899) for highlighted items, muted color (#94A3B8) for others
+       - For tables: Use `highlight_rows: [0, 1]` to highlight rows containing key findings, `highlight_columns: [1, 2]` for important metric columns
+       - Highlight items explicitly mentioned as "key", "notable", "significant", "highest", "lowest", or compared in slide text
    - **When to Generate Charts:** If a slide contains quantitative data (percentages, metrics, comparisons, trends), consider generating a chart to visualize the data.
    - **MANDATORY Chart Generation Workflow (if charts_needed: true):**
      1. **Identify chart need:** If slide has numeric data that would benefit from visualization (e.g., "Model A: 85%, Model B: 92%, Model C: 78%"), set `charts_needed: true`.
@@ -496,6 +516,7 @@ CRITICAL REQUIREMENTS
         * **CRITICAL: Slide dimensions are 1200px × 500px** - charts must fit within this space, accounting for padding and other content
         * `color`: Single hex color for bar charts (e.g., "#7C3AED")
         * `colors`: List of hex colors for line/pie charts (e.g., `["#7C3AED", "#EC4899", "#10B981"]`)
+        * `highlighted_items`: Optional array of item names to highlight (e.g., `["GPT-4", "GPT-3.5-turbo"]`). When provided, these items will be rendered in brand color (#EC4899) while others use muted color (#94A3B8). For bar charts, use `colors` array with brand color for highlighted items.
      3. **MANDATORY: Call `generate_chart_tool`:** You MUST call the `generate_chart_tool` function with the chart_spec parameters. 
         * IMPORTANT: In ADK, tools are called during your response generation, not in the final JSON output.
         * You should call the tool like this: `generate_chart_tool(chart_type="bar", data={...}, title="...", x_label="...", y_label="...", width=700, height=350, color="#7C3AED")`

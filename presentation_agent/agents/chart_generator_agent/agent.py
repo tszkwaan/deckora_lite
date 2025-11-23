@@ -162,6 +162,7 @@ def call_chart_generation_after_agent(callback_context):
                 height = chart_spec.get('height', 600)
                 color = chart_spec.get('color')
                 colors = chart_spec.get('colors')
+                highlighted_items = chart_spec.get('highlighted_items')
                 
                 # Validate data
                 if not data or len(data) == 0:
@@ -175,17 +176,25 @@ def call_chart_generation_after_agent(callback_context):
                     charts_failed += 1
                     continue
                 
-                result = generate_chart_tool(
-                    chart_type=chart_type,
-                    data=data,
-                    title=title,
-                    x_label=x_label,
-                    y_label=y_label,
-                    width=width,
-                    height=height,
-                    color=color,
-                    colors=colors
-                )
+                # Build tool call parameters
+                tool_params = {
+                    'chart_type': chart_type,
+                    'data': data,
+                    'title': title,
+                    'x_label': x_label,
+                    'y_label': y_label,
+                    'width': width,
+                    'height': height,
+                }
+                if color:
+                    tool_params['color'] = color
+                if colors:
+                    tool_params['colors'] = colors
+                if highlighted_items:
+                    tool_params['highlighted_items'] = highlighted_items
+                    logger.info(f"   📌 Slide {slide_number}: Highlighting items: {highlighted_items}")
+                
+                result = generate_chart_tool(**tool_params)
                 
                 if result.get('status') == 'success' and result.get('chart_data'):
                     chart_data = result.get('chart_data')

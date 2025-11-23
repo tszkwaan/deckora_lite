@@ -28,7 +28,9 @@ def generate_bar_chart(
     y_label: str = "Value",
     width: int = 800,
     height: int = 600,
-    color: str = "#7C3AED"
+    color: str = "#7C3AED",
+    colors: Optional[List[str]] = None,
+    highlighted_items: Optional[List[str]] = None
 ) -> Optional[str]:
     """
     Generate a bar chart and return as base64-encoded PNG.
@@ -40,7 +42,9 @@ def generate_bar_chart(
         y_label: Y-axis label
         width: Chart width in pixels
         height: Chart height in pixels
-        color: Bar color (hex code)
+        color: Bar color (hex code) - used if colors not provided
+        colors: Optional list of colors for each bar (overrides color)
+        highlighted_items: Optional list of item names to highlight in brand color
     
     Returns:
         Base64-encoded PNG string, or None if Plotly is not available
@@ -61,12 +65,27 @@ def generate_bar_chart(
         logger.error(f"❌ Invalid data format for bar chart: {e}")
         return None
     
+    # Determine colors for each bar
+    bar_colors = []
+    if colors and len(colors) == len(data):
+        # Use provided colors array
+        bar_colors = colors
+    elif highlighted_items:
+        # Use highlighting: brand color for highlighted items, muted for others
+        brand_color = "#EC4899"  # Brand color for highlights
+        muted_color = "#94A3B8"  # Muted color for non-highlighted
+        highlighted_set = set(highlighted_items)
+        bar_colors = [brand_color if key in highlighted_set else muted_color for key in data.keys()]
+    else:
+        # Use single color for all bars
+        bar_colors = [color] * len(data)
+    
     try:
         fig = go.Figure(data=[
             go.Bar(
                 x=list(data.keys()),
                 y=list(data.values()),
-                marker_color=color,
+                marker_color=bar_colors,
                 text=list(data.values()),
                 textposition='auto',
             )
@@ -280,7 +299,7 @@ def generate_chart_from_spec(chart_spec: Dict[str, Any]) -> Optional[str]:
         logger.error("❌ Plotly not available. Cannot generate chart.")
         return None
     
-    chart_type = chart_spec.get("type", "bar").lower()
+    chart_type = chart_spec.get("chart_type", chart_spec.get("type", "bar")).lower()
     data = chart_spec.get("data", {})
     title = chart_spec.get("title", "Chart")
     width = chart_spec.get("width", 800)
@@ -294,7 +313,9 @@ def generate_chart_from_spec(chart_spec: Dict[str, Any]) -> Optional[str]:
             y_label=chart_spec.get("y_label", "Value"),
             width=width,
             height=height,
-            color=chart_spec.get("color", "#7C3AED")
+            color=chart_spec.get("color", "#7C3AED"),
+            colors=chart_spec.get("colors"),
+            highlighted_items=chart_spec.get("highlighted_items")
         )
     elif chart_type == "line":
         return generate_line_chart(
