@@ -891,7 +891,7 @@ def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, c
         script_section = script_map.get(slide_number)
         
         # Generate HTML fragment for this slide only (pass image_cache and usage tracker)
-        slide_html = _generate_slide_html_fragment(slide, script_section, idx, theme_colors, image_cache=image_cache, keyword_usage_tracker=keyword_usage_tracker)
+        slide_html = _generate_slide_html_fragment(slide, script_section, idx, theme_colors, config=config, image_cache=image_cache, keyword_usage_tracker=keyword_usage_tracker)
         
         # Extract slide-specific CSS (if any)
         slide_css = _generate_slide_css(slide, theme_colors)
@@ -930,7 +930,7 @@ def _generate_frontend_slides_data(slides: list, script_map: Dict, title: str, c
     }
 
 
-def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], slide_index: int, theme_colors: Optional[Dict] = None, image_cache: Optional[Dict] = None, keyword_usage_tracker: Optional[Dict] = None) -> str:
+def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], slide_index: int, theme_colors: Optional[Dict] = None, config: Optional[Dict] = None, image_cache: Optional[Dict] = None, keyword_usage_tracker: Optional[Dict] = None) -> str:
     """
     Generate HTML fragment for a single slide (without wrapper HTML structure).
     This is the HTML that will be inserted into the frontend's slide container.
@@ -990,44 +990,99 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         try:
             from presentation_agent.agents.tools.chart_generator_tool import generate_chart_tool
             
-            chart_type = chart_spec.get('chart_type', 'bar')
-            data = chart_spec.get('data', {})
-            title = chart_spec.get('title', 'Chart')
-            x_label = chart_spec.get('x_label')
-            y_label = chart_spec.get('y_label')
-            width = chart_spec.get('width', 800)
-            height = chart_spec.get('height', 600)
-            color = chart_spec.get('color')
-            colors = chart_spec.get('colors')
-            
-            # Filter out null values from data
-            filtered_data = {k: v for k, v in data.items() if v is not None}
-            
-            if not filtered_data:
-                logger.warning(f"⚠️  No valid data in chart_spec for slide {slide_number}")
-                chart_html = '<div class="chart-container"><p class="text-slate-400 italic">No chart data available</p></div>'
-            else:
-                result = generate_chart_tool(
-                    chart_type=chart_type,
-                    data=filtered_data,
-                    title=title,
-                    x_label=x_label,
-                    y_label=y_label,
-                    width=width,
-                    height=height,
-                    color=color,
-                    colors=colors
-                )
+            # Handle both dict and list chart_specs
+            if isinstance(chart_spec, list):
+                # Multiple charts - generate HTML for all of them
+                charts_html_list = []
+                for idx, spec in enumerate(chart_spec):
+                    if isinstance(spec, dict):
+                        chart_type = spec.get('chart_type', 'bar')
+                        data = spec.get('data', {})
+                        title = spec.get('title', f'Chart {idx+1}')
+                        x_label = spec.get('x_label')
+                        y_label = spec.get('y_label')
+                        width = spec.get('width', 700)
+                        height = spec.get('height', 350)
+                        color = spec.get('color')
+                        colors = spec.get('colors')
+                        
+                        # Filter out null values from data
+                        filtered_data = {k: v for k, v in data.items() if v is not None}
+                        
+                        if not filtered_data:
+                            logger.warning(f"⚠️  No valid data in chart_spec[{idx}] for slide {slide_number}")
+                            charts_html_list.append('<div class="chart-container"><p class="text-slate-400 italic">No chart data available</p></div>')
+                        else:
+                            result = generate_chart_tool(
+                                chart_type=chart_type,
+                                data=filtered_data,
+                                title=title,
+                                x_label=x_label,
+                                y_label=y_label,
+                                width=width,
+                                height=height,
+                                color=color,
+                                colors=colors
+                            )
+                            
+                            if result.get('status') == 'success' and result.get('chart_data'):
+                                generated_chart_data = result.get('chart_data')
+                                charts_html_list.append(f'<div class="chart-container"><img src="data:image/png;base64,{generated_chart_data}" alt="{title}" class="chart-image"></div>')
+                                logger.info(f"✅ Generated chart {idx+1} on-the-fly for slide {slide_number}")
+                            else:
+                                logger.warning(f"⚠️  Failed to generate chart {idx+1} for slide {slide_number}: {result.get('error', 'Unknown error')}")
+                                charts_html_list.append('<div class="chart-container"><p class="text-slate-400 italic">Chart generation failed</p></div>')
                 
-                if result.get('status') == 'success' and result.get('chart_data'):
-                    generated_chart_data = result.get('chart_data')
-                    chart_html = f'<div class="chart-container"><img src="data:image/png;base64,{generated_chart_data}" alt="{title}" class="chart-image"></div>'
-                    logger.info(f"✅ Generated chart on-the-fly for slide {slide_number}")
+                # Combine all charts into one HTML string
+                if charts_html_list:
+                    chart_html = '<div class="charts-container" style="display: flex; flex-direction: column; gap: 20px;">' + ''.join(charts_html_list) + '</div>'
                 else:
-                    logger.warning(f"⚠️  Failed to generate chart for slide {slide_number}: {result.get('error', 'Unknown error')}")
-                    chart_html = '<div class="chart-container"><p class="text-slate-400 italic">Chart generation failed</p></div>'
+                    chart_html = '<div class="chart-container"><p class="text-slate-400 italic">No charts generated</p></div>'
+            elif isinstance(chart_spec, dict):
+                # Single chart
+                chart_type = chart_spec.get('chart_type', 'bar')
+                data = chart_spec.get('data', {})
+                title = chart_spec.get('title', 'Chart')
+                x_label = chart_spec.get('x_label')
+                y_label = chart_spec.get('y_label')
+                width = chart_spec.get('width', 800)
+                height = chart_spec.get('height', 600)
+                color = chart_spec.get('color')
+                colors = chart_spec.get('colors')
+                
+                # Filter out null values from data
+                filtered_data = {k: v for k, v in data.items() if v is not None}
+                
+                if not filtered_data:
+                    logger.warning(f"⚠️  No valid data in chart_spec for slide {slide_number}")
+                    chart_html = '<div class="chart-container"><p class="text-slate-400 italic">No chart data available</p></div>'
+                else:
+                    result = generate_chart_tool(
+                        chart_type=chart_type,
+                        data=filtered_data,
+                        title=title,
+                        x_label=x_label,
+                        y_label=y_label,
+                        width=width,
+                        height=height,
+                        color=color,
+                        colors=colors
+                    )
+                    
+                    if result.get('status') == 'success' and result.get('chart_data'):
+                        generated_chart_data = result.get('chart_data')
+                        chart_html = f'<div class="chart-container"><img src="data:image/png;base64,{generated_chart_data}" alt="{title}" class="chart-image"></div>'
+                        logger.info(f"✅ Generated chart on-the-fly for slide {slide_number}")
+                    else:
+                        logger.warning(f"⚠️  Failed to generate chart for slide {slide_number}: {result.get('error', 'Unknown error')}")
+                        chart_html = '<div class="chart-container"><p class="text-slate-400 italic">Chart generation failed</p></div>'
+            else:
+                logger.warning(f"⚠️  Invalid chart_spec type for slide {slide_number}: {type(chart_spec)}")
+                chart_html = '<div class="chart-container"><p class="text-slate-400 italic">Invalid chart specification</p></div>'
         except Exception as e:
             logger.error(f"❌ Error generating chart for slide {slide_number}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             chart_html = '<div class="chart-container"><p class="text-slate-400 italic">Chart generation error</p></div>'
     else:
         # No chart_spec available
@@ -1139,6 +1194,33 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     alignment = design_spec.get("alignment", {})
     title_align = alignment.get("title", "left")
     
+    # Handle cover slide (first slide or explicit cover-slide layout)
+    if layout_type == "cover-slide" or slide_number == 1:
+        from presentation_agent.templates.template_helpers import render_cover_slide_html
+        
+        # Extract title and subtitle from content
+        subtitle = content.get("main_text") or content.get("subtitle") or ""
+        bullet_points = content.get("bullet_points", [])
+        if not subtitle and bullet_points:
+            subtitle = bullet_points[0]  # Use first bullet as subtitle if no main_text
+        
+        # Extract author info if available (from config or slide metadata)
+        author_name = config.get("author_name") if config else None
+        author_title = config.get("author_title") if config else None
+        
+        # Get presentation title from config or use slide title
+        presentation_title = config.get("title") if config else slide_title
+        
+        return render_cover_slide_html(
+            title=slide_title,
+            subtitle=subtitle,
+            author_name=author_name,
+            author_title=author_title,
+            slide_number=slide_number,
+            presentation_title=presentation_title,
+            theme_colors=theme_colors
+        )
+    
     # Handle custom template layouts
     if layout_type == "comparison-grid":
         # Extract sections from content or visual_elements
@@ -1147,12 +1229,44 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
             # Try to build sections from bullet_points or other content
             sections = []
             bullet_points = content.get("bullet_points", [])
+            image_keywords = visual_elements.get("image_keywords", [])
+            icons_suggested = visual_elements.get("icons_suggested", [])
+            
+            # Use icons_suggested first, then image_keywords, then generic keywords
+            icon_sources = icons_suggested + image_keywords
+            if not icon_sources:
+                # Generate generic keywords from title/content
+                title_lower = slide_title.lower()
+                if "defense" in title_lower or "strategy" in title_lower:
+                    icon_sources = ["shield", "security", "protection", "lock"]
+                elif "vulnerability" in title_lower or "threat" in title_lower:
+                    icon_sources = ["warning", "alert", "security", "danger"]
+                elif "result" in title_lower or "effectiveness" in title_lower:
+                    icon_sources = ["chart", "analytics", "data", "graph"]
+                else:
+                    icon_sources = ["document", "info", "feature", "item"]
+            
             if bullet_points:
                 # Create sections from bullet points (max 4)
                 for i, point in enumerate(bullet_points[:4]):
+                    # Extract title (first 3-5 words) and content (rest)
+                    words = point.split()
+                    if len(words) > 5:
+                        title_words = words[:5]
+                        content_words = words[5:]
+                        section_title = " ".join(title_words)
+                        section_content = " ".join(content_words)
+                    else:
+                        section_title = f"Item {i+1}"
+                        section_content = point
+                    
+                    # Assign image_keyword
+                    image_keyword = icon_sources[i] if i < len(icon_sources) else icon_sources[i % len(icon_sources)] if icon_sources else "document"
+                    
                     sections.append({
-                        "title": f"Section {i+1}",
-                        "content": point,
+                        "title": section_title,
+                        "content": section_content,
+                        "image_keyword": image_keyword,
                         "highlight": False
                     })
         
@@ -1253,6 +1367,45 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     
     elif layout_type == "icon-row":
         icon_items = visual_elements.get("icon_items", [])
+        
+        # Fallback: Auto-generate icon_items from bullet_points + image_keywords/icons_suggested
+        if not icon_items:
+            bullet_points = content.get("bullet_points", [])
+            image_keywords = visual_elements.get("image_keywords", [])
+            icons_suggested = visual_elements.get("icons_suggested", [])
+            
+            # Use icons_suggested first, then image_keywords, then generic keywords
+            icon_sources = icons_suggested + image_keywords
+            if not icon_sources:
+                # Generate generic keywords from title/content
+                title_lower = slide_title.lower()
+                if "benchmark" in title_lower or "evaluation" in title_lower:
+                    icon_sources = ["checklist", "database", "analytics"]
+                elif "defense" in title_lower or "strategy" in title_lower:
+                    icon_sources = ["shield", "security", "protection"]
+                elif "vulnerability" in title_lower or "threat" in title_lower:
+                    icon_sources = ["warning", "alert", "security"]
+                else:
+                    icon_sources = ["document", "info", "feature"]
+            
+            # Create icon_items from bullet_points (max 4)
+            for i, point in enumerate(bullet_points[:4]):
+                if i < len(icon_sources):
+                    icon_keyword = icon_sources[i]
+                else:
+                    icon_keyword = icon_sources[i % len(icon_sources)] if icon_sources else "document"
+                
+                # Extract short label from bullet point (first 5-8 words)
+                words = point.split()[:8]
+                label = " ".join(words)
+                if len(point.split()) > 8:
+                    label += "..."
+                
+                icon_items.append({
+                    "label": label,
+                    "image_keyword": icon_keyword
+                })
+        
         if icon_items:
             subtitle = content.get("main_text") or None
             return render_icon_row_html(
@@ -1313,12 +1466,67 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 image_cache=image_cache,
             )
     
+    # Fallback for content-with-chart when chart_spec is missing
+    if layout_type == "content-with-chart" and not chart_html:
+        # If chart is missing, fall back to content-text layout
+        layout_type = "content-text"
+    
     # Default layout (existing behavior)
     has_chart = chart_html != ""
     has_images = images_html != ""
     layout_class = "slide-with-chart" if charts_needed else ("slide-with-images" if has_images else "slide-text-only")
     body_font_size = design_spec.get("body_font_size", 16)
     body_align = alignment.get("body", "left")
+    
+    # Check for fancy content-text template BEFORE other layouts
+    # This should be checked early, but after all custom layouts
+    # Use fancy template for content-text slides with bullet points (even if they have image_keywords)
+    if layout_type == "content-text" and bullet_points and len(bullet_points) >= 2 and not (charts_needed and has_chart):
+        try:
+            from presentation_agent.templates.template_helpers import render_fancy_content_text_html
+            
+            # Extract icon keyword from visual_elements if available
+            icon_keyword = None
+            icon_name = "syringe"  # Default icon
+            if visual_elements.get("image_keywords"):
+                icon_keyword = visual_elements["image_keywords"][0]
+            elif visual_elements.get("icons_suggested"):
+                icon_keyword = visual_elements["icons_suggested"][0]
+            
+            # Try to infer icon name from title or content
+            title_lower = slide_title.lower()
+            if "injection" in title_lower or "threat" in title_lower or "problem" in title_lower:
+                icon_name = "syringe"
+            elif "security" in title_lower or "defense" in title_lower:
+                icon_name = "shield"
+            elif "analysis" in title_lower or "data" in title_lower or "finding" in title_lower:
+                icon_name = "analytics"
+            elif "process" in title_lower or "workflow" in title_lower:
+                icon_name = "settings"
+            elif "benchmark" in title_lower or "bipia" in title_lower:
+                icon_name = "database"
+            elif "conclusion" in title_lower:
+                icon_name = "lightbulb"
+            else:
+                icon_name = "lightbulb"
+            
+            fancy_html = render_fancy_content_text_html(
+                title=slide_title,
+                bullet_points=bullet_points,
+                icon_keyword=icon_keyword,
+                icon_name=icon_name,
+                theme_colors=theme_colors,
+                image_cache=image_cache
+            )
+            if fancy_html:
+                logger.info(f"✅ Using fancy template for slide {slide_number}")
+                return fancy_html
+            else:
+                logger.warning(f"⚠️  Fancy template returned None for slide {slide_number}, falling back to standard template")
+        except Exception as e:
+            logger.error(f"❌ Error rendering fancy template for slide {slide_number}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     # Generate HTML fragment (just the slide content, no wrapper)
     # For slides with charts, wrap body and chart in a content-wrapper
@@ -1350,8 +1558,58 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     </div>
 """
     else:
-        # Text-only slide
-        slide_html = f"""
+        # Text-only slide - use fancy template if it's a content-text layout with bullet points
+        # Ensure bullet_points is defined (it should be from line 947)
+        if not bullet_points:
+            bullet_points = content.get("bullet_points", [])
+        
+        logger.debug(f"Slide {slide_number}: layout_type={layout_type}, bullet_points={bullet_points}, len={len(bullet_points) if bullet_points else 0}")
+        
+        if layout_type == "content-text" and bullet_points and len(bullet_points) >= 2:
+            logger.info(f"🎨 Using fancy template for slide {slide_number} (content-text with {len(bullet_points)} bullet points)")
+            try:
+                from presentation_agent.templates.template_helpers import render_fancy_content_text_html
+                
+                # Extract icon keyword from visual_elements if available
+                icon_keyword = None
+                icon_name = "syringe"  # Default icon
+                if visual_elements.get("image_keywords"):
+                    icon_keyword = visual_elements["image_keywords"][0]
+                elif visual_elements.get("icons_suggested"):
+                    icon_keyword = visual_elements["icons_suggested"][0]
+                
+                # Try to infer icon name from title or content
+                title_lower = slide_title.lower()
+                if "injection" in title_lower or "threat" in title_lower:
+                    icon_name = "syringe"
+                elif "security" in title_lower or "defense" in title_lower:
+                    icon_name = "shield"
+                elif "analysis" in title_lower or "data" in title_lower:
+                    icon_name = "analytics"
+                elif "process" in title_lower or "workflow" in title_lower:
+                    icon_name = "settings"
+                else:
+                    icon_name = "lightbulb"
+                
+                fancy_html = render_fancy_content_text_html(
+                    title=slide_title,
+                    bullet_points=bullet_points,
+                    icon_keyword=icon_keyword,
+                    icon_name=icon_name,
+                    theme_colors=theme_colors,
+                    image_cache=image_cache
+                )
+                if fancy_html:
+                    return fancy_html
+                else:
+                    logger.warning(f"⚠️  Fancy template returned None for slide {slide_number}, falling back to standard template")
+            except Exception as e:
+                logger.error(f"❌ Error rendering fancy template for slide {slide_number}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+        else:
+            # Standard text-only slide
+            slide_html = f"""
     <div class="slide-content {layout_class}">
         <h1 class="slide-title" style="font-size: {title_font_size}pt; text-align: {title_align};">{slide_title}</h1>
         <div class="slide-body" style="font-size: {body_font_size}pt; text-align: {body_align};">
@@ -1361,7 +1619,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         {icons_html}
     </div>
 """
-    return slide_html.strip()
+            return slide_html.strip()
 
 
 def _generate_slide_css(slide: Dict, theme_colors: Dict) -> str:

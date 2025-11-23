@@ -45,14 +45,14 @@ def render_comparison_section_html(section_data: Dict, theme_colors: Optional[Di
         icon_html = f'<img src="{section_data["image_url"]}" class="section-icon" alt="{section_data.get("title", "")}" />'
     elif section_data.get('image_keyword'):
         # Use cache if available, otherwise generate
-        image_url = _get_image_from_cache_or_generate(section_data['image_keyword'], image_cache)
+        image_url = get_image_url(section_data['image_keyword'], source="generative", is_logo=False)
         icon_html = f'<img src="{image_url}" class="section-icon" alt="{section_data.get("title", "")}" />'
     elif section_data.get('image'):
         # Legacy support: if image is a URL, use it; otherwise treat as keyword
         if section_data['image'].startswith('http'):
             icon_html = f'<img src="{section_data["image"]}" class="section-icon" alt="{section_data.get("title", "")}" />'
         else:
-            image_url = _get_image_from_cache_or_generate(section_data['image'], image_cache)
+            image_url = get_image_url(section_data['image'], source="generative", is_logo=False)
             icon_html = f'<img src="{image_url}" class="section-icon" alt="{section_data.get("title", "")}" />'
     elif section_data.get('icon_url'):  # Legacy support
         icon_html = f'<img src="{section_data["icon_url"]}" class="section-icon" alt="{section_data.get("icon", "")}" />'
@@ -373,14 +373,14 @@ def render_icon_feature_card_html(
         icon_html = f'<img src="{image_url}" class="feature-icon" alt="{title}" />'
     elif image_keyword:
         # Use cache if available, otherwise generate
-        image_url = _get_image_from_cache_or_generate(image_keyword, image_cache)
+        image_url = get_image_url(image_keyword, source="generative", is_logo=False)
         icon_html = f'<img src="{image_url}" class="feature-icon" alt="{title}" />'
     elif image:
         # If image is a URL, use it; otherwise treat as keyword
         if image.startswith('http'):
             icon_html = f'<img src="{image}" class="feature-icon" alt="{title}" />'
         else:
-            image_url = _get_image_from_cache_or_generate(image, image_cache)
+            image_url = get_image_url(image, source="generative", is_logo=False)
             icon_html = f'<img src="{image_url}" class="feature-icon" alt="{title}" />'
     elif icon_url:  # Legacy support
         icon_html = f'<img src="{icon_url}" class="feature-icon" alt="{icon or title}" />'
@@ -431,12 +431,14 @@ def render_icon_row_html(
         # Get image URL
         image_url = item.get('image_url')
         if not image_url and item.get('image_keyword'):
-            image_url = _get_image_from_cache_or_generate(item['image_keyword'], image_cache)
+            from presentation_agent.templates.image_helper import get_image_url
+            image_url = get_image_url(item['image_keyword'], source="generative", is_logo=False)
         elif not image_url and item.get('image'):
             if item['image'].startswith('http'):
                 image_url = item['image']
             else:
-                image_url = _get_image_from_cache_or_generate(item['image'], image_cache)
+                from presentation_agent.templates.image_helper import get_image_url
+                image_url = get_image_url(item['image'], source="generative", is_logo=False)
         
         icon_html = f'<img src="{image_url}" alt="{item.get("label", "")}" />' if image_url else ''
         label = item.get('label', '')
@@ -491,12 +493,12 @@ def render_icon_sequence_html(
         # Get image URL
         image_url = item.get('image_url')
         if not image_url and item.get('image_keyword'):
-            image_url = _get_image_from_cache_or_generate(item['image_keyword'], image_cache)
+            image_url = get_image_url(item['image_keyword'], source="generative", is_logo=False)
         elif not image_url and item.get('image'):
             if item['image'].startswith('http'):
                 image_url = item['image']
             else:
-                image_url = _get_image_from_cache_or_generate(item['image'], image_cache)
+                image_url = get_image_url(item['image'], source="generative", is_logo=False)
         
         icon_html = f'<img src="{image_url}" alt="{item.get("label", "")}" />' if image_url else ''
         label = item.get('label', '')
@@ -562,12 +564,12 @@ def render_linear_process_html(
         # Get image URL
         image_url = step.get('image_url')
         if not image_url and step.get('image_keyword'):
-            image_url = _get_image_from_cache_or_generate(step['image_keyword'], image_cache)
+            image_url = get_image_url(step['image_keyword'], source="generative", is_logo=False)
         elif not image_url and step.get('image'):
             if step['image'].startswith('http'):
                 image_url = step['image']
             else:
-                image_url = _get_image_from_cache_or_generate(step['image'], image_cache)
+                image_url = get_image_url(step['image'], source="generative", is_logo=False)
         
         icon_html = f'<img src="{image_url}" alt="{step.get("label", "")}" />' if image_url else ''
         label = step.get('label', f'Step {step_number}')
@@ -629,7 +631,7 @@ def render_workflow_diagram_html(
         for inp in inputs:
             image_url = inp.get('image_url')
             if not image_url and inp.get('image_keyword'):
-                image_url = _get_image_from_cache_or_generate(inp['image_keyword'], image_cache)
+                image_url = get_image_url(inp['image_keyword'], source="generative", is_logo=False)
             
             icon_html = f'<img src="{image_url}" alt="{inp.get("label", "")}" />' if image_url else ''
             label = inp.get('label', '')
@@ -650,7 +652,7 @@ def render_workflow_diagram_html(
     for proc in processes:
         image_url = proc.get('image_url')
         if not image_url and proc.get('image_keyword'):
-            image_url = _get_image_from_cache_or_generate(proc['image_keyword'], image_cache)
+            image_url = get_image_url(proc['image_keyword'], source="generative", is_logo=False)
         
         icon_html = f'<img src="{image_url}" alt="{proc.get("label", "")}" />' if image_url else ''
         label = proc.get('label', '')
@@ -671,7 +673,7 @@ def render_workflow_diagram_html(
         for out in outputs:
             image_url = out.get('image_url')
             if not image_url and out.get('image_keyword'):
-                image_url = _get_image_from_cache_or_generate(out['image_keyword'], image_cache)
+                image_url = get_image_url(out['image_keyword'], source="generative", is_logo=False)
             
             icon_html = f'<img src="{image_url}" alt="{out.get("label", "")}" />' if image_url else ''
             label = out.get('label', '')
@@ -745,7 +747,7 @@ def render_process_flow_html(
         for inp in inputs:
             image_url = inp.get('image_url')
             if not image_url and inp.get('image_keyword'):
-                image_url = _get_image_from_cache_or_generate(inp['image_keyword'], image_cache)
+                image_url = get_image_url(inp['image_keyword'], source="generative", is_logo=False)
             
             icon_html = f'<img src="{image_url}" alt="{inp.get("label", "")}" />' if image_url else ''
             label = inp.get('label', '')
@@ -762,7 +764,7 @@ def render_process_flow_html(
         process = stage.get('process', {})
         process_image_url = process.get('image_url')
         if not process_image_url and process.get('image_keyword'):
-            process_image_url = _get_image_from_cache_or_generate(process['image_keyword'], image_cache)
+            process_image_url = get_image_url(process['image_keyword'], source="generative", is_logo=False)
         
         process_icon_html = f'<img src="{process_image_url}" alt="{process.get("label", "")}" />' if process_image_url else ''
         process_label = process.get('label', '')
@@ -779,7 +781,7 @@ def render_process_flow_html(
         output = stage.get('output', {})
         output_image_url = output.get('image_url')
         if not output_image_url and output.get('image_keyword'):
-            output_image_url = _get_image_from_cache_or_generate(output['image_keyword'], image_cache)
+            output_image_url = get_image_url(output['image_keyword'], source="generative", is_logo=False)
         
         output_icon_html = f'<img src="{output_image_url}" alt="{output.get("label", "")}" />' if output_image_url else ''
         output_label = output.get('label', '')
@@ -817,4 +819,506 @@ def render_process_flow_html(
     }
     
     return render_template('process-flow', variables, theme_colors)
+
+
+def render_cover_slide_html(
+    title: str,
+    subtitle: str = "",
+    author_name: Optional[str] = None,
+    author_title: Optional[str] = None,
+    slide_number: int = 1,
+    presentation_title: Optional[str] = None,
+    theme_colors: Optional[Dict] = None
+) -> str:
+    """
+    Render a modern cover slide with the provided template design.
+    
+    Args:
+        title: Main title of the presentation
+        subtitle: Subtitle or description
+        author_name: Author name (optional)
+        author_title: Author title/role (optional)
+        slide_number: Current slide number (default: 1)
+        presentation_title: Presentation title/branding (optional)
+        theme_colors: Optional theme colors dict
+        
+    Returns:
+        Rendered HTML string for the cover slide
+    """
+    # Default theme colors
+    if theme_colors is None:
+        theme_colors = {
+            "primary": "#6366F1",  # indigo-500
+            "background_light": "#F5F3FF",  # violet-50
+            "background_dark": "#111827",  # gray-900
+        }
+    
+    primary_color = theme_colors.get("primary", "#6366F1")
+    background_light = theme_colors.get("background_light", "#F5F3FF")
+    background_dark = theme_colors.get("background_dark", "#111827")
+    
+    # Extract main title and subtitle from title if needed
+    # Title might be in format "Main Title: Subtitle" or just "Main Title"
+    main_title = title
+    if ":" in title:
+        parts = title.split(":", 1)
+        main_title = parts[0].strip()
+        if not subtitle:
+            subtitle = parts[1].strip()
+    
+    # Format subtitle - use provided or default
+    if not subtitle:
+        subtitle = "An in-depth analysis and presentation"
+    
+    # Extract header text (like "Q4 2024 Business Review") - try to get from subtitle or use a default
+    # If subtitle contains date/event info, use it as header
+    header_text = ""
+    if subtitle and ("|" in subtitle or "presented by" in subtitle.lower()):
+        # Subtitle might be "Presented by [Name] | [Event/Date]"
+        # Extract the event/date part for header
+        if "|" in subtitle:
+            parts = subtitle.split("|")
+            if len(parts) > 1:
+                header_text = parts[1].strip()
+                subtitle = parts[0].replace("Presented by", "").strip()
+    
+    # If no header extracted, try to create one from config or use subtitle first part
+    if not header_text:
+        # Try to extract from subtitle or use a generic header
+        if subtitle and len(subtitle) < 50:
+            header_text = subtitle.upper()
+        else:
+            header_text = "PRESENTATION"
+    
+    # Author info
+    author_html = ""
+    if author_name:
+        author_title_text = author_title or ""
+        author_html = f"""
+            <div class="pt-4">
+                <p class="font-semibold text-gray-800 dark:text-gray-100">{author_name}</p>
+                {f'<p class="text-sm text-gray-500 dark:text-gray-400">{author_title_text}</p>' if author_title_text else ''}
+            </div>
+        """
+    
+    # Presentation title/branding (use presentation_title or extract from title)
+    branding_text = presentation_title or main_title.split()[0] if main_title else "Deckora"
+    
+    # Split title into parts for highlighting (e.g., "The Future of FirmWise" -> "The Future of <span>FirmWise</span>")
+    # Try to find a significant word to highlight (usually the last word or a key term)
+    title_parts = main_title.split()
+    if len(title_parts) > 2:
+        # Highlight last word or significant word
+        highlighted_word = title_parts[-1]
+        title_with_highlight = " ".join(title_parts[:-1]) + f' <span class="text-primary">{highlighted_word}</span>'
+    elif len(title_parts) == 2:
+        # Highlight second word
+        title_with_highlight = f'{title_parts[0]} <span class="text-primary">{title_parts[1]}</span>'
+    else:
+        title_with_highlight = main_title
+    
+    # Generate HTML using the provided template structure with explicit styling
+    html = f"""
+<div class="cover-slide-wrapper">
+    <div aria-hidden="true" class="background-shape">
+        <div class="shape-1"></div>
+        <div class="shape-2"></div>
+    </div>
+    <main class="cover-slide-main">
+        <div class="cover-slide-grid">
+            <div class="cover-slide-left">
+                <div class="cover-slide-header">
+                    {f'<span class="cover-slide-header-text">{header_text}</span>' if header_text else ''}
+                    <h1 class="cover-slide-title">
+                        {title_with_highlight}
+                    </h1>
+                </div>
+                <p class="cover-slide-subtitle">
+                    {subtitle}
+                </p>
+                {author_html}
+            </div>
+            <div class="cover-slide-right">
+                <div class="cover-slide-icon-circle">
+                    <div class="cover-slide-icon-circle-outer"></div>
+                    <div class="cover-slide-icon-circle-inner"></div>
+                </div>
+            </div>
+        </div>
+        <div class="cover-slide-top-right">
+            <span>{branding_text}</span>
+            <span class="cover-slide-divider"></span>
+            <span>{str(slide_number).zfill(2)}</span>
+        </div>
+    </main>
+</div>
+"""
+    
+    # Add comprehensive CSS for the cover slide with explicit styling
+    css = f"""
+        .cover-slide-wrapper {{
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background-color: {background_light};
+        }}
+        .cover-slide-wrapper .background-shape {{
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+            overflow: hidden;
+        }}
+        .cover-slide-wrapper .background-shape div {{
+            position: absolute;
+            transition: all 0.3s ease;
+        }}
+        .cover-slide-wrapper .shape-1 {{
+            width: 65%;
+            height: 100%;
+            background-color: white;
+            clip-path: polygon(0 0, 100% 0, 85% 100%, 0% 100%);
+        }}
+        .cover-slide-wrapper .shape-2 {{
+            width: 60%;
+            height: 80%;
+            bottom: 0;
+            right: 0;
+            background-color: {primary_color}1A;
+            clip-path: polygon(25% 0, 100% 0, 100% 100%, 0% 100%);
+        }}
+        .cover-slide-main {{
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 32px 48px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }}
+        .cover-slide-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 64px;
+            align-items: center;
+            flex: 1;
+        }}
+        .cover-slide-left {{
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+        }}
+        .cover-slide-header {{
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }}
+        .cover-slide-header-text {{
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #6B7280;
+        }}
+        .cover-slide-title {{
+            font-size: 48px;
+            line-height: 1.1;
+            font-weight: 700;
+            color: #111827;
+            margin: 0;
+        }}
+        .cover-slide-title .text-primary {{
+            color: {primary_color};
+        }}
+        .cover-slide-subtitle {{
+            font-size: 18px;
+            line-height: 1.6;
+            color: #4B5563;
+            margin: 0;
+        }}
+        .cover-slide-right {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }}
+        .cover-slide-icon-circle {{
+            position: relative;
+            width: 288px;
+            height: 288px;
+        }}
+        .cover-slide-icon-circle-outer {{
+            position: absolute;
+            inset: 0;
+            background-color: {primary_color};
+            border-radius: 50%;
+            opacity: 0.1;
+            transform: scale(1.1);
+        }}
+        .cover-slide-icon-circle-inner {{
+            position: absolute;
+            inset: 16px;
+            background-color: {primary_color};
+            border-radius: 50%;
+            opacity: 0.2;
+        }}
+        .cover-slide-top-right {{
+            position: absolute;
+            top: 32px;
+            right: 32px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 14px;
+            color: #6B7280;
+        }}
+        .cover-slide-divider {{
+            width: 1px;
+            height: 16px;
+            background-color: #D1D5DB;
+        }}
+        @media (max-width: 768px) {{
+            .cover-slide-grid {{
+                grid-template-columns: 1fr;
+            }}
+            .cover-slide-right {{
+                display: none;
+            }}
+            .cover-slide-title {{
+                font-size: 36px;
+            }}
+        }}
+    """
+    
+    return f'<style>{css}</style>{html}'
+
+
+def render_fancy_content_text_html(
+    title: str,
+    bullet_points: List[str],
+    icon_keyword: Optional[str] = None,
+    icon_name: str = "syringe",
+    theme_colors: Optional[Dict] = None,
+    image_cache: Optional[Dict] = None
+) -> str:
+    """
+    Render a fancy content-text slide with dot grid background, two-column layout,
+    Material Symbols icons for bullets, and decorative circular icon on the right.
+    
+    Args:
+        title: Slide title
+        bullet_points: List of bullet point strings
+        icon_keyword: Optional keyword for generating an icon image
+        icon_name: Material Symbol name (default: "syringe")
+        theme_colors: Optional theme colors dict
+        image_cache: Optional pre-generated image cache
+        
+    Returns:
+        Rendered HTML string
+    """
+    # Default theme colors
+    if theme_colors is None:
+        theme_colors = {
+            "primary": "#6D28D9",
+            "background": "#F8FAFC",  # slate-50
+            "text": "#1F2937"
+        }
+    
+    primary_color = theme_colors.get("primary", "#6D28D9")
+    # Use light grey background for fancy template (slate-50)
+    background_color = "#F8FAFC"  # Always use slate-50 for fancy template, regardless of theme
+    
+    # Generate bullet points HTML with Material Symbols icons
+    bullets_html = ""
+    for point in bullet_points:
+        bullets_html += f"""
+            <li class="fancy-bullet-item">
+                <span class="material-symbols-outlined fancy-bullet-icon">keyboard_double_arrow_right</span>
+                <p class="fancy-bullet-text">{point}</p>
+            </li>
+        """
+    
+    # Generate decorative icon on the right
+    # If icon_keyword is provided, try to get an image, otherwise use Material Symbol
+    icon_html = ""
+    if icon_keyword and image_cache:
+        # Try to get image from cache
+        keyword_lower = icon_keyword.lower().strip()
+        if keyword_lower in image_cache:
+            image_urls = image_cache[keyword_lower]
+            if image_urls:
+                icon_html = f'<img src="{image_urls[0]}" class="fancy-icon-image" alt="{icon_keyword}" />'
+    
+    # If no image, use Material Symbol
+    if not icon_html:
+        icon_html = f'<span class="material-symbols-outlined fancy-icon-symbol">{icon_name}</span>'
+    
+    # Generate HTML
+    html = f"""
+<div class="fancy-content-slide">
+    <div class="fancy-content-grid">
+        <div class="fancy-content-left">
+            <h1 class="fancy-content-title">{title}</h1>
+            <ul class="fancy-bullet-list">
+                {bullets_html}
+            </ul>
+        </div>
+        <div class="fancy-content-right">
+            <div class="fancy-icon-container">
+                <div class="fancy-icon-glow-outer"></div>
+                <div class="fancy-icon-border-outer"></div>
+                <div class="fancy-icon-border-inner"></div>
+                <div class="fancy-icon-center">
+                    {icon_html}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+"""
+    
+    # Generate CSS with !important flags to override global styles
+    css = f"""
+        .fancy-content-slide {{
+            width: 100% !important;
+            height: 100% !important;
+            background-color: {background_color} !important;
+            background-image: radial-gradient(circle at 1px 1px, #94a3b8 1px, transparent 0) !important;
+            background-size: 2rem 2rem !important;
+            padding: 48px 64px !important;
+            box-sizing: border-box !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            margin: 0 !important;
+        }}
+        .fancy-content-grid {{
+            display: grid !important;
+            grid-template-columns: 1fr 1fr !important;
+            gap: 48px !important;
+            align-items: center !important;
+            width: 100% !important;
+            max-width: 1152px !important;
+            margin: 0 auto !important;
+        }}
+        .fancy-content-left {{
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 32px !important;
+        }}
+        .fancy-content-title {{
+            font-size: 48px !important;
+            font-weight: 700 !important;
+            line-height: 1.2 !important;
+            color: #0F172A !important;
+            margin: 0 !important;
+        }}
+        .fancy-bullet-list {{
+            list-style: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 24px !important;
+        }}
+        .fancy-bullet-item {{
+            display: flex !important;
+            align-items: flex-start !important;
+            gap: 16px !important;
+        }}
+        .fancy-bullet-icon {{
+            font-size: 24px !important;
+            color: {primary_color} !important;
+            margin-top: 4px !important;
+            flex-shrink: 0 !important;
+        }}
+        .fancy-bullet-text {{
+            font-size: 18px !important;
+            line-height: 1.6 !important;
+            color: #475569 !important;
+            margin: 0 !important;
+        }}
+        .fancy-content-right {{
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+        }}
+        .fancy-icon-container {{
+            position: relative !important;
+            width: 288px !important;
+            height: 288px !important;
+        }}
+        .fancy-icon-glow-outer {{
+            position: absolute !important;
+            inset: 0 !important;
+            background-color: {primary_color}1A !important;
+            border-radius: 50% !important;
+            filter: blur(32px) !important;
+        }}
+        .fancy-icon-border-outer {{
+            position: absolute !important;
+            inset: 0 !important;
+            border: 2px solid {primary_color}80 !important;
+            border-radius: 50% !important;
+            animation: fancy-pulse 2s ease-in-out infinite !important;
+        }}
+        .fancy-icon-border-inner {{
+            position: absolute !important;
+            inset: 16px !important;
+            border: 1px solid {primary_color}80 !important;
+            border-radius: 50% !important;
+        }}
+        .fancy-icon-center {{
+            position: absolute !important;
+            inset: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            background: rgba(255, 255, 255, 0.5) !important;
+            backdrop-filter: blur(12px) !important;
+            border-radius: 50% !important;
+            border: 1px solid rgba(226, 232, 240, 0.5) !important;
+            box-shadow: 0 20px 25px -5px {primary_color}1A, 0 10px 10px -5px {primary_color}0D !important;
+        }}
+        .fancy-icon-symbol {{
+            font-size: 128px !important;
+            color: {primary_color} !important;
+        }}
+        .fancy-icon-image {{
+            width: 200px !important;
+            height: 200px !important;
+            object-fit: cover !important;
+            border-radius: 50% !important;
+        }}
+        @keyframes fancy-pulse {{
+            0%, 100% {{
+                opacity: 0.5;
+            }}
+            50% {{
+                opacity: 1;
+            }}
+        }}
+        @media (max-width: 768px) {{
+            .fancy-content-grid {{
+                grid-template-columns: 1fr;
+            }}
+            .fancy-content-right {{
+                display: none;
+            }}
+            .fancy-content-title {{
+                font-size: 36px;
+            }}
+        }}
+    """
+    
+    return f'<style>{css}</style>{html}'
 

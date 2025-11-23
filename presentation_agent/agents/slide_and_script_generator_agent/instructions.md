@@ -323,15 +323,22 @@ CRITICAL REQUIREMENTS
      * **VISUAL-FIRST APPROACH:** Always consider if a visual component can replace text-heavy content. Prefer visual layouts over text-only slides.
      * Select appropriate `layout_type` in `design_spec` based on content:
        - **PREFER** `"comparison-grid"` when comparing 2-4 items/concepts (e.g., models, methods, scenarios) OR when outline suggests "comparison grid" OR when custom instruction requires "icon-feature card" - **This is more engaging than bullet points**
-       - **PREFER** `"data-table"` when displaying structured tabular data (e.g., results table, metrics comparison) OR when outline suggests "table" - **This is clearer than listing data in text**
+       - **CRITICAL: When comparing exactly 2 items (strategies, methods, approaches, defenses) → Use `comparison-grid` with 2 sections in left/right layout**
+       - **MANDATORY: Use `"data-table"`** when displaying structured tabular data, experimental results, evaluation metrics, performance comparisons, OR when outline suggests "table" - **This is clearer than listing data in text. Experimental results slides MUST use data-table, not icons/text.**
        - **PREFER** `"flowchart"` when showing a process flow OR when outline suggests "flowchart" (provide `visual_elements.flowchart_steps` array) - **This visualizes the process better than text**
        - **PREFER** `"timeline"` when showing progression, steps, or chronological flow OR when outline suggests "timeline" - **This shows progression visually**
-       - **PREFER** `"icon-row"` when showing 2-4 problems, features, or concepts with icons (provide `visual_elements.icon_items` array) - **Great for problem statements, feature highlights**
+       - **PREFER** `"icon-row"` when showing 2-4 problems, features, or concepts with icons - **Great for problem statements, feature highlights**
+      - **CRITICAL:** If you set `layout_type: "icon-row"`, you MUST provide `visual_elements.icon_items` array with 2-4 items. Each item must have:
+        - `label`: Short label/text (REQUIRED)
+        - `image_keyword`: Keyword for image generation (REQUIRED, e.g., "security", "shield", "warning", "analytics", "research")
+        - Optional: `image_url`, `description`
+      - **CRITICAL:** Never leave `icon_items` empty or missing when using `icon-row` layout.
        - **PREFER** `"icon-sequence"` when showing a sequence/flow with 3+ icons and connectors (provide `visual_elements.sequence_items` array) - **Great for process visualization, relationship mapping**
        - **PREFER** `"linear-process"` when showing a step-by-step pipeline (provide `visual_elements.process_steps` array) - **Great for sequential workflows, pipelines**
        - **PREFER** `"workflow-diagram"` when showing complex workflow with inputs/processes/outputs (provide `visual_elements.workflow` object) - **Great for system architecture, multi-stage processes**
        - **PREFER** `"process-flow"` when showing flowchart-style process with multiple stages (provide `visual_elements.flow_stages` array) - **Great for training pipelines, complex workflows**
        - **PREFER** `"content-with-chart"` when you have both text content and a chart (but prefer `data-table` if data is tabular) - **Charts are more engaging than text descriptions**
+      - **CRITICAL:** If you set `layout_type: "content-with-chart"`, you MUST provide `visual_elements.chart_spec` with chart data. Never leave it empty or missing.
        - **USE SPARINGLY** `"content-text"` for standard text-only slides - **Only when visual components are truly not applicable** (NOTE: This template does NOT support icons/images - if you need icons, use `comparison-grid` or `icon-row` instead)
      * **For `comparison-grid`:** You MUST provide `visual_elements.sections` array with 2-4 section objects: `[{"title": "...", "content": "...", "image_keyword": "..."}, ...]`. Each section should have:
        - `title`: Section title (REQUIRED)
@@ -476,10 +483,12 @@ CRITICAL REQUIREMENTS
        - Instead of: "Method A: Fast but inaccurate. Method B: Slow but accurate."
        - Use: comparison-grid with 2 sections, each with an image_keyword and concise title/content
        - Example: Security features comparison, evaluation methods, model types
+       - **CRITICAL: When comparing exactly 2 items (strategies, methods, approaches, defenses) → Use `comparison-grid` with 2 sections in left/right layout. Each section should have: title, description, and optional image_keyword.**
      * **Use `data-table`** when presenting structured data, metrics, or results:
        - Instead of: "Model A: 92% accuracy. Model B: 85% accuracy. Model C: 78% accuracy."
        - Use: data-table with headers and rows showing the comparison clearly
        - Example: Performance metrics, financial data, comparison results
+       - **MANDATORY for experimental results, evaluation metrics, performance comparisons, vulnerability analysis results, defense effectiveness data. If a slide discusses experimental results or quantitative findings, you MUST use `data-table` instead of icons/text.**
      * **Use `flowchart`** when showing a process, workflow, or sequence:
        - Instead of: "Step 1: Input → Step 2: Process → Step 3: Output"
        - Use: flowchart with visual flow arrows and step labels
@@ -492,10 +501,16 @@ CRITICAL REQUIREMENTS
        - Instead of: "Revenue increased 25% year-over-year"
        - Use: chart showing the trend visually with minimal text
        - Example: Growth trends, performance metrics, statistical comparisons
+     * **Use `icon-row`** when explaining 2 key concepts/points with visual representation:
+       - Instead of: Vertical bullet points with icons on the side
+       - Use: icon-row with 2 items, each with icon above and text below
+       - Example: "Why Models are Vulnerable?" with 2 core issues, each with an icon and description
+       - Format: `visual_elements.icon_items: [{"icon": "...", "label": "...", "description": "..."}, ...]`
      * **Use images strategically** to illustrate concepts:
        - Add `image_keywords` to slides to make them more engaging
        - Use images to represent abstract concepts (security → shield icon, analytics → chart icon, innovation → lightbulb icon)
        - Replace text descriptions with visual metaphors where possible
+       - **IMPORTANT: Do NOT force icons on descriptive/informational content. Some slides (benchmark introductions, definitions) are better as text-only without icons.**
    
    - **Text Reduction Strategies:**
      * **Limit bullet points to 3-4 items maximum** - if you have more, use a visual component instead
@@ -513,26 +528,28 @@ CRITICAL REQUIREMENTS
    
    - **Decision Framework: "Should I use a visual component?"**
      * **YES, use a visual component if:**
-       - You're comparing 2+ items → Use `comparison-grid`
-       - You have tabular data → Use `data-table`
+       - You're comparing 2+ items → Use `comparison-grid` (for exactly 2 items, use left/right layout)
+       - You have tabular data OR experimental results OR quantitative findings → **ALWAYS use `data-table`** (MANDATORY for experimental results, evaluation metrics, performance comparisons)
        - You're showing a process/flow → Use `flowchart`
        - You're showing progression over time → Use `timeline`
-       - You have quantitative data → Use a `chart`
-       - You can illustrate a concept with an image → Add `image_keywords`
-     * **YES, text-only is acceptable if:**
+       - You have quantitative data → Use a `chart` or `data-table`
+       - You're explaining 2 key concepts/points → Use `icon-row` (2 items) or `comparison-grid` (2 sections) with icons above, text below
+       - You can illustrate a concept with an image → Add `image_keywords` (but only if it meaningfully adds value)
+     * **YES, text-only WITHOUT icons is acceptable if:**
        - It's a cover slide (title + subtitle only)
        - It's a simple conclusion slide with 1-2 key takeaways
+       - **Descriptive/informational content** (benchmark introductions, definitions, background information) where icons would not add meaningful value
        - **There is truly no suitable visual element** for the content (e.g., highly abstract philosophical concepts, very specific technical definitions that cannot be visualized)
-       - **However, even in these cases, try to add at least one relevant image/icon** to make the slide more engaging
      * **AVOID creating slides with:**
        - More than 5 bullet points (use a visual component instead)
        - Long paragraphs of text (move to script, use visuals on slide)
-       - Only text with no visual elements (add at least images/icons) - **EXCEPTION: Acceptable if truly no suitable visual element exists for the content**
+       - Forced icons on descriptive content (if content is purely informational, text-only is better than meaningless icons)
+       - Icons/text when experimental results are available (use `data-table` instead)
 
 4. **Layout Requirements (Commonsense Layout Checking):**
    - **Layout Type Selection:** You MUST select an appropriate `layout_type` in `design_spec` based on slide content:
      * `"cover-slide"`: For slide_number: 1 (title + subtitle only)
-     * `"content-text"`: For text-only slides (title + bullet points) - **USE SPARINGLY** - prefer visual components when possible
+     * `"content-text"`: For text-only slides (title + bullet points) - **USE SPARINGLY** - prefer visual components when possible. When using `content-text`, provide 2-4 bullet points and include an `image_keyword` or `icons_suggested` in `visual_elements` for the decorative icon on the right side of the slide. The slide will render with a fancy two-column layout: text on the left, decorative circular icon on the right.
      * `"content-with-chart"`: For slides with charts (title + content + chart side-by-side)
      * `"comparison-grid"`: For comparing 2-4 items side-by-side (requires `visual_elements.sections` array with 2-4 section objects)
      * `"data-table"`: For displaying tabular data (requires `visual_elements.table_data` with headers and rows)

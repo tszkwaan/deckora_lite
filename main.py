@@ -27,11 +27,11 @@ async def main():
     # Example configuration
     # Note: target_audience is optional - if not provided (or set to None), LLM will infer from scenario and report
     config = PresentationConfig(
-        scenario="company staff education",
+        scenario="academic teaching",
         duration="10 minutes",
-        target_audience="internal staff",  # Optional - can be None to let LLM infer from scenario and report contentho
+        target_audience="Master students",  # Optional - can be None to let LLM infer from scenario and report contentho
         custom_instruction="",
-        report_url="https://www.tal.sg/wshc/-/media/TAL/Wshc/Resources/Publications/WSH-Guidelines/Files/WSH_Guidelines_Cleaning_and_Custodial_Services.pdf",
+        report_url="https://arxiv.org/pdf/2312.14197",
         style_images=[],  # Add image URLs here if you have them
     )
     
