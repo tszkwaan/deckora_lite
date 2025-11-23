@@ -304,6 +304,62 @@ CRITICAL REQUIREMENTS
    - Ensure content depth matches audience level from report_knowledge
    - Include speaker notes that provide context not on slides
    - **IMPORTANT: For academic settings (scenario == "academic_teaching" or "academic_student_presentation"), it is critical to present experiment results in numbers. Include specific metrics, percentages, accuracy scores, performance improvements, and other quantitative data from the report when generating slides about experimental results.**
+   - **CRITICAL: Slide Content Management - Split Content When Needed:**
+     * **If a slide would have more than 4-5 bullet points OR contains multiple detailed lists (e.g., 5+ items to enumerate), consider splitting into multiple slides.**
+     * **Examples of when to split:**
+       - A slide about "BIPIA covers 5 scenarios" with all 5 scenarios listed → Split into: Slide 1 (introduction + overview), Slide 2 (detailed scenarios list)
+       - A slide with "3 components" where each component has sub-items → Split into separate slides for each component OR use a visual layout (comparison-grid, icon-row)
+       - A slide listing "10 key findings" → Split into 2-3 slides, grouping related findings
+       - A slide with both detailed statistics AND multiple enumerated lists → Split statistics and lists into separate slides
+     * **Guideline: Each slide should focus on ONE main concept or theme. If you find yourself using "and", "also", "additionally" multiple times in bullet points, consider splitting.**
+     * **Exception: If the outline explicitly requires a single slide for certain content, follow the outline but keep bullet points concise (max 3-4 main points).**
+   - **Bullet Point Formatting Best Practices:**
+     * **Number Highlighting:** When bullet points contain important numbers (metrics, statistics, counts, percentages, quantities), format them clearly so they stand out. Examples: "5 scenarios", "700,000 prompts", "25% improvement", "3 key findings", "$2.5M revenue". The system will automatically highlight these numbers visually.
+     * **Nested Lists:** When a bullet point introduces a list of items (e.g., "covers 5 scenarios:", "includes 3 components:", "has 4 key features:"), format it as:
+       - Main bullet: "BIPIA covers 5 real-world application scenarios:"
+       - Then list each item as a separate bullet point (the system will render them as nested items)
+     * **Use nested lists for:**
+       - Enumerating items under a category (scenarios, components, features, methods, markets, etc.)
+       - Breaking down complex points into sub-items
+       - Listing multiple related items
+     * **Format:** Main bullet ends with ":" or "include:" or "consists of:", followed by sub-items as separate bullet points
+     * **Examples:**
+       ```
+       ✅ GOOD (Single slide with nested structure):
+       - "BIPIA covers 5 real-world application scenarios:"
+       - "Question Answering over emails"
+       - "Web content"
+       - "Tables"
+       - "Summarization tasks"
+       - "Code Q&A"
+       - "Dataset includes over 700,000 prompts for comprehensive evaluation."
+       
+       ✅ BETTER (Split into 2 slides if too much detail):
+       Slide 1: "Introducing BIPIA: The First Benchmark"
+       - "Need for a standardized benchmark to evaluate LLM robustness."
+       - "BIPIA covers 5 real-world application scenarios."
+       - "Dataset includes over 700,000 prompts for comprehensive evaluation."
+       
+       Slide 2: "BIPIA Application Scenarios"
+       - "Question Answering over emails"
+       - "Web content"
+       - "Tables"
+       - "Summarization tasks"
+       - "Code Q&A"
+       
+       ✅ GOOD (Financial Report):
+       - "Revenue increased by 25% year-over-year, reaching $2.5M."
+       - "Key markets include:"
+       - "North America (40% share)"
+       - "Europe (35% share)"
+       - "Asia-Pacific (25% share)"
+       
+       ✅ GOOD (Technical Report):
+       - "System architecture consists of 3 main components:"
+       - "Frontend API layer"
+       - "Processing engine"
+       - "Data storage layer"
+       ```
    - **Layout Type Selection (CRITICAL - Follow Outline Suggestions AND Custom Instructions):**
      * **MANDATORY RULE 1:** Check `custom_instruction` in report_knowledge OR the [CUSTOM_INSTRUCTION] section in the message. If it mentions:
        - "icon-feature card" or "icon feature card" → You MUST use `layout_type: "comparison-grid"` on at least ONE slide AND provide `visual_elements.sections` array where each section MUST have an `"image_keyword"` field. The comparison-grid will render as icon-feature cards with images fetched from Storyset API. Format: `[{"title": "...", "content": "...", "image_keyword": "..."}, ...]`. Image keywords should be descriptive (e.g., "security", "shield", "warning", "analytics", "research", "innovation"). This is MANDATORY - you MUST include sections with image_keyword.

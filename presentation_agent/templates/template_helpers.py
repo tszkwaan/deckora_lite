@@ -4,7 +4,8 @@ These handle conditional rendering, arrays, and nested components.
 """
 
 import logging
-from typing import Dict, Any, List, Optional
+import re
+from typing import Dict, Any, List, Optional, Tuple
 from .template_loader import render_component, render_template
 from .image_helper import get_image_url
 
@@ -1102,6 +1103,42 @@ def render_cover_slide_html(
     return f'<style>{css}</style>{html}'
 
 
+def highlight_numbers_in_text(text: str, primary_color: str) -> str:
+    """
+    Automatically highlight numbers in text with brand color and larger font.
+    Works for: integers, decimals, comma-separated numbers, percentages, k/m suffixes.
+    
+    Examples:
+    - "5 scenarios" → highlights "5"
+    - "700,000 prompts" → highlights "700,000"
+    - "25% improvement" → highlights "25%"
+    - "$2.5M revenue" → highlights "2.5M"
+    - "10 minutes" → highlights "10"
+    
+    Args:
+        text: Text string to process
+        primary_color: Brand color for highlighting (hex code)
+        
+    Returns:
+        Text with numbers wrapped in <span> tags for styling
+    """
+    # Pattern to match various number formats:
+    # - Integers: 5, 10, 100
+    # - Decimals: 2.5, 0.25
+    # - Comma-separated: 700,000, 1,234,567
+    # - Percentages: 25%, 100%
+    # - With k/m suffixes: 700k, 2.5M
+    # - With currency: $2.5M, $100
+    # - Combined: $2.5M, 25%, 700,000
+    pattern = r'\b(\$?\d{1,3}(?:,\d{3})*(?:\.\d+)?[km]?%?)\b'
+    
+    def replace(match):
+        num = match.group(1)
+        return f'<span class="fancy-number-highlight" style="color: {primary_color}; font-size: 1.4em; font-weight: 700;">{num}</span>'
+    
+    return re.sub(pattern, replace, text)
+
+
 def render_fancy_content_text_html(
     title: str,
     bullet_points: List[str],
@@ -1137,13 +1174,16 @@ def render_fancy_content_text_html(
     # Use light grey background for fancy template (slate-50)
     background_color = "#F8FAFC"  # Always use slate-50 for fancy template, regardless of theme
     
-    # Generate bullet points HTML with Material Symbols icons
+    # Generate bullet points HTML with Material Symbols icons and number highlighting
     bullets_html = ""
     for point in bullet_points:
+        # Highlight numbers in the bullet text
+        processed_text = highlight_numbers_in_text(point, primary_color)
+        
         bullets_html += f"""
             <li class="fancy-bullet-item">
                 <span class="material-symbols-outlined fancy-bullet-icon">keyboard_double_arrow_right</span>
-                <p class="fancy-bullet-text">{point}</p>
+                <p class="fancy-bullet-text">{processed_text}</p>
             </li>
         """
     
@@ -1246,6 +1286,13 @@ def render_fancy_content_text_html(
             line-height: 1.6 !important;
             color: #475569 !important;
             margin: 0 !important;
+        }}
+        .fancy-number-highlight {{
+            color: {primary_color} !important;
+            font-size: 1.4em !important;  /* 40% larger than base text (18px → ~25px) */
+            font-weight: 700 !important;
+            display: inline-block !important;
+            line-height: 1.2 !important;
         }}
         .fancy-content-right {{
             display: flex !important;
