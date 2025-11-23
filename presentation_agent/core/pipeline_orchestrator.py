@@ -5,8 +5,9 @@ Extracted from main.py to follow Single Responsibility Principle.
 
 import json
 import logging
+import asyncio
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple, List
 import webbrowser
 
 from google.adk.sessions import InMemorySessionService
@@ -102,11 +103,12 @@ class PipelineOrchestrator:
             # Step 3: Slide and Script Generation
             await self._step_slide_generation()
             
-            # Step 3.5: Chart Generation
-            await self._step_chart_generation()
+            # Step 3.5: Parallel Chart and Image Generation (OPTIMIZATION)
+            # Generate charts and images in parallel to save time
+            image_cache, keyword_usage_tracker = await self._step_parallel_chart_and_image_generation()
             
             # Step 4: Web Slides Generation (Google Slides Export commented out)
-            await self._step_generate_web_slides()
+            await self._step_generate_web_slides(image_cache=image_cache, keyword_usage_tracker=keyword_usage_tracker)
             # await self._step_export_slides()  # Commented out - using web slides instead
             
             # Step 5: Layout Review with Retry (commented out for web slides - no layout review needed)
@@ -827,7 +829,55 @@ After generation, verify: Sum of all estimated_time values should be close to {t
             print("   ℹ️  No charts needed for this presentation")
             self.obs_logger.finish_agent_execution(AgentStatus.SKIPPED, "No charts needed", has_output=False)
     
-    async def _step_generate_web_slides(self):
+    async def _step_parallel_chart_and_image_generation(self) -> Tuple[Dict[str, Any], Dict[str, int]]:
+        """
+        Step 3.5: Generate charts and images in parallel (OPTIMIZATION).
+        
+        Returns:
+            Tuple of (image_cache, keyword_usage_tracker) for use in web slides generation
+        """
+        print("\n⚡ Step 3.5: Parallel Chart and Image Generation")
+        
+        slide_deck = self.outputs.get("slide_deck")
+        if not slide_deck:
+            print("   ℹ️  No slide deck available")
+            return {}, {}
+        
+        # Check if charts are needed
+        slides_with_charts = []
+        for slide in slide_deck.get('slides', []):
+            visual_elements = slide.get('visual_elements', {})
+            if visual_elements.get('charts_needed', False) and visual_elements.get('chart_spec'):
+                slides_with_charts.append(slide.get('slide_number'))
+        
+        # Pre-generate images (always needed for web slides)
+        from presentation_agent.agents.tools.web_slides_generator_tool import pre_generate_images
+        print("   🖼️  Pre-generating images...")
+        
+        # Run chart generation and image pre-generation in parallel
+        if slides_with_charts:
+            print(f"   📊 Found {len(slides_with_charts)} slide(s) needing charts: {slides_with_charts}")
+            # Run both in parallel: chart generation (async) and image pre-generation (sync, wrapped in thread)
+            chart_task = self._step_chart_generation()
+            image_task = asyncio.to_thread(pre_generate_images, slide_deck)
+            
+            # Wait for both to complete in parallel
+            _, image_result = await asyncio.gather(chart_task, image_task)
+            image_cache, keyword_usage_tracker = image_result
+        else:
+            print("   ℹ️  No charts needed for this presentation")
+            # Only pre-generate images
+            image_cache, keyword_usage_tracker = await asyncio.to_thread(pre_generate_images, slide_deck)
+        
+        # Get updated slide_deck from session.state (may have been updated by ChartGeneratorAgent)
+        updated_slide_deck = self.session.state.get("slide_deck") or slide_deck
+        if updated_slide_deck != slide_deck:
+            self.outputs["slide_deck"] = updated_slide_deck
+        
+        print(f"   ✅ Parallel generation complete: {len(image_cache)} image keywords cached")
+        return image_cache, keyword_usage_tracker
+    
+    async def _step_generate_web_slides(self, image_cache: Optional[Dict[str, Any]] = None, keyword_usage_tracker: Optional[Dict[str, int]] = None):
         """Step 4: Generate Web Slides (HTML)."""
         print("\n🌐 Step 4: Generate Web Slides")
         self.obs_logger.start_agent_execution("WebSlidesGenerator", output_key="web_slides_result")
@@ -858,7 +908,9 @@ After generation, verify: Sum of all estimated_time values should be close to {t
             slide_deck=slide_deck,
             presentation_script=presentation_script,
             config=config_dict,
-            title=presentation_title
+            title=presentation_title,
+            image_cache=image_cache,
+            keyword_usage_tracker=keyword_usage_tracker
         )
         
         if web_result.get('status') == 'success':

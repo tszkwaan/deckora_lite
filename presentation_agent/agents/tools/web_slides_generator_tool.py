@@ -5,7 +5,7 @@ Generates an HTML webpage with interactive slides from slide deck and presentati
 
 import json
 import base64
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 import logging
 
@@ -172,12 +172,79 @@ def _collect_all_image_keywords(slides: list) -> list:
     return valid_keywords
 
 
+def pre_generate_images(slide_deck: Dict) -> Tuple[Dict[str, List[str]], Dict[str, int]]:
+    """
+    Pre-generate all images needed for slides in parallel.
+    
+    Args:
+        slide_deck: Slide deck JSON with slides array
+        
+    Returns:
+        Tuple of (image_cache, keyword_usage_tracker):
+        - image_cache: Maps keyword -> list of image URLs
+        - keyword_usage_tracker: Maps keyword -> current index (for round-robin usage)
+    """
+    slides = slide_deck.get("slides", [])
+    logger.info("🔄 Collecting all image keywords from all slides...")
+    all_image_keywords = _collect_all_image_keywords(slides)
+    
+    image_cache = {}  # Maps keyword -> list of image_urls
+    keyword_usage_tracker = {}  # Maps keyword -> current index (for round-robin usage)
+    
+    if all_image_keywords:
+        logger.info(f"🖼️  Pre-generating {len(all_image_keywords)} images in parallel...")
+        from presentation_agent.templates.image_helper import generate_images_parallel
+        try:
+            # Generate all images in parallel (no deduplication - each keyword occurrence gets separate image)
+            image_results = generate_images_parallel(
+                all_image_keywords,
+                source="generative",
+                is_logo=False,
+                max_workers=10,  # Increased workers for batch generation
+                allow_deduplication=False  # Generate separate images for duplicates
+            )
+            
+            # Convert results to cache format: keyword -> list of URLs
+            for keyword in all_image_keywords:
+                keyword_lower = keyword.lower().strip()
+                # Check results dict (may have duplicates, but we iterate in order)
+                if keyword in image_results:
+                    image_url = image_results[keyword]
+                    if keyword_lower not in image_cache:
+                        image_cache[keyword_lower] = []
+                    image_cache[keyword_lower].append(image_url)
+                elif keyword_lower in image_results:
+                    image_url = image_results[keyword_lower]
+                    if keyword_lower not in image_cache:
+                        image_cache[keyword_lower] = []
+                    image_cache[keyword_lower].append(image_url)
+            
+            # Initialize usage tracker (round-robin index for each keyword)
+            for keyword_lower in image_cache:
+                keyword_usage_tracker[keyword_lower] = 0
+            
+            logger.info(f"✅ Successfully pre-generated images for {len(image_cache)} unique keywords (total {len(all_image_keywords)} images)")
+        except Exception as e:
+            logger.error(f"❌ Failed to pre-generate images: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Continue without pre-generated images (will generate on-demand)
+            image_cache = {}
+            keyword_usage_tracker = {}
+    else:
+        logger.info("ℹ️  No images to pre-generate")
+    
+    return image_cache, keyword_usage_tracker
+
+
 def generate_web_slides_tool(
     slide_deck: Dict,
     presentation_script: Dict,
     config: Optional[Dict] = None,
     title: str = "Generated Presentation",
-    output_path: Optional[str] = None
+    output_path: Optional[str] = None,
+    image_cache: Optional[Dict[str, List[str]]] = None,
+    keyword_usage_tracker: Optional[Dict[str, int]] = None
 ) -> Dict[str, Any]:
     """
     Generate frontend-ready JSON format with individual slide HTML fragments for Deckora frontend.
@@ -209,60 +276,11 @@ def generate_web_slides_tool(
         # Create script map for easy lookup
         script_map = {section.get("slide_number"): section for section in script_sections}
         
-        # OPTIMIZATION: Pre-generate all images in parallel before HTML generation
-        logger.info("🔄 Collecting all image keywords from all slides...")
-        all_image_keywords = _collect_all_image_keywords(slides)
-        
-        # Pre-generate all images in one parallel batch
-        # image_cache maps keyword -> list of image URLs (to handle duplicates)
-        image_cache = {}  # Maps keyword -> list of image_urls
-        keyword_usage_tracker = {}  # Maps keyword -> current index (for round-robin usage)
-        
-        if all_image_keywords:
-            logger.info(f"🖼️  Pre-generating {len(all_image_keywords)} images in parallel...")
-            from presentation_agent.templates.image_helper import generate_images_parallel
-            try:
-                # Generate all images in parallel (no deduplication - each keyword occurrence gets separate image)
-                image_results = generate_images_parallel(
-                    all_image_keywords,
-                    source="generative",
-                    is_logo=False,
-                    max_workers=10,  # Increased workers for batch generation
-                    allow_deduplication=False  # Generate separate images for duplicates
-                )
-                
-                # Convert results to cache format: keyword -> list of URLs
-                # Since allow_deduplication=False, results maps each keyword (preserving order)
-                # Group by keyword and collect all images for that keyword (preserving order)
-                # Note: results dict may have duplicate keys (last one wins), so we iterate in order
-                for keyword in all_image_keywords:
-                    keyword_lower = keyword.lower().strip()
-                    # Check results dict (may have duplicates, but we iterate in order)
-                    if keyword in image_results:
-                        image_url = image_results[keyword]
-                        if keyword_lower not in image_cache:
-                            image_cache[keyword_lower] = []
-                        image_cache[keyword_lower].append(image_url)
-                    elif keyword_lower in image_results:
-                        image_url = image_results[keyword_lower]
-                        if keyword_lower not in image_cache:
-                            image_cache[keyword_lower] = []
-                        image_cache[keyword_lower].append(image_url)
-                
-                # Initialize usage tracker (round-robin index for each keyword)
-                for keyword_lower in image_cache:
-                    keyword_usage_tracker[keyword_lower] = 0
-                
-                logger.info(f"✅ Successfully pre-generated images for {len(image_cache)} unique keywords (total {len(all_image_keywords)} images)")
-            except Exception as e:
-                logger.error(f"❌ Failed to pre-generate images: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-                # Continue without pre-generated images (will generate on-demand)
-                image_cache = {}
-                keyword_usage_tracker = {}
-        else:
-            logger.info("ℹ️  No images to pre-generate")
+        # Use pre-generated image cache if provided, otherwise generate on-demand
+        if image_cache is None:
+            image_cache = {}
+        if keyword_usage_tracker is None:
+            keyword_usage_tracker = {}
         
         # Generate frontend-ready JSON format (pass image_cache and usage tracker for use during HTML generation)
         slides_data = _generate_frontend_slides_data(slides, script_map, title, config, image_cache=image_cache, keyword_usage_tracker=keyword_usage_tracker)
