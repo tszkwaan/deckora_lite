@@ -17,6 +17,7 @@ from presentation_agent.templates.template_helpers import (
     render_timeline_html,
     render_icon_feature_card_html,
     render_icon_row_html,
+    render_fancy_chart_html,
     render_icon_sequence_html,
     render_linear_process_html,
     render_workflow_diagram_html,
@@ -1529,8 +1530,28 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
             logger.error(traceback.format_exc())
     
     # Generate HTML fragment (just the slide content, no wrapper)
-    # For slides with charts, wrap body and chart in a content-wrapper
+    # For slides with charts, use fancy chart template (same as fancy content-text but with chart)
     if charts_needed and has_chart:
+        # Use fancy chart template (same as fancy content-text but with chart instead of icon)
+        if bullet_points and len(bullet_points) >= 1:
+            try:
+                fancy_chart_html = render_fancy_chart_html(
+                    title=slide_title,
+                    bullet_points=bullet_points,
+                    chart_html=chart_html,
+                    theme_colors=theme_colors
+                )
+                if fancy_chart_html:
+                    logger.info(f"✅ Using fancy chart template for slide {slide_number}")
+                    return fancy_chart_html
+                else:
+                    logger.warning(f"⚠️  Fancy chart template returned None for slide {slide_number}, falling back to standard template")
+            except Exception as e:
+                logger.error(f"❌ Error rendering fancy chart template for slide {slide_number}: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+        
+        # Fallback to standard chart template
         slide_html = f"""
     <div class="slide-content {layout_class}">
         <h1 class="slide-title" style="font-size: {title_font_size}pt; text-align: {title_align};">{slide_title}</h1>
