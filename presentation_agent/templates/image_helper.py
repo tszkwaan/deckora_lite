@@ -14,9 +14,18 @@ import logging
 import base64
 import hashlib
 import json
+import asyncio
 from typing import Optional, Dict, List, Set
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+try:
+    import aiofiles
+    AIOFILES_AVAILABLE = True
+except ImportError:
+    AIOFILES_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("⚠️ aiofiles not available. Using synchronous file I/O. Install with: pip install aiofiles")
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +39,38 @@ _persistent_cache: Dict[str, List[str]] = {}
 # Current run usage tracker: tracks which cached images have been used in this run
 # Format: {(keyword, source, is_logo): set of used_indices}
 _current_run_used: Dict[tuple, Set[int]] = {}
+
+# Lock for async cache writes (prevents race conditions)
+_cache_write_lock = None
+if AIOFILES_AVAILABLE:
+    try:
+        _cache_write_lock = asyncio.Lock()
+    except RuntimeError:
+        # No event loop available, will use sync fallback
+        _cache_write_lock = None
+
+
+def _batch_save_cache_async():
+    """
+    Batch save cache asynchronously if possible, otherwise use sync save.
+    This function is called from sync context but attempts async save.
+    """
+    try:
+        if AIOFILES_AVAILABLE:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Schedule async save as background task (non-blocking)
+                asyncio.create_task(_save_persistent_cache_async())
+                logger.debug("📝 Scheduled async cache save (non-blocking)")
+            else:
+                # No running loop, use sync save
+                _save_persistent_cache()
+        else:
+            # aiofiles not available, use sync save
+            _save_persistent_cache()
+    except RuntimeError:
+        # No event loop, use sync save
+        _save_persistent_cache()
 
 
 def _load_persistent_cache():
@@ -49,7 +90,7 @@ def _load_persistent_cache():
 
 
 def _save_persistent_cache():
-    """Save persistent cache to disk."""
+    """Save persistent cache to disk (synchronous version for backward compatibility)."""
     global _persistent_cache
     try:
         _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -58,6 +99,35 @@ def _save_persistent_cache():
         logger.debug(f"✅ Saved persistent image cache: {len(_persistent_cache)} keywords")
     except Exception as e:
         logger.warning(f"⚠️ Failed to save persistent cache: {e}")
+
+
+async def _save_persistent_cache_async():
+    """Save persistent cache to disk asynchronously (non-blocking)."""
+    global _persistent_cache, _cache_write_lock
+    if not AIOFILES_AVAILABLE:
+        # Fallback to sync if aiofiles not available
+        _save_persistent_cache()
+        return
+    
+    # Initialize lock if needed (lazy initialization)
+    if _cache_write_lock is None:
+        try:
+            _cache_write_lock = asyncio.Lock()
+        except RuntimeError:
+            # No event loop, fallback to sync
+            _save_persistent_cache()
+            return
+    
+    try:
+        async with _cache_write_lock:
+            _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            async with aiofiles.open(_CACHE_FILE, 'w') as f:
+                await f.write(json.dumps(_persistent_cache, indent=2))
+            logger.debug(f"✅ Saved persistent image cache (async): {len(_persistent_cache)} keywords")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to save persistent cache (async): {e}")
+        # Fallback to sync on error
+        _save_persistent_cache()
 
 
 # Load persistent cache on module import
@@ -78,11 +148,25 @@ def clear_image_cache():
     Reset the current run usage tracker (called at start of each pipeline run).
     This allows same keyword to generate different images within the same run,
     but can reuse images from persistent cache across different runs.
+    
+    Synchronous version for backward compatibility.
     """
     global _current_run_used
     _current_run_used.clear()
     _load_persistent_cache()  # Load cache from disk
     logger.debug("🔄 Current run usage tracker cleared, persistent cache loaded")
+
+
+async def clear_image_cache_async():
+    """
+    Async version of clear_image_cache.
+    Reset the current run usage tracker (called at start of each pipeline run).
+    """
+    global _current_run_used
+    _current_run_used.clear()
+    # Load cache synchronously (fast operation, done once at startup)
+    _load_persistent_cache()
+    logger.debug("🔄 Current run usage tracker cleared, persistent cache loaded (async)")
 
 def get_image_url(keyword: str, source: str = "generative", is_logo: bool = False) -> str:
     """
@@ -131,11 +215,12 @@ def get_image_url(keyword: str, source: str = "generative", is_logo: bool = Fals
             logger.info(f"🔄 Generating new image for keyword: '{keyword}' (source: {source}, is_logo: {is_logo})")
             image_url = generate_image(keyword_normalized, source=source, output_dir=cache_dir, is_logo=is_logo)
             if image_url:
-                # Add to persistent cache for future runs
+                # Add to persistent cache for future runs (in-memory only, batch save later)
                 if cache_key_str not in _persistent_cache:
                     _persistent_cache[cache_key_str] = []
                 _persistent_cache[cache_key_str].append(image_url)
-                _save_persistent_cache()  # Save to disk
+                # NOTE: Don't save immediately - batch save in generate_images_parallel() for better performance
+                # For single image calls, cache will be saved on next batch operation or pipeline end
                 
                 # Mark as used in this run (so if same keyword appears again, we generate another)
                 if cache_key_tuple not in _current_run_used:
@@ -318,8 +403,8 @@ def generate_images_parallel(
                         logger.error(f"❌ Failed to generate image for '{keyword}': {e}")
                         errors[keyword] = e
             
-            # Save persistent cache after all generations complete
-            _save_persistent_cache()
+            # Batch save persistent cache after all generations complete (async, non-blocking)
+            _batch_save_cache_async()
         
         # Map all keywords (including duplicates) to results
         final_results: Dict[str, str] = {}
@@ -404,8 +489,8 @@ def generate_images_parallel(
                         logger.error(f"❌ Failed to generate image for '{kw_orig}': {e}")
                         errors[keyword_tuple] = e
             
-            # Save persistent cache after all generations complete
-            _save_persistent_cache()
+            # Batch save persistent cache after all generations complete (async, non-blocking)
+            _batch_save_cache_async()
         
         # Map results back to original keywords from input list
         # Use index to map back to the original keyword at that position
