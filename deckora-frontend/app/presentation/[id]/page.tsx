@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import type { SlidesData, SlideData } from '@/types/slides';
+import Loading from '@/components/ui/Loading';
 
 // Dynamic import for Mermaid (client-side only)
 let mermaid: any = null;
@@ -294,16 +295,7 @@ export default function PresentationViewPage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-center">
-          <div className="mb-4 text-lg font-semibold text-slate-600">Loading presentation...</div>
-          <div className="h-2 w-64 rounded-full bg-slate-200">
-            <div className="h-full animate-pulse rounded-full bg-primary"></div>
-          </div>
-        </div>
-      </div>
-    );
+    return <Loading />;
   }
 
   if (error || !slidesData) {

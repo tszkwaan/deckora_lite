@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <path d="M50 15 L80 75 L20 75 Z" fill="#F59E0B" stroke="#D97706" stroke-width="2"/>
+  <text x="50" y="60" text-anchor="middle" font-size="20" fill="#FFFFFF" font-weight="bold">!</text>
+  <text x="50" y="90" text-anchor="middle" font-size="8" fill="#333">Warning</text>
+</svg>
