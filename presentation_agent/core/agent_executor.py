@@ -37,7 +37,8 @@ class AgentExecutor:
         agent: Any,
         user_message: str,
         output_key: str,
-        parse_json: bool = True
+        parse_json: bool = True,
+        max_json_parse_retries: int = 1
     ) -> Any:
         """
         Execute an agent and extract its output.
@@ -69,6 +70,28 @@ class AgentExecutor:
         
         # Debug: Log event details if output is not found
         output = extract_output_from_events(events, output_key)
+        
+        # Check if output is plain text (question/explanation) instead of JSON
+        # This happens when agent asks questions instead of returning JSON
+        if isinstance(output, str) and parse_json:
+            output_lower = output.strip().lower()
+            # Check for common question patterns
+            question_indicators = [
+                "could you please",
+                "i need to know",
+                "please provide",
+                "do you want",
+                "should i",
+                "i need clarification",
+                "however, the",
+            ]
+            if any(indicator in output_lower[:200] for indicator in question_indicators):
+                log_agent_warning(
+                    logger,
+                    f"Agent returned a question/explanation instead of JSON. This will trigger retry.",
+                    agent_name=agent_name,
+                    context={"output_preview": output[:200]}
+                )
         
         # Log what we extracted (before parsing)
         if output is not None:
@@ -189,14 +212,31 @@ class AgentExecutor:
                 }
             )
             
-            parsed = parse_json_robust(output)
+            # Try robust parsing with incomplete JSON fixing enabled
+            parsed = parse_json_robust(output, fix_incomplete=True)
             if parsed:
                 return parsed
+            
             # If parsing fails, try one more time with extract_json_from_text directly
             # This handles cases where clean_json_string might have affected extraction
-            from presentation_agent.core.json_parser import extract_json_from_text
+            from presentation_agent.core.json_parser import extract_json_from_text, fix_incomplete_json
             json_str = extract_json_from_text(output)
             if json_str:
+                # Try fixing incomplete JSON before parsing
+                fixed_json = fix_incomplete_json(json_str)
+                if fixed_json and fixed_json != json_str:
+                    try:
+                        parsed = json.loads(fixed_json)
+                        if isinstance(parsed, dict):
+                            log_agent_info(
+                                logger,
+                                f"Successfully parsed fixed incomplete JSON for key '{output_key}'",
+                                agent_name=agent_name,
+                                context={"output_key": output_key}
+                            )
+                            return parsed
+                    except json.JSONDecodeError:
+                        pass
                 log_agent_debug(
                     logger,
                     f"Extracted JSON string for key '{output_key}'",
@@ -207,6 +247,7 @@ class AgentExecutor:
                         "last_500_chars": json_str[-500:]
                     }
                 )
+                # Try parsing with retry for incomplete JSON
                 try:
                     parsed = json.loads(json_str)
                     if isinstance(parsed, dict):
@@ -218,6 +259,27 @@ class AgentExecutor:
                         )
                         return parsed
                 except json.JSONDecodeError as e:
+                    # Check if it's a syntax error (should retry LLM) or incomplete (can fix)
+                    from presentation_agent.core.json_parser import is_json_syntax_error
+                    is_syntax_error = is_json_syntax_error(e)
+                    
+                    if not is_syntax_error and fix_incomplete:
+                        # Try fixing incomplete JSON (truncated response)
+                        fixed_json = fix_incomplete_json(json_str)
+                        if fixed_json and fixed_json != json_str:
+                            try:
+                                parsed = json.loads(fixed_json)
+                                if isinstance(parsed, dict):
+                                    log_agent_info(
+                                        logger,
+                                        f"Successfully parsed fixed incomplete JSON on retry for key '{output_key}'",
+                                        agent_name=agent_name,
+                                        context={"output_key": output_key}
+                                    )
+                                    return parsed
+                            except json.JSONDecodeError:
+                                pass
+                    
                     error_pos = e.pos if hasattr(e, 'pos') else None
                     context_str = None
                     if error_pos is not None:
@@ -225,9 +287,10 @@ class AgentExecutor:
                         end = min(len(json_str), error_pos + 100)
                         context_str = json_str[start:end]
                     
+                    error_type = "syntax error" if is_syntax_error else "incomplete JSON"
                     log_json_parse_error(
                         logger,
-                        f"JSONDecodeError after extraction",
+                        f"JSONDecodeError after extraction ({error_type})",
                         agent_name=agent_name,
                         output_key=output_key,
                         raw_output_preview=context_str,

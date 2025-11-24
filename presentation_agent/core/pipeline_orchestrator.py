@@ -17,7 +17,6 @@ from presentation_agent.agents.report_understanding_agent.agent import agent as 
 from presentation_agent.agents.outline_generator_agent.agent import agent as outline_generator_agent
 from presentation_agent.agents.slide_and_script_generator_agent.agent import agent as slide_and_script_generator_agent
 from presentation_agent.agents.chart_generator_agent.agent import agent as chart_generator_agent
-# from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool  # Commented out
 from presentation_agent.agents.tools.web_slides_generator_tool import generate_web_slides_tool
 from presentation_agent.agents.utils.pdf_loader import load_pdf
 from presentation_agent.agents.utils.helpers import save_json_output, is_valid_chart_data
@@ -105,9 +104,8 @@ class PipelineOrchestrator:
             # Generate charts and images in parallel to save time
             image_cache, keyword_usage_tracker = await self._step_parallel_chart_and_image_generation()
             
-            # Step 4: Web Slides Generation (Google Slides Export commented out)
+            # Step 4: Web Slides Generation
             await self._step_generate_web_slides(image_cache=image_cache, keyword_usage_tracker=keyword_usage_tracker)
-            # await self._step_export_slides()  # Commented out - using web slides instead
             
             print("\n✅ Pipeline completed - web slides generated!")
             
@@ -699,9 +697,71 @@ After generation, verify: Sum of all estimated_time values should be close to {t
             self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
             raise
         except JSONParseError as e:
-            # If JSON parsing failed, try fallback parsing strategies
-            logger.warning(f"JSONParseError from agent executor, trying fallback parsing: {e}")
-            # Try to get raw output without JSON parsing
+            # If JSON parsing failed, check if it's a syntax error (should retry LLM call)
+            # vs incomplete JSON (can try fallback parsing)
+            from presentation_agent.core.json_parser import is_json_syntax_error
+            error_msg = str(e)
+            
+            # Check if error indicates syntax error (malformed JSON from LLM) or plain text response
+            # In this case, we should retry the LLM call, not just try to parse differently
+            is_syntax_error = any(indicator in error_msg.lower() for indicator in [
+                "expecting property name",
+                "expecting ',' delimiter",
+                "expecting ':' delimiter",
+                "invalid escape",
+                "expecting value",  # Often means no JSON at all
+            ])
+            
+            # Also check if the raw output looks like plain text (question/explanation) instead of JSON
+            # This happens when the agent asks questions instead of returning JSON
+            try:
+                raw_output = getattr(e, 'raw_output', '')
+                if raw_output and not raw_output.strip().startswith('{'):
+                    # Output doesn't start with JSON - likely plain text response
+                    is_syntax_error = True
+                    logger.warning(f"Agent returned plain text instead of JSON (likely asked a question). Will retry LLM call.")
+            except:
+                pass
+            
+            if is_syntax_error:
+                logger.warning(f"JSONParseError indicates syntax error (malformed JSON from LLM). Retrying LLM call: {e}")
+                # Retry the LLM call once
+                try:
+                    # Use cached serialization for performance
+                    serialized_outline = self._get_serialized_presentation_outline(pretty=False)
+                    
+                    # Use selective context for retry as well
+                    selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
+                    selective_report_knowledge_str = json.dumps(
+                        selective_report_knowledge,
+                        ensure_ascii=False,
+                        separators=(',', ':')
+                    )
+                    
+                    slide_and_script = await self.executor.run_agent(
+                        slide_and_script_generator_agent,
+                        f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}",
+                        "slide_and_script",
+                        parse_json=True  # Retry with JSON parsing
+                    )
+                    logger.info("✅ Successfully parsed JSON after LLM retry")
+                    # Success! Continue with the retried output
+                    if isinstance(slide_and_script, dict):
+                        self.outputs["slide_and_script"] = slide_and_script
+                        self.session.state["slide_and_script"] = slide_and_script
+                        if self.save_intermediate:
+                            save_json_output(slide_and_script, str(self.output_dir / "slide_and_script_raw_debug.json"))
+                        self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
+                        return  # Exit early, retry succeeded
+                except (AgentExecutionError, JSONParseError) as e2:
+                    logger.error(f"LLM retry also failed: {e2}")
+                    # Fall through to fallback parsing
+                    is_syntax_error = False
+            
+            if not is_syntax_error:
+                # If JSON parsing failed, try fallback parsing strategies
+                logger.warning(f"JSONParseError from agent executor, trying fallback parsing: {e}")
+                # Try to get raw output without JSON parsing
             try:
                 # Use cached serialization for performance
                 serialized_outline = self._get_serialized_presentation_outline(pretty=False)
@@ -1184,71 +1244,4 @@ After generation, verify: Sum of all estimated_time values should be close to {t
                 f"Failed to generate web slides: {error_msg}",
                 agent_name="WebSlidesGenerator"
             )
-    
-    async def _step_export_slides(self):
-        """Step 4: Google Slides Export."""
-        print("\n📤 Step 4: Google Slides Export")
-        self.obs_logger.start_agent_execution("SlidesExportAgent", output_key="slides_export_result")
-        
-        slide_deck = self.outputs.get("slide_deck")
-        presentation_script = self.outputs.get("presentation_script")
-        
-        if not slide_deck or not presentation_script:
-            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, "Missing slide_deck or presentation_script", has_output=False)
-            raise AgentOutputError(
-                "Cannot export: missing slide_deck or presentation_script",
-                agent_name="SlidesExportAgent"
-            )
-        
-        config_dict = {
-            'scenario': self.config.scenario,
-            'duration': self.config.duration,
-            'target_audience': self.config.target_audience,
-            'custom_instruction': self.config.custom_instruction
-        }
-        
-        print("   🚀 Calling export_slideshow_tool directly...")
-        export_result = export_slideshow_tool(
-            slide_deck=slide_deck,
-            presentation_script=presentation_script,
-            config=config_dict,
-            title=""
-        )
-        
-        if export_result.get('status') in ['success', 'partial_success']:
-            self.outputs["slideshow_export_result"] = export_result
-            self.session.state["slideshow_export_result"] = export_result
-            
-            presentation_id = export_result.get("presentation_id")
-            shareable_url = export_result.get("shareable_url") or f"https://docs.google.com/presentation/d/{presentation_id}/edit"
-            
-            if presentation_id:
-                id_file = self.output_dir / "presentation_slides_id.txt"
-                url_file = self.output_dir / "presentation_slides_url.txt"
-                
-                id_file.write_text(presentation_id)
-                url_file.write_text(shareable_url)
-                
-                print(f"\n✅ Google Slides export successful!")
-                print(f"   Presentation ID: {presentation_id}")
-                print(f"   🔗 Shareable URL: {shareable_url}")
-                print(f"\n📄 Presentation ID saved to: {id_file}")
-                print(f"📄 Shareable URL saved to: {url_file}")
-                
-                if self.open_browser:
-                    print(f"\n🌐 Opening Google Slides in browser...")
-                    try:
-                        webbrowser.open(shareable_url)
-                        print(f"   ✅ Opened: {shareable_url}")
-                    except Exception as e:
-                        print(f"   ⚠️  Could not open browser: {e}")
-            
-            if self.save_intermediate:
-                save_json_output(export_result, str(self.output_dir / "slideshow_export_result.json"))
-            
-            self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
-        else:
-            error_msg = export_result.get('error', 'Unknown error')
-            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, error_msg, has_output=False)
-            print(f"⚠️  Google Slides export failed: {error_msg}")
     
