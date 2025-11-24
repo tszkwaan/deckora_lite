@@ -10,8 +10,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python dependencies in builder stage
 WORKDIR /app
 COPY requirements.txt .
+
+# Install CPU-only torch first to avoid CUDA dependencies (saves ~3GB)
+# This must be installed before sentence-transformers which depends on torch
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --user -r requirements.txt
+    pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu && \
+    rm -rf /tmp/* /var/tmp/* /root/.cache/pip && \
+    pip install --no-cache-dir --user -r requirements.txt && \
+    # Clean up pip cache and temp files immediately after installation
+    rm -rf /tmp/* /var/tmp/* /root/.cache/pip && \
+    # Clean up any wheel files that might be left
+    find /root/.local -name "*.whl" -delete 2>/dev/null || true
 
 # Final stage
 FROM python:3.11-slim
