@@ -167,10 +167,27 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker
 
+      - name: Check disk space
+        run: |
+          df -h
+          echo "Available disk space before build"
+
       - name: Build Docker image
         run: |
-          docker build -f presentation_agent/deployment/Dockerfile -t gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }} .
-          docker build -f presentation_agent/deployment/Dockerfile -t gcr.io/$PROJECT_ID/$SERVICE_NAME:latest .
+          # Clean up Docker to free space before build
+          docker system prune -f || true
+          # Build with buildx for better caching and space management
+          docker buildx create --use --name builder || docker buildx use builder
+          docker buildx build \
+            --platform linux/amd64 \
+            --file presentation_agent/deployment/Dockerfile \
+            --tag gcr.io/$PROJECT_ID/$SERVICE_NAME:${{ github.sha }} \
+            --tag gcr.io/$PROJECT_ID/$SERVICE_NAME:latest \
+            --load \
+            --progress=plain \
+            .
+          # Clean up buildx builder to free space
+          docker buildx prune -f || true
 
       - name: Push Docker image to GCR
         run: |

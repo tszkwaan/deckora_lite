@@ -68,6 +68,23 @@ presentation_agent/deployment/deploy_to_agent_engine.py
 .ipynb_checkpoints/
 *.ipynb
 
+# Frontend (not needed in backend container)
+deckora-frontend/
+node_modules/
+npm-cache/
+
 # OS
 .DS_Store
 Thumbs.db
+
+# Large files that aren't needed
+*.faiss
+*.faiss.index
+*.pkl
+*.pickle
+
+# Test files
+test_*.py
+*_test.py
+test/
+tests/
