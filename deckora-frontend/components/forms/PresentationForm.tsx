@@ -11,7 +11,11 @@ import { PresentationFormData, FormErrors } from '@/types';
 import { SCENARIOS, TARGET_AUDIENCES, DEFAULT_DURATION } from '@/lib/constants';
 import { generatePresentation, GeneratePresentationResponse } from '@/lib/api';
 
-const PresentationForm: React.FC = () => {
+interface PresentationFormProps {
+  onSubmittingChange?: (isSubmitting: boolean) => void;
+}
+
+const PresentationForm: React.FC<PresentationFormProps> = ({ onSubmittingChange }) => {
   const [showConfig, setShowConfig] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState<PresentationFormData>({
@@ -48,6 +52,7 @@ const PresentationForm: React.FC = () => {
 
     setIsSubmitting(true);
     setErrorMessage(null);
+    onSubmittingChange?.(true);
 
     // Generate a unique ID for this generation request
     const generationId = Date.now().toString();
@@ -98,6 +103,7 @@ const PresentationForm: React.FC = () => {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to generate presentation. Please try again.');
     } finally {
       setIsSubmitting(false);
+      onSubmittingChange?.(false);
     }
   };
 
@@ -135,31 +141,6 @@ const PresentationForm: React.FC = () => {
       }
     }
   };
-
-  // Show loading component when submitting
-  if (isSubmitting) {
-    return (
-      <div className="glass-card flex flex-col gap-6 rounded-xl p-6 sm:p-8 md:p-10 relative">
-        <div className="absolute inset-0 bg-white/90 backdrop-blur-sm rounded-xl z-10 flex items-center justify-center">
-          <Loading />
-        </div>
-        {/* Keep form structure but hidden behind loading */}
-        <div className="opacity-0 pointer-events-none">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col">
-              <p className="pb-2 text-base font-medium text-slate-800">Source</p>
-              <div className="relative flex w-full items-center">
-                <input type="text" className="h-14 w-full" />
-              </div>
-            </div>
-          </div>
-          <Button type="submit" variant="primary" fullWidth disabled>
-            Generating...
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <form onSubmit={handleSubmit} className="glass-card flex flex-col gap-6 rounded-xl p-6 sm:p-8 md:p-10">
