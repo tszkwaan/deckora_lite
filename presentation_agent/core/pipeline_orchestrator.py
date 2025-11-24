@@ -25,6 +25,8 @@ from presentation_agent.core.agent_executor import AgentExecutor
 from presentation_agent.core.json_parser import parse_json_robust
 from presentation_agent.core.exceptions import AgentExecutionError, JSONParseError, AgentOutputError
 from presentation_agent.core.logging_utils import log_agent_error
+from presentation_agent.core.serialization_service import SerializationService
+from presentation_agent.core.cache_manager import CacheManager
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +67,9 @@ class PipelineOrchestrator:
         # Pipeline outputs
         self.outputs: Dict[str, Any] = {}
         
-        # JSON serialization cache (performance optimization)
-        # Cache serialized strings to avoid repeated expensive JSON serialization
-        self._serialized_cache: Dict[str, str] = {}
+        # Initialize services (following SRP)
+        self.serialization_service = SerializationService()
+        self.cache_manager = CacheManager()
     
     async def initialize(self):
         """Initialize session and executor."""
@@ -155,27 +157,6 @@ class PipelineOrchestrator:
             )
             self.obs_logger.finish_pipeline()
             raise
-        except (FileNotFoundError, ValueError, KeyError, TypeError) as e:
-            # These are configuration or data errors - log with context
-            logger.error(
-                f"Pipeline failed with configuration/data error: {e}",
-                exc_info=True,
-                extra={"config": self.config.__dict__ if hasattr(self.config, '__dict__') else None}
-            )
-            self.obs_logger.finish_pipeline()
-            raise
-        except Exception as e:
-            # Unexpected errors - log with full context for debugging
-            logger.error(
-                f"Pipeline failed with unexpected error: {e}",
-                exc_info=True,
-                extra={
-                    "error_type": type(e).__name__,
-                    "outputs_so_far": list(self.outputs.keys()) if self.outputs else []
-                }
-            )
-            self.obs_logger.finish_pipeline()
-            raise
     
     def _get_serialized_report_knowledge(self, pretty: bool = False) -> str:
         """
@@ -190,27 +171,15 @@ class PipelineOrchestrator:
         """
         cache_key = f"report_knowledge_{'pretty' if pretty else 'compact'}"
         
-        if cache_key not in self._serialized_cache:
+        if not self.cache_manager.has(cache_key):
             report_knowledge = self.outputs.get("report_knowledge")
             if report_knowledge is None:
                 raise ValueError("report_knowledge not available in outputs")
             
-            if pretty:
-                # Pretty format for logs/debugging
-                self._serialized_cache[cache_key] = json.dumps(
-                    report_knowledge,
-                    indent=2,
-                    ensure_ascii=False
-                )
-            else:
-                # Compact format for agent messages (better performance)
-                self._serialized_cache[cache_key] = json.dumps(
-                    report_knowledge,
-                    ensure_ascii=False,
-                    separators=(',', ':')  # Compact: no spaces
-                )
+            serialized = self.serialization_service.serialize(report_knowledge, pretty=pretty)
+            self.cache_manager.set(cache_key, serialized)
         
-        return self._serialized_cache[cache_key]
+        return self.cache_manager.get(cache_key)
     
     def _get_serialized_presentation_outline(self, pretty: bool = False) -> str:
         """
@@ -225,27 +194,15 @@ class PipelineOrchestrator:
         """
         cache_key = f"presentation_outline_{'pretty' if pretty else 'compact'}"
         
-        if cache_key not in self._serialized_cache:
+        if not self.cache_manager.has(cache_key):
             presentation_outline = self.outputs.get("presentation_outline")
             if presentation_outline is None:
                 raise ValueError("presentation_outline not available in outputs")
             
-            if pretty:
-                # Pretty format for logs/debugging
-                self._serialized_cache[cache_key] = json.dumps(
-                    presentation_outline,
-                    indent=2,
-                    ensure_ascii=False
-                )
-            else:
-                # Compact format for agent messages (better performance)
-                self._serialized_cache[cache_key] = json.dumps(
-                    presentation_outline,
-                    ensure_ascii=False,
-                    separators=(',', ':')  # Compact: no spaces
-                )
+            serialized = self.serialization_service.serialize(presentation_outline, pretty=pretty)
+            self.cache_manager.set(cache_key, serialized)
         
-        return self._serialized_cache[cache_key]
+        return self.cache_manager.get(cache_key)
     
     def _invalidate_serialization_cache(self, key: Optional[str] = None):
         """
@@ -254,14 +211,7 @@ class PipelineOrchestrator:
         Args:
             key: Specific cache key to invalidate, or None to clear all
         """
-        if key:
-            # Remove specific key and related keys
-            keys_to_remove = [k for k in self._serialized_cache.keys() if k.startswith(key)]
-            for k in keys_to_remove:
-                self._serialized_cache.pop(k, None)
-        else:
-            # Clear all cache
-            self._serialized_cache.clear()
+        self.cache_manager.invalidate(key_prefix=key)
     
     def _extract_relevant_report_sections(
         self,
@@ -673,10 +623,9 @@ DO NOT ask for clarification - just generate the keywords automatically and dist
             selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
             
             # Serialize the selective context (compact format for agent messages)
-            selective_report_knowledge_str = json.dumps(
+            selective_report_knowledge_str = self.serialization_service.serialize(
                 selective_report_knowledge,
-                ensure_ascii=False,
-                separators=(',', ':')  # Compact: no spaces
+                pretty=False
             )
             
             message_parts = []
@@ -793,10 +742,9 @@ After generation, verify: Sum of all estimated_time values should be close to {t
                     
                     # Use selective context for retry as well
                     selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
-                    selective_report_knowledge_str = json.dumps(
+                    selective_report_knowledge_str = self.serialization_service.serialize(
                         selective_report_knowledge,
-                        ensure_ascii=False,
-                        separators=(',', ':')
+                        pretty=False
                     )
                     
                     slide_and_script = await self.executor.run_agent(
@@ -829,10 +777,9 @@ After generation, verify: Sum of all estimated_time values should be close to {t
                 
                 # Use selective context for fallback as well
                 selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
-                selective_report_knowledge_str = json.dumps(
+                selective_report_knowledge_str = self.serialization_service.serialize(
                     selective_report_knowledge,
-                    ensure_ascii=False,
-                    separators=(',', ':')
+                    pretty=False
                 )
                 
                 slide_and_script = await self.executor.run_agent(
