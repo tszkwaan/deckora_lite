@@ -14,17 +14,7 @@ RETRY_CONFIG = types.HttpRetryOptions(
 )
 
 # Model configuration
-# DEFAULT_MODEL = "gemini-2.5-flash-lite"
 DEFAULT_MODEL = "gemini-2.5-flash-lite"
-
-# Confidence score thresholds for outline quality
-# Scores range from 0.0 to 1.0, where 1.0 is best
-OUTLINE_HALLUCINATION_THRESHOLD = 0.8  # Minimum hallucination_check.score (higher = fewer hallucinations)
-OUTLINE_SAFETY_THRESHOLD = 0.9  # Minimum safety_check.score (higher = safer)
-OUTLINE_MAX_RETRY_LOOPS = 1  # Maximum number of retry attempts
-
-# Layout review retry configuration
-LAYOUT_MAX_RETRY_LOOPS = 3  # Maximum number of retry attempts for slide generation + layout review
 
 # Presentation Config structure
 # This represents the input configuration for the pipeline

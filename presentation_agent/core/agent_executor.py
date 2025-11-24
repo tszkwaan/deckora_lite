@@ -12,8 +12,16 @@ from google.adk.runners import InMemoryRunner
 from presentation_agent.agents.utils.helpers import extract_output_from_events
 from presentation_agent.core.json_parser import parse_json_robust
 from presentation_agent.core.exceptions import AgentExecutionError, JSONParseError
+from presentation_agent.core.logging_utils import (
+    get_logger,
+    log_agent_error,
+    log_agent_info,
+    log_agent_debug,
+    log_agent_warning,
+    log_json_parse_error
+)
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AgentExecutor:
@@ -52,56 +60,115 @@ class AgentExecutor:
         events = await runner.run_debug(user_message, session_id=self.session.id)
         
         # Log total events for debugging
-        logger.info(f"📊 Agent '{agent_name}' execution completed. Total events: {len(events)}")
+        log_agent_info(
+            logger,
+            f"Agent execution completed. Total events: {len(events)}",
+            agent_name=agent_name,
+            context={"total_events": len(events)}
+        )
         
         # Debug: Log event details if output is not found
         output = extract_output_from_events(events, output_key)
         
         # Log what we extracted (before parsing)
         if output is not None:
-            logger.info(f"📦 Extracted output for '{output_key}': type={type(output).__name__}, size={len(str(output)) if hasattr(output, '__len__') else 'N/A'}")
+            output_size = len(str(output)) if hasattr(output, '__len__') else 'N/A'
+            log_agent_info(
+                logger,
+                f"Extracted output for '{output_key}'",
+                agent_name=agent_name,
+                context={
+                    "output_key": output_key,
+                    "output_type": type(output).__name__,
+                    "output_size": output_size
+                }
+            )
             if isinstance(output, dict):
-                logger.info(f"   Output keys: {list(output.keys())}")
+                log_agent_debug(
+                    logger,
+                    f"Output keys: {list(output.keys())}",
+                    agent_name=agent_name
+                )
                 # For slide_and_script, log structure immediately
                 if output_key == "slide_and_script":
                     has_slide_deck = "slide_deck" in output
                     has_presentation_script = "presentation_script" in output
                     single_slide_keys = {'slide_number', 'title', 'content', 'visual_elements', 'design_spec'}
                     looks_like_single_slide = single_slide_keys.issubset(set(output.keys()))
-                    logger.warning(f"   🔍 STRUCTURE CHECK for slide_and_script:")
-                    logger.warning(f"      Has 'slide_deck': {has_slide_deck}")
-                    logger.warning(f"      Has 'presentation_script': {has_presentation_script}")
-                    logger.warning(f"      Looks like single slide: {looks_like_single_slide}")
+                    log_agent_warning(
+                        logger,
+                        "Structure check for slide_and_script",
+                        agent_name=agent_name,
+                        context={
+                            "has_slide_deck": has_slide_deck,
+                            "has_presentation_script": has_presentation_script,
+                            "looks_like_single_slide": looks_like_single_slide
+                        }
+                    )
                     if looks_like_single_slide:
-                        logger.error(f"   ❌ DETECTED: Output looks like a SINGLE SLIDE OBJECT instead of required structure!")
-                        logger.error(f"      Keys found: {list(output.keys())}")
+                        log_agent_error(
+                            logger,
+                            "Output looks like a SINGLE SLIDE OBJECT instead of required structure",
+                            agent_name=agent_name,
+                            output_key=output_key,
+                            context={"keys_found": list(output.keys())}
+                        )
             elif isinstance(output, str):
-                logger.debug(f"   Output preview (first 500 chars): {output[:500]}")
+                log_agent_debug(
+                    logger,
+                    f"Output preview (first 500 chars): {output[:500]}",
+                    agent_name=agent_name
+                )
                 # Check if string contains the required keys
                 if output_key == "slide_and_script":
                     has_slide_deck_str = '"slide_deck"' in output or "'slide_deck'" in output
                     has_presentation_script_str = '"presentation_script"' in output or "'presentation_script'" in output
-                    logger.warning(f"   🔍 STRING CHECK for slide_and_script:")
-                    logger.warning(f"      Contains 'slide_deck': {has_slide_deck_str}")
-                    logger.warning(f"      Contains 'presentation_script': {has_presentation_script_str}")
+                    log_agent_warning(
+                        logger,
+                        "String check for slide_and_script",
+                        agent_name=agent_name,
+                        context={
+                            "contains_slide_deck": has_slide_deck_str,
+                            "contains_presentation_script": has_presentation_script_str
+                        }
+                    )
         
         if output is None:
             # Debug: Log what events we got
-            logger.error(f"❌ Agent '{agent_name}' returned no output for key '{output_key}'")
-            logger.error(f"   Total events: {len(events)}")
+            log_agent_error(
+                logger,
+                f"Agent returned no output for key '{output_key}'",
+                agent_name=agent_name,
+                output_key=output_key,
+                context={"total_events": len(events)}
+            )
             # Log state_delta keys from all events
             for i, event in enumerate(events):
                 if hasattr(event, 'actions') and event.actions:
                     if hasattr(event.actions, 'state_delta') and event.actions.state_delta:
                         delta_keys = list(event.actions.state_delta.keys())
-                        logger.error(f"   Event {i} state_delta keys: {delta_keys}")
+                        log_agent_debug(
+                            logger,
+                            f"Event {i} state_delta keys: {delta_keys}",
+                            agent_name=agent_name,
+                            context={"event_index": i, "delta_keys": delta_keys}
+                        )
                 # Also check for text content in events
                 if hasattr(event, 'content') and event.content:
                     if hasattr(event.content, 'parts') and event.content.parts:
                         for part_idx, part in enumerate(event.content.parts):
                             if hasattr(part, 'text') and part.text:
                                 text_preview = part.text[:200] if len(part.text) > 200 else part.text
-                                logger.error(f"   Event {i}, part {part_idx} has text (length {len(part.text)}): {text_preview}...")
+                                log_agent_debug(
+                                    logger,
+                                    f"Event {i}, part {part_idx} has text (length {len(part.text)}): {text_preview}...",
+                                    agent_name=agent_name,
+                                    context={
+                                        "event_index": i,
+                                        "part_index": part_idx,
+                                        "text_length": len(part.text)
+                                    }
+                                )
             raise AgentExecutionError(
                 f"Agent returned no output for key '{output_key}'",
                 agent_name=agent_name,
@@ -110,9 +177,17 @@ class AgentExecutor:
         
         # Parse JSON if requested and output is a string
         if parse_json and isinstance(output, str):
-            logger.debug(f"Attempting to parse JSON for key '{output_key}' (output length: {len(output)})")
-            logger.debug(f"First 500 chars: {output[:500]}")
-            logger.debug(f"Last 500 chars: {output[-500:]}")
+            log_agent_debug(
+                logger,
+                f"Attempting to parse JSON for key '{output_key}'",
+                agent_name=agent_name,
+                context={
+                    "output_key": output_key,
+                    "output_length": len(output),
+                    "first_500_chars": output[:500],
+                    "last_500_chars": output[-500:]
+                }
+            )
             
             parsed = parse_json_robust(output)
             if parsed:
@@ -122,26 +197,56 @@ class AgentExecutor:
             from presentation_agent.core.json_parser import extract_json_from_text
             json_str = extract_json_from_text(output)
             if json_str:
-                logger.debug(f"Extracted JSON string length: {len(json_str)}")
-                logger.debug(f"Extracted JSON first 500 chars: {json_str[:500]}")
-                logger.debug(f"Extracted JSON last 500 chars: {json_str[-500:]}")
+                log_agent_debug(
+                    logger,
+                    f"Extracted JSON string for key '{output_key}'",
+                    agent_name=agent_name,
+                    context={
+                        "json_str_length": len(json_str),
+                        "first_500_chars": json_str[:500],
+                        "last_500_chars": json_str[-500:]
+                    }
+                )
                 try:
                     parsed = json.loads(json_str)
                     if isinstance(parsed, dict):
-                        logger.info(f"✅ Successfully parsed JSON after direct extraction for key '{output_key}'")
+                        log_agent_info(
+                            logger,
+                            f"Successfully parsed JSON after direct extraction for key '{output_key}'",
+                            agent_name=agent_name,
+                            context={"output_key": output_key}
+                        )
                         return parsed
                 except json.JSONDecodeError as e:
-                    logger.error(f"JSONDecodeError after extraction: {e}")
-                    logger.error(f"Error at position: {e.pos if hasattr(e, 'pos') else 'unknown'}")
-                    # Try to show context around the error
-                    if hasattr(e, 'pos') and e.pos is not None:
-                        start = max(0, e.pos - 100)
-                        end = min(len(json_str), e.pos + 100)
-                        logger.error(f"Context around error: {json_str[start:end]}")
+                    error_pos = e.pos if hasattr(e, 'pos') else None
+                    context_str = None
+                    if error_pos is not None:
+                        start = max(0, error_pos - 100)
+                        end = min(len(json_str), error_pos + 100)
+                        context_str = json_str[start:end]
+                    
+                    log_json_parse_error(
+                        logger,
+                        f"JSONDecodeError after extraction",
+                        agent_name=agent_name,
+                        output_key=output_key,
+                        raw_output_preview=context_str,
+                        error=e
+                    )
             # If all parsing attempts fail, raise exception
-            logger.error(f"All JSON parsing attempts failed for key '{output_key}'")
-            logger.error(f"Output type: {type(output)}")
-            logger.error(f"Output length: {len(output)}")
+            log_json_parse_error(
+                logger,
+                f"All JSON parsing attempts failed for key '{output_key}'",
+                agent_name=agent_name,
+                output_key=output_key,
+                raw_output_preview=output[:2000] if len(output) > 2000 else output
+            )
+            log_agent_debug(
+                logger,
+                f"Output details",
+                agent_name=agent_name,
+                context={"output_type": type(output).__name__, "output_length": len(output)}
+            )
             raise JSONParseError(
                 f"Failed to parse JSON from agent output for key '{output_key}'",
                 agent_name=agent_name,
