@@ -201,14 +201,25 @@ def generate_presentation():
             logger.info(f"✅ Pipeline execution completed. Outputs: {list(outputs.keys())}")
             return outputs
         
-        # Run async function (use get_event_loop for compatibility with nest-asyncio)
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        # Run async function in a separate thread to avoid event loop conflicts
+        # This ensures the async function runs in its own isolated event loop
+        import concurrent.futures
+        import threading
         
-        outputs = loop.run_until_complete(run_agent())
+        def run_in_thread():
+            """Run the async function in a new event loop in this thread"""
+            # Create a new event loop for this thread
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                return new_loop.run_until_complete(run_agent())
+            finally:
+                new_loop.close()
+        
+        # Execute in a thread pool to isolate the event loop
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(run_in_thread)
+            outputs = future.result()
         
         # Get logger for response handling
         logger = logging.getLogger(__name__)

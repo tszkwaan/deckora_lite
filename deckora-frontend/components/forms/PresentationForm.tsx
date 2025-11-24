@@ -6,6 +6,7 @@ import Select from '../ui/Select';
 import Textarea from '../ui/Textarea';
 import Button from '../ui/Button';
 import Icon from '../ui/Icon';
+import Loading from '../ui/Loading';
 import { PresentationFormData, FormErrors } from '@/types';
 import { SCENARIOS, TARGET_AUDIENCES, DEFAULT_DURATION } from '@/lib/constants';
 import { generatePresentation, GeneratePresentationResponse } from '@/lib/api';
@@ -21,7 +22,6 @@ const PresentationForm: React.FC = () => {
     customInstruction: '',
   });
   const [errors, setErrors] = useState<FormErrors>({});
-  const [result, setResult] = useState<GeneratePresentationResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const validateForm = (): boolean => {
@@ -48,9 +48,12 @@ const PresentationForm: React.FC = () => {
 
     setIsSubmitting(true);
     setErrorMessage(null);
-    setResult(null);
+
+    // Generate a unique ID for this generation request
+    const generationId = Date.now().toString();
 
     try {
+      // Make the API call
       const response = await generatePresentation({
         report_url: formData.reportUrl || undefined,
         scenario: formData.scenario || undefined,
@@ -59,36 +62,40 @@ const PresentationForm: React.FC = () => {
         custom_instruction: formData.customInstruction || undefined,
       });
 
-      setResult(response);
-
-      // If successful, check for web slides result and redirect to presentation view
-      const webSlidesResult = response.outputs?.web_slides_result;
-      if (response.status === 'success' && webSlidesResult?.slides_data) {
-        // Generate a presentation ID (use timestamp or get from backend if available)
-        const presentationId = Date.now().toString();
+      if (response.status === 'success') {
+        const webSlidesResult = response.outputs?.web_slides_result;
         
-        // Store slides data in sessionStorage for immediate access
-        sessionStorage.setItem(`presentation_${presentationId}`, JSON.stringify(webSlidesResult.slides_data));
-        
-        // Also store in a way that the API route can access it (for future requests)
-        // For now, we'll use sessionStorage and pass it directly
-        
-        // Redirect to presentation view with the data
-        // We'll pass the data via sessionStorage and the page will read it
-        window.location.href = `/presentation/${presentationId}`;
-        return;
-      }
-
-      // Fallback: If we have Google Slides URL, open it
-      const slidesResult = response.outputs?.slideshow_export_result || response.outputs?.slides_export_result;
-      if (response.status === 'success' && slidesResult?.shareable_url) {
-        window.open(slidesResult.shareable_url, '_blank');
+        if (webSlidesResult?.slides_data) {
+          // Store slides data in sessionStorage for immediate access
+          sessionStorage.setItem(`presentation_${generationId}`, JSON.stringify(webSlidesResult.slides_data));
+          
+          // Open presentation page in a new tab
+          const presentationUrl = `/presentation/${generationId}`;
+          window.open(presentationUrl, '_blank');
+          
+          // Reset form after successful generation
+          setFormData({
+            reportUrl: '',
+            duration: DEFAULT_DURATION,
+            scenario: '',
+            targetAudience: '',
+            customInstruction: '',
+          });
+        } else {
+          // Fallback: If we have Google Slides URL, open it
+          const slidesResult = response.outputs?.slideshow_export_result || response.outputs?.slides_export_result;
+          if (slidesResult?.shareable_url) {
+            window.open(slidesResult.shareable_url, '_blank');
+          } else {
+            setErrorMessage('Presentation generated but no slides data available.');
+          }
+        }
+      } else {
+        setErrorMessage(response.error || 'An error occurred while generating the presentation.');
       }
     } catch (error) {
-      console.error('Error submitting form:', error);
-      setErrorMessage(
-        error instanceof Error ? error.message : 'An unexpected error occurred'
-      );
+      console.error('Error generating presentation:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to generate presentation. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -128,6 +135,31 @@ const PresentationForm: React.FC = () => {
       }
     }
   };
+
+  // Show loading component when submitting
+  if (isSubmitting) {
+    return (
+      <div className="glass-card flex flex-col gap-6 rounded-xl p-6 sm:p-8 md:p-10 relative">
+        <div className="absolute inset-0 bg-white/90 backdrop-blur-sm rounded-xl z-10 flex items-center justify-center">
+          <Loading />
+        </div>
+        {/* Keep form structure but hidden behind loading */}
+        <div className="opacity-0 pointer-events-none">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col">
+              <p className="pb-2 text-base font-medium text-slate-800">Source</p>
+              <div className="relative flex w-full items-center">
+                <input type="text" className="h-14 w-full" />
+              </div>
+            </div>
+          </div>
+          <Button type="submit" variant="primary" fullWidth disabled>
+            Generating...
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <form onSubmit={handleSubmit} className="glass-card flex flex-col gap-6 rounded-xl p-6 sm:p-8 md:p-10">
@@ -241,45 +273,13 @@ const PresentationForm: React.FC = () => {
       </div>
 
       <Button type="submit" variant="primary" fullWidth disabled={isSubmitting}>
-        {isSubmitting ? 'Generating...' : 'Generate Slides'}
+        Generate Slides
       </Button>
 
       {errorMessage && (
         <div className="mt-4 rounded-lg border border-red-300 bg-red-50 p-4">
           <p className="text-sm font-medium text-red-800">Error</p>
           <p className="mt-1 text-sm text-red-600">{errorMessage}</p>
-        </div>
-      )}
-
-      {result && (
-        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <p className="text-sm font-medium text-slate-800">
-            {result.status === 'success' ? '✅ Success!' : '⚠️ Error'}
-          </p>
-          {(result.outputs?.slideshow_export_result?.shareable_url || 
-            result.outputs?.slides_export_result?.shareable_url) && (
-            <div className="mt-2">
-              <a
-                href={result.outputs?.slideshow_export_result?.shareable_url || 
-                     result.outputs?.slides_export_result?.shareable_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-primary-600 hover:text-primary-700 underline"
-              >
-                Open Google Slides Presentation
-              </a>
-            </div>
-          )}
-          {result.outputs?.slideshow_export_result?.message && (
-            <p className="mt-1 text-sm text-slate-600">
-              {result.outputs.slideshow_export_result.message}
-            </p>
-          )}
-          {result.outputs?.slides_export_result?.message && (
-            <p className="mt-1 text-sm text-slate-600">
-              {result.outputs.slides_export_result.message}
-            </p>
-          )}
         </div>
       )}
     </form>
