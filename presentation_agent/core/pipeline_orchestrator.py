@@ -12,12 +12,9 @@ import webbrowser
 
 from google.adk.sessions import InMemorySessionService
 
-from config import PresentationConfig
-from presentation_agent.agents.report_understanding_agent.agent import agent as report_understanding_agent
-from presentation_agent.agents.outline_generator_agent.agent import agent as outline_generator_agent
-from presentation_agent.agents.slide_and_script_generator_agent.agent import agent as slide_and_script_generator_agent
-from presentation_agent.agents.chart_generator_agent.agent import agent as chart_generator_agent
+from config import PresentationConfig, LLM_RETRY_COUNT
 from presentation_agent.agents.tools.web_slides_generator_tool import generate_web_slides_tool
+from presentation_agent.core.agent_registry import AgentRegistry, create_default_agent_registry
 from presentation_agent.agents.utils.pdf_loader import load_pdf
 from presentation_agent.agents.utils.helpers import save_json_output, is_valid_chart_data
 from presentation_agent.agents.utils.observability import get_observability_logger, AgentStatus
@@ -43,7 +40,8 @@ class PipelineOrchestrator:
         output_dir: str = "presentation_agent/output",
         include_critics: bool = True,
         save_intermediate: bool = True,
-        open_browser: bool = True
+        open_browser: bool = True,
+        agent_registry: Optional[AgentRegistry] = None
     ):
         self.config = config
         self.output_dir = Path(output_dir)
@@ -51,6 +49,9 @@ class PipelineOrchestrator:
         self.include_critics = include_critics
         self.save_intermediate = save_intermediate
         self.open_browser = open_browser
+        
+        # Initialize agent registry (dependency injection)
+        self.agent_registry = agent_registry or create_default_agent_registry()
         
         # Initialize observability
         trace_file = str(self.output_dir / "trace_history.json")
@@ -419,7 +420,7 @@ class PipelineOrchestrator:
         
         try:
             report_knowledge = await self.executor.run_agent(
-                report_understanding_agent,
+                self.agent_registry.get("report_understanding"),
                 initial_message,
                 "report_knowledge",
                 parse_json=True
@@ -485,7 +486,7 @@ class PipelineOrchestrator:
             serialized_report_knowledge = self._get_serialized_report_knowledge(pretty=False)
             
             presentation_outline = await self.executor.run_agent(
-                outline_generator_agent,
+                self.agent_registry.get("outline_generator"),
                 f"Based on the report knowledge:\n{serialized_report_knowledge}{custom_instr_note}\n\nGenerate a presentation outline.",
                 "presentation_outline",
                 parse_json=True
@@ -682,7 +683,7 @@ After generation, verify: Sum of all estimated_time values should be close to {t
             message_parts.append(f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}")
             
             slide_and_script = await self.executor.run_agent(
-                slide_and_script_generator_agent,
+                self.agent_registry.get("slide_and_script_generator"),
                 "\n".join(message_parts),
                 "slide_and_script",
                 parse_json=True
@@ -703,9 +704,50 @@ After generation, verify: Sum of all estimated_time values should be close to {t
                     print("   The generated slides may not fully satisfy the custom instruction.")
                     print("   Consider re-running or adjusting the custom instruction.")
         except AgentExecutionError as e:
-            # Agent failed to return output
-            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
-            raise
+            # Agent failed to return output - this could be due to LLM not returning correct format
+            # Retry the LLM call up to LLM_RETRY_COUNT times before giving up
+            error_msg = str(e)
+            if "no output for key" in error_msg.lower():
+                logger.warning(f"AgentExecutionError: Agent returned no output. This may be due to LLM format issue. Retrying LLM call (up to {LLM_RETRY_COUNT} times): {e}")
+                
+                # Retry loop
+                last_error = e
+                for retry_attempt in range(1, LLM_RETRY_COUNT + 1):
+                    try:
+                        logger.info(f"Retry attempt {retry_attempt}/{LLM_RETRY_COUNT} for missing output")
+                        # Use cached serialization for performance
+                        serialized_outline = self._get_serialized_presentation_outline(pretty=False)
+                        
+                        # Use selective context for retry as well
+                        selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
+                        selective_report_knowledge_str = self.serialization_service.serialize(
+                            selective_report_knowledge,
+                            pretty=False
+                        )
+                        
+                        slide_and_script = await self.executor.run_agent(
+                            self.agent_registry.get("slide_and_script_generator"),
+                            f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}",
+                            "slide_and_script",
+                            parse_json=True
+                        )
+                        logger.info(f"✅ Successfully got output after LLM retry attempt {retry_attempt}")
+                        # Success! Continue with the retried output - don't finish agent execution yet,
+                        # let the normal flow continue to process slide_and_script
+                        break  # Exit retry loop on success
+                    except (AgentExecutionError, JSONParseError) as e2:
+                        last_error = e2
+                        if retry_attempt < LLM_RETRY_COUNT:
+                            logger.warning(f"Retry attempt {retry_attempt} failed, will retry again: {e2}")
+                        else:
+                            logger.error(f"All {LLM_RETRY_COUNT} retry attempts failed. Last error: {e2}")
+                            # All retries exhausted - raise the error
+                            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e2), has_output=False)
+                            raise
+            else:
+                # Other types of AgentExecutionError - don't retry
+                self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+                raise
         except JSONParseError as e:
             # If JSON parsing failed, check if it's a syntax error (should retry LLM call)
             # vs incomplete JSON (can try fallback parsing)
@@ -734,38 +776,47 @@ After generation, verify: Sum of all estimated_time values should be close to {t
                 pass
             
             if is_syntax_error:
-                logger.warning(f"JSONParseError indicates syntax error (malformed JSON from LLM). Retrying LLM call: {e}")
-                # Retry the LLM call once
-                try:
-                    # Use cached serialization for performance
-                    serialized_outline = self._get_serialized_presentation_outline(pretty=False)
-                    
-                    # Use selective context for retry as well
-                    selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
-                    selective_report_knowledge_str = self.serialization_service.serialize(
-                        selective_report_knowledge,
-                        pretty=False
-                    )
-                    
-                    slide_and_script = await self.executor.run_agent(
-                        slide_and_script_generator_agent,
-                        f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}",
-                        "slide_and_script",
-                        parse_json=True  # Retry with JSON parsing
-                    )
-                    logger.info("✅ Successfully parsed JSON after LLM retry")
-                    # Success! Continue with the retried output
-                    if isinstance(slide_and_script, dict):
-                        self.outputs["slide_and_script"] = slide_and_script
-                        self.session.state["slide_and_script"] = slide_and_script
-                        if self.save_intermediate:
-                            save_json_output(slide_and_script, str(self.output_dir / "slide_and_script_raw_debug.json"))
-                        self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
-                        return  # Exit early, retry succeeded
-                except (AgentExecutionError, JSONParseError) as e2:
-                    logger.error(f"LLM retry also failed: {e2}")
-                    # Fall through to fallback parsing
-                    is_syntax_error = False
+                logger.warning(f"JSONParseError indicates syntax error (malformed JSON from LLM). Retrying LLM call (up to {LLM_RETRY_COUNT} times): {e}")
+                
+                # Retry loop
+                last_error = e
+                for retry_attempt in range(1, LLM_RETRY_COUNT + 1):
+                    try:
+                        logger.info(f"Retry attempt {retry_attempt}/{LLM_RETRY_COUNT} for JSON syntax error")
+                        # Use cached serialization for performance
+                        serialized_outline = self._get_serialized_presentation_outline(pretty=False)
+                        
+                        # Use selective context for retry as well
+                        selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
+                        selective_report_knowledge_str = self.serialization_service.serialize(
+                            selective_report_knowledge,
+                            pretty=False
+                        )
+                        
+                        slide_and_script = await self.executor.run_agent(
+                            self.agent_registry.get("slide_and_script_generator"),
+                            f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}",
+                            "slide_and_script",
+                            parse_json=True  # Retry with JSON parsing
+                        )
+                        logger.info(f"✅ Successfully parsed JSON after LLM retry attempt {retry_attempt}")
+                        # Success! Continue with the retried output
+                        if isinstance(slide_and_script, dict):
+                            self.outputs["slide_and_script"] = slide_and_script
+                            self.session.state["slide_and_script"] = slide_and_script
+                            if self.save_intermediate:
+                                save_json_output(slide_and_script, str(self.output_dir / "slide_and_script_raw_debug.json"))
+                            self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
+                            return  # Exit early, retry succeeded
+                    except (AgentExecutionError, JSONParseError) as e2:
+                        last_error = e2
+                        if retry_attempt < LLM_RETRY_COUNT:
+                            logger.warning(f"Retry attempt {retry_attempt} failed, will retry again: {e2}")
+                        else:
+                            logger.error(f"All {LLM_RETRY_COUNT} retry attempts failed. Last error: {e2}")
+                            # Fall through to fallback parsing
+                            is_syntax_error = False
+                            break
             
             if not is_syntax_error:
                 # If JSON parsing failed, try fallback parsing strategies
@@ -783,7 +834,7 @@ After generation, verify: Sum of all estimated_time values should be close to {t
                 )
                 
                 slide_and_script = await self.executor.run_agent(
-                    slide_and_script_generator_agent,
+                    self.agent_registry.get("slide_and_script_generator"),
                     f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}",
                     "slide_and_script",
                     parse_json=False  # Get raw string output
@@ -1038,7 +1089,7 @@ After generation, verify: Sum of all estimated_time values should be close to {t
             chart_input = json.dumps({"slide_deck": slide_deck}, separators=(',', ':'))
             try:
                 chart_status = await self.executor.run_agent(
-                    chart_generator_agent,
+                    self.agent_registry.get("chart_generator"),
                     chart_input,
                     "chart_generation_status",
                     parse_json=False
