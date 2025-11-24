@@ -19,6 +19,28 @@ try:
     try:
         import kaleido
         KALEIDO_AVAILABLE = True
+        # Configure Kaleido to use Chromium if available (for Docker/Cloud Run)
+        import os
+        # Try multiple possible Chromium paths
+        chromium_paths = [
+            os.environ.get('CHROMIUM_PATH'),
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/usr/bin/google-chrome',
+            '/usr/bin/chrome',
+        ]
+        chromium_path = None
+        for path in chromium_paths:
+            if path and os.path.exists(path):
+                chromium_path = path
+                break
+        
+        if chromium_path:
+            # Set the browser executable path for Kaleido
+            os.environ['KALEIDO_BROWSER_EXECUTABLE'] = chromium_path
+            logger.info(f"✅ Configured Kaleido to use Chromium at: {chromium_path}")
+        else:
+            logger.debug("⚠️  Chromium not found. Kaleido may need manual configuration.")
     except ImportError:
         KALEIDO_AVAILABLE = False
         logger.warning("⚠️  Kaleido not installed. Chart image export may fail.")
