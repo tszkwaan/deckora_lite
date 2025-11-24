@@ -77,5 +77,8 @@ htmlcov/
 *.temp
 .cache/
 
+# Accidental pip output files (files starting with =)
+=*
+
 # Test files
 test/

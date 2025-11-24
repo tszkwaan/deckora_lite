@@ -12,19 +12,17 @@ import webbrowser
 
 from google.adk.sessions import InMemorySessionService
 
-from config import PresentationConfig, LAYOUT_MAX_RETRY_LOOPS
+from config import PresentationConfig
 from presentation_agent.agents.report_understanding_agent.agent import agent as report_understanding_agent
 from presentation_agent.agents.outline_generator_agent.agent import agent as outline_generator_agent
 from presentation_agent.agents.slide_and_script_generator_agent.agent import agent as slide_and_script_generator_agent
 from presentation_agent.agents.chart_generator_agent.agent import agent as chart_generator_agent
-from presentation_agent.agents.layout_critic_agent.agent import agent as layout_critic_agent
 # from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool  # Commented out
 from presentation_agent.agents.tools.web_slides_generator_tool import generate_web_slides_tool
 from presentation_agent.agents.utils.pdf_loader import load_pdf
 from presentation_agent.agents.utils.helpers import save_json_output, is_valid_chart_data
 from presentation_agent.agents.utils.observability import get_observability_logger, AgentStatus
 from presentation_agent.core.agent_executor import AgentExecutor
-from presentation_agent.core.retry_handler import OutlineRetryHandler, LayoutRetryHandler
 from presentation_agent.core.json_parser import parse_json_robust
 from presentation_agent.core.exceptions import AgentExecutionError, JSONParseError, AgentOutputError
 
@@ -110,11 +108,6 @@ class PipelineOrchestrator:
             # Step 4: Web Slides Generation (Google Slides Export commented out)
             await self._step_generate_web_slides(image_cache=image_cache, keyword_usage_tracker=keyword_usage_tracker)
             # await self._step_export_slides()  # Commented out - using web slides instead
-            
-            # Step 5: Layout Review with Retry (commented out for web slides - no layout review needed)
-            # Web slides have better style control, so layout review is not necessary
-            # if self.include_critics:
-            #     await self._step_layout_review()
             
             print("\n✅ Pipeline completed - web slides generated!")
             
@@ -1259,99 +1252,3 @@ After generation, verify: Sum of all estimated_time values should be close to {t
             self.obs_logger.finish_agent_execution(AgentStatus.FAILED, error_msg, has_output=False)
             print(f"⚠️  Google Slides export failed: {error_msg}")
     
-    async def _step_layout_review(self):
-        """
-        Step 5: Layout Review with Retry Loop.
-        
-        TODO: Implement full retry logic with slide regeneration.
-        Current implementation is simplified - only performs single review.
-        Full implementation should:
-        1. Review layout
-        2. If issues found, regenerate slides with feedback
-        3. Re-export slides
-        4. Re-review
-        5. Repeat up to LAYOUT_MAX_RETRY_LOOPS times
-        """
-        print("\n🎨 Step 5: Layout Review with Retry Loop")
-        
-        export_result = self.outputs.get("slideshow_export_result")
-        if not export_result or export_result.get('status') not in ['success', 'partial_success']:
-            print("   ⚠️  Skipping layout review (export did not succeed)")
-            return
-        
-        layout_retries = 0
-        max_layout_retries = LAYOUT_MAX_RETRY_LOOPS + 1
-        
-        while layout_retries < max_layout_retries:
-            if layout_retries > 0:
-                print(f"\n🔄 Layout Review Retry {layout_retries}/{LAYOUT_MAX_RETRY_LOOPS}")
-            
-            self.obs_logger.start_agent_execution("LayoutCriticAgent", output_key="layout_review", retry_count=layout_retries)
-            
-            shareable_url = export_result.get("shareable_url") or f"https://docs.google.com/presentation/d/{export_result.get('presentation_id')}/edit"
-            self.session.state["slides_export_result"] = export_result
-            
-            layout_input = f"""The SlidesExportAgent has completed. Here is the slides_export_result:
-
-{json.dumps(export_result, separators=(',', ':'))}
-
-Extract the shareable_url from slides_export_result and call review_layout_tool with it to review the layout."""
-            
-            layout_review = await self.executor.run_agent(
-                layout_critic_agent,
-                layout_input,
-                "layout_review",
-                parse_json=True
-            )
-            
-            # Check session.state as fallback
-            if not layout_review and self.session.state.get("layout_review"):
-                layout_review = self.session.state.get("layout_review")
-            
-            # Parse if string
-            if isinstance(layout_review, str):
-                parsed = parse_json_robust(layout_review)
-                if parsed:
-                    layout_review = parsed
-            
-            if layout_review and isinstance(layout_review, dict):
-                self.session.state["layout_review"] = layout_review
-                passed = layout_review.get("passed", False)
-                issues_summary = layout_review.get("issues_summary", {})
-                total_issues = issues_summary.get("total_issues", 0) if isinstance(issues_summary, dict) else 0
-                overall_quality = layout_review.get("overall_quality", "unknown")
-                
-                if self.save_intermediate:
-                    save_json_output(layout_review, str(self.output_dir / "layout_review.json"))
-                
-                self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
-                
-                # Check if layout passes
-                if passed and total_issues == 0:
-                    print(f"✅ Layout review passed! Quality: {overall_quality}, Issues: {total_issues}")
-                    self.outputs["layout_review"] = layout_review
-                    break
-                else:
-                    print(f"⚠️  Layout review failed: Quality: {overall_quality}, Issues: {total_issues}")
-                    
-                    # If max retries reached, save and exit
-                    if layout_retries >= LAYOUT_MAX_RETRY_LOOPS:
-                        print(f"⚠️  Reached maximum layout retry attempts ({LAYOUT_MAX_RETRY_LOOPS}). Proceeding with current slides.")
-                        self.outputs["layout_review"] = layout_review
-                        break
-                    
-                    # TODO: Implement slide regeneration with feedback
-                    # This would involve:
-                    # 1. Building feedback message from layout_review
-                    # 2. Regenerating slides with feedback
-                    # 3. Regenerating charts if needed
-                    # 4. Re-exporting slides
-                    # 5. Updating export_result
-                    print(f"⚠️  Full retry logic with slide regeneration not yet implemented. Skipping retry.")
-                    self.outputs["layout_review"] = layout_review
-                    break
-            else:
-                print("⚠️  Layout review did not return valid output")
-                self.obs_logger.finish_agent_execution(AgentStatus.FAILED, "No valid layout review", has_output=False)
-                break
-
