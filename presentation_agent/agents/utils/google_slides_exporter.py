@@ -1274,15 +1274,51 @@ def export_to_google_slides(
             }
         # If presentation wasn't created, raise the error
         raise
-    except Exception as e:
-        print(f"❌ Error exporting to Google Slides: {e}")
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
+        # Data/configuration errors - log with context
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(
+            f"Google Slides export failed with data/configuration error: {type(e).__name__}: {e}",
+            exc_info=True,
+            extra={
+                "error_type": type(e).__name__,
+                "presentation_id": presentation_id if 'presentation_id' in locals() else None
+            }
+        )
         error_details = str(e)
         # Check if presentation was created before the error
-        # If so, return partial success with the presentation_id so it can still be accessed
         if presentation_id:
             shareable_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
-            import logging
-            logger = logging.getLogger(__name__)
+            logger.warning(f"⚠️  Warning: Error occurred, but presentation was created")
+            logger.info(f"   🔗 Google Slides URL: {shareable_url}")
+            print(f"⚠️  Warning: Error occurred, but presentation was created: {shareable_url}")
+            print(f"🔗 Google Slides URL: {shareable_url}")
+            return {
+                'status': 'partial_success',
+                'presentation_id': presentation_id,
+                'shareable_url': shareable_url,
+                'message': f'Google Slides presentation created but encountered error: {error_details}',
+                'error': error_details
+            }
+        # If presentation wasn't created, raise the error
+        raise
+    except Exception as e:
+        # Unexpected errors - log with full context for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(
+            f"Google Slides export failed with unexpected error: {type(e).__name__}: {e}",
+            exc_info=True,
+            extra={
+                "error_type": type(e).__name__,
+                "presentation_id": presentation_id if 'presentation_id' in locals() else None
+            }
+        )
+        error_details = str(e)
+        # Check if presentation was created before the error
+        if presentation_id:
+            shareable_url = f"https://docs.google.com/presentation/d/{presentation_id}/edit"
             logger.warning(f"⚠️  Warning: Error occurred, but presentation was created")
             logger.info(f"   🔗 Google Slides URL: {shareable_url}")
             print(f"⚠️  Warning: Error occurred, but presentation was created: {shareable_url}")

@@ -413,11 +413,44 @@ def generate_image_with_gemini(keyword: str, output_dir: Optional[Path] = None, 
             logger.error(f"   Full response dump (first 1000 chars): {str(response.model_dump())[:1000]}")
         return None
         
+    except (ValueError, TypeError, KeyError) as e:
+        # Data/parameter errors - log with context
+        logger.error(
+            f"Gemini image generation failed with data/parameter error: {type(e).__name__}: {e}",
+            exc_info=True,
+            extra={
+                "error_type": type(e).__name__,
+                "keyword": keyword,
+                "max_width": max_width,
+                "max_height": max_height
+            }
+        )
+        return None
+    except (OSError, IOError) as e:
+        # File I/O errors - log with context
+        logger.error(
+            f"Gemini image generation failed with file I/O error: {type(e).__name__}: {e}",
+            exc_info=True,
+            extra={
+                "error_type": type(e).__name__,
+                "keyword": keyword,
+                "output_dir": str(output_dir) if output_dir else None
+            }
+        )
+        return None
     except Exception as e:
-        logger.error(f"❌ Exception during Gemini image generation for keyword '{keyword}': {e}")
-        logger.error(f"   Exception type: {type(e).__name__}")
-        import traceback
-        logger.error(f"   Full traceback: {traceback.format_exc()}")
+        # Unexpected errors - log with full context for debugging
+        logger.error(
+            f"Gemini image generation failed with unexpected error: {type(e).__name__}: {e}",
+            exc_info=True,
+            extra={
+                "error_type": type(e).__name__,
+                "keyword": keyword,
+                "max_width": max_width,
+                "max_height": max_height,
+                "output_dir": str(output_dir) if output_dir else None
+            }
+        )
         return None
 
 

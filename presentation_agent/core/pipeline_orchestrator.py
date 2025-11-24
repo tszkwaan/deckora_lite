@@ -24,6 +24,7 @@ from presentation_agent.agents.utils.observability import get_observability_logg
 from presentation_agent.core.agent_executor import AgentExecutor
 from presentation_agent.core.json_parser import parse_json_robust
 from presentation_agent.core.exceptions import AgentExecutionError, JSONParseError, AgentOutputError
+from presentation_agent.core.logging_utils import log_agent_error
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +113,67 @@ class PipelineOrchestrator:
             self.obs_logger.finish_pipeline()
             return self.outputs
             
+        except (AgentExecutionError, JSONParseError, AgentOutputError) as e:
+            # Expected errors from agent execution - log with context and re-raise
+            log_agent_error(
+                logger,
+                f"Pipeline failed with agent execution error: {e}",
+                agent_name=getattr(e, 'agent_name', 'PipelineOrchestrator'),
+                output_key=getattr(e, 'output_key', None),
+                error=e,
+                context={
+                    "error_type": type(e).__name__,
+                    "outputs_so_far": list(self.outputs.keys()) if self.outputs else []
+                }
+            )
+            self.obs_logger.finish_pipeline()
+            raise
+        except (FileNotFoundError, ValueError, KeyError, TypeError, AttributeError) as e:
+            # Configuration or data errors - log with context
+            logger.error(
+                f"Pipeline failed with configuration/data error: {type(e).__name__}: {e}",
+                exc_info=True,
+                extra={
+                    "error_type": type(e).__name__,
+                    "config_duration": getattr(self.config, 'duration', None),
+                    "config_scenario": getattr(self.config, 'scenario', None),
+                    "outputs_so_far": list(self.outputs.keys()) if self.outputs else []
+                }
+            )
+            self.obs_logger.finish_pipeline()
+            raise
         except Exception as e:
+            # Unexpected errors - log with full context for debugging
+            logger.error(
+                f"Pipeline failed with unexpected error: {type(e).__name__}: {e}",
+                exc_info=True,
+                extra={
+                    "error_type": type(e).__name__,
+                    "outputs_so_far": list(self.outputs.keys()) if self.outputs else [],
+                    "config_duration": getattr(self.config, 'duration', None)
+                }
+            )
+            self.obs_logger.finish_pipeline()
+            raise
+        except (FileNotFoundError, ValueError, KeyError, TypeError) as e:
+            # These are configuration or data errors - log with context
+            logger.error(
+                f"Pipeline failed with configuration/data error: {e}",
+                exc_info=True,
+                extra={"config": self.config.__dict__ if hasattr(self.config, '__dict__') else None}
+            )
+            self.obs_logger.finish_pipeline()
+            raise
+        except Exception as e:
+            # Unexpected errors - log with full context for debugging
+            logger.error(
+                f"Pipeline failed with unexpected error: {e}",
+                exc_info=True,
+                extra={
+                    "error_type": type(e).__name__,
+                    "outputs_so_far": list(self.outputs.keys()) if self.outputs else []
+                }
+            )
             self.obs_logger.finish_pipeline()
             raise
     
