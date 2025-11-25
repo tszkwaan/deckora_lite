@@ -40,6 +40,7 @@ from presentation_agent.core.exceptions import AgentExecutionError, JSONParseErr
 from presentation_agent.core.logging_utils import log_agent_error
 from presentation_agent.core.serialization_service import SerializationService
 from presentation_agent.core.cache_manager import CacheManager
+from presentation_agent.core.slide_generation_handler import SlideGenerationHandler
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,25 @@ class PipelineOrchestrator:
             await self._step_outline_generation()
             
             # Step 3: Slide and Script Generation
-            await self._step_slide_generation()
+            handler = SlideGenerationHandler(
+                config=self.config,
+                executor=self.executor,
+                agent_registry=self.agent_registry,
+                obs_logger=self.obs_logger,
+                serialization_service=self.serialization_service,
+                get_serialized_outline_fn=self._get_serialized_presentation_outline,
+                build_selective_context_fn=self._build_selective_context,
+                outputs=self.outputs,
+                output_dir=self.output_dir,
+                save_intermediate=self.save_intermediate,
+            )
+            result = await handler.execute(
+                presentation_outline=self.outputs["presentation_outline"],
+                report_knowledge=self.outputs["report_knowledge"]
+            )
+            # Store in session state
+            self.session.state["slide_deck"] = result["slide_deck"]
+            self.session.state["presentation_script"] = result["presentation_script"]
             
             # Step 3.5: Parallel Chart and Image Generation (OPTIMIZATION)
             # Generate charts and images in parallel to save time
@@ -528,662 +547,97 @@ class PipelineOrchestrator:
             print(f"✅ Presentation outline saved")
     
     async def _step_slide_generation(self):
-        """Step 3: Slide and Script Generation."""
-        print("\n🎨 Step 3: Slide and Script Generation")
-        self.obs_logger.start_agent_execution("SlideAndScriptGeneratorAgent", output_key="slide_and_script")
+        """Step 3: Slide and Script Generation - now handled by SlideGenerationHandler."""
+        handler = SlideGenerationHandler(
+            config=self.config,
+            executor=self.executor,
+            agent_registry=self.agent_registry,
+            obs_logger=self.obs_logger,
+            serialization_service=self.serialization_service,
+            get_serialized_outline_fn=self._get_serialized_presentation_outline,
+            build_selective_context_fn=self._build_selective_context,
+            outputs=self.outputs,
+            output_dir=self.output_dir,
+            save_intermediate=self.save_intermediate,
+        )
+        result = await handler.execute(
+            presentation_outline=self.outputs["presentation_outline"],
+            report_knowledge=self.outputs["report_knowledge"]
+        )
+        # Store in session state
+        self.session.state["slide_deck"] = result["slide_deck"]
+        self.session.state["presentation_script"] = result["presentation_script"]
+    
+    async def _step_chart_generation(self):
+        """Step 3.5: Chart Generation."""
+        print("\n📊 Step 3.5: Chart Generation")
+        self.obs_logger.start_agent_execution("ChartGeneratorAgent", output_key="chart_generation_status")
         
-        presentation_outline = self.outputs["presentation_outline"]
-        report_knowledge = self.outputs["report_knowledge"]
-        
-        try:
-            # Include custom_instruction explicitly in the message if present
-            custom_instruction_note = ""
-            if self.config.custom_instruction and self.config.custom_instruction.strip():
-                custom_instr_lower = self.config.custom_instruction.lower()
-                if "icon-feature card" in custom_instr_lower or "icon feature card" in custom_instr_lower:
-                    custom_instruction_note = f"""
-
-═══════════════════════════════════════════════════════════════
-🚨 CRITICAL MANDATORY REQUIREMENT - MUST BE FOLLOWED 🚨
-═══════════════════════════════════════════════════════════════
-
-[CUSTOM_INSTRUCTION]
-{self.config.custom_instruction}
-
-⚠️⚠️⚠️ MANDATORY REQUIREMENT - THIS OVERRIDES ALL OTHER INSTRUCTIONS ⚠️⚠️⚠️
-
-You MUST create at least ONE slide (can be any slide number 2-5) with:
-  - layout_type: "comparison-grid"
-  - visual_elements.sections array with 2-4 sections
-  - Each section MUST have an "image_keyword" field
-
-Example structure:
-{{
-  "slide_number": 2,  // or 3, 4, or 5
-  "design_spec": {{
-    "layout_type": "comparison-grid"
-  }},
-  "visual_elements": {{
-    "sections": [
-      {{"title": "Security", "content": "...", "image_keyword": "security"}},
-      {{"title": "Vulnerability", "content": "...", "image_keyword": "warning"}},
-      {{"title": "Evaluation", "content": "...", "image_keyword": "analytics"}}
-    ]
-  }}
-}}
-
-This is NOT optional. You MUST include at least ONE comparison-grid slide with image_keyword fields.
-The comparison-grid will render as icon-feature cards with images generated on-the-fly.
-
-═══════════════════════════════════════════════════════════════
-"""
-                elif "timeline" in custom_instr_lower:
-                    custom_instruction_note = f"\n\n[CUSTOM_INSTRUCTION - CRITICAL]\n{self.config.custom_instruction}\n\n⚠️ MANDATORY REQUIREMENT: You MUST create at least ONE slide with layout_type: \"timeline\" AND provide visual_elements.timeline_items array with format: [{{\"year\": \"...\", \"title\": \"...\", \"description\": \"...\"}}, ...]. This is NOT optional - you MUST include a timeline slide.\n"
-                elif "flowchart" in custom_instr_lower:
-                    custom_instruction_note = f"\n\n[CUSTOM_INSTRUCTION - CRITICAL]\n{self.config.custom_instruction}\n\n⚠️ MANDATORY REQUIREMENT: You MUST create at least ONE slide with layout_type: \"flowchart\" AND provide visual_elements.flowchart_steps array. This is NOT optional.\n"
-                elif "comparison" in custom_instr_lower or "grid" in custom_instr_lower:
-                    custom_instruction_note = f"\n\n[CUSTOM_INSTRUCTION - CRITICAL]\n{self.config.custom_instruction}\n\n⚠️ MANDATORY REQUIREMENT: You MUST create at least ONE slide with layout_type: \"comparison-grid\" AND provide visual_elements.sections array. This is NOT optional.\n"
-                elif "table" in custom_instr_lower:
-                    custom_instruction_note = f"\n\n[CUSTOM_INSTRUCTION - CRITICAL]\n{self.config.custom_instruction}\n\n⚠️ MANDATORY REQUIREMENT: You MUST create at least ONE slide with layout_type: \"data-table\" AND provide visual_elements.table_data object. This is NOT optional.\n"
-                elif "image" in custom_instr_lower and ("at least" in custom_instr_lower or "least" in custom_instr_lower):
-                    # Extract number if present (e.g., "at least 3 images" -> 3)
-                    import re
-                    num_match = re.search(r'at least (\d+)|least (\d+)', custom_instr_lower)
-                    num_images = int(num_match.group(1) or num_match.group(2)) if num_match else 3
-                    custom_instruction_note = f"""
-
-═══════════════════════════════════════════════════════════════
-🚨 CRITICAL MANDATORY REQUIREMENT - MUST BE FOLLOWED 🚨
-═══════════════════════════════════════════════════════════════
-
-[CUSTOM_INSTRUCTION]
-{self.config.custom_instruction}
-
-⚠️⚠️⚠️ MANDATORY REQUIREMENT - THIS OVERRIDES ALL OTHER INSTRUCTIONS ⚠️⚠️⚠️
-
-You MUST provide at least {num_images} images TOTAL across all slides (not per slide).
-
-Distribute images across slides - you can put 1-2 images on some slides, more on others, as long as the total across all slides is at least {num_images}.
-
-For slides (except slide_number: 1), you can include:
-  - visual_elements.image_keywords array with 1-3 keywords per slide
-  - OR visual_elements.figures array with dictionaries containing "image_keyword" fields
-
-**CRITICAL: DO NOT ASK QUESTIONS - JUST GENERATE THE KEYWORDS**
-
-Interpretation: "at least {num_images} images" means "{num_images} images TOTAL ACROSS ALL SLIDES"
-- Automatically generate relevant keywords based on each slide's content
-- Choose keywords that match the slide topic (e.g., security slide → ["security"], evaluation slide → ["analytics", "chart"])
-- DO NOT use figure IDs like "fig1" or "placeholder_image_1" - use actual keywords
-- Distribute images across slides (e.g., 1 image on slide 2, 1 on slide 3, 1 on slide 4 = 3 total)
-
-Example distribution for "at least 3 images":
-- Slide 2: {{"visual_elements": {{"image_keywords": ["security"]}}}}  // 1 image
-- Slide 3: {{"visual_elements": {{"image_keywords": ["analytics"]}}}}  // 1 image
-- Slide 4: {{"visual_elements": {{"image_keywords": ["chart"]}}}}     // 1 image
-Total: 3 images across all slides ✅
-
-This is NOT optional. You MUST include at least {num_images} image keywords TOTAL across all slides (except cover slide).
-DO NOT ask for clarification - just generate the keywords automatically and distribute them across slides.
-
-═══════════════════════════════════════════════════════════════
-"""
-                else:
-                    custom_instruction_note = f"\n\n[CUSTOM_INSTRUCTION]\n{self.config.custom_instruction}\n\nIMPORTANT: You MUST follow this custom instruction.\n"
-            
-            # Build the message with custom instruction at the TOP if present
-            # Use cached serialization for performance
-            serialized_outline = self._get_serialized_presentation_outline(pretty=False)
-            
-            # CONTEXT ENGINEERING: Use selective context extraction to reduce token usage
-            # Extract only relevant report sections based on slide topics
-            selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
-            
-            # Serialize the selective context (compact format for agent messages)
-            selective_report_knowledge_str = self.serialization_service.serialize(
-                selective_report_knowledge,
-                pretty=False
-            )
-            
-            message_parts = []
-            if custom_instruction_note:
-                message_parts.append(custom_instruction_note)
-            
-            # Add explicit duration requirement with calculated target
-            # Parse duration string to calculate target seconds
-            duration_str = self.config.duration.lower()
-            target_seconds = DEFAULT_DURATION_SECONDS
-            if "minute" in duration_str or "min" in duration_str:
-                import re
-                match = re.search(r'(\d+)', duration_str)
-                if match:
-                    minutes = int(match.group(1))
-                    target_seconds = minutes * 60
-            elif "second" in duration_str or "sec" in duration_str:
-                import re
-                match = re.search(r'(\d+)', duration_str)
-                if match:
-                    target_seconds = int(match.group(1))
-            
-            # Calculate required words (words = seconds × 2, since estimated_seconds = words / 2)
-            required_words = target_seconds * 2
-            
-            # Get number of slides from outline for distribution calculation
-            outline = self.outputs.get('presentation_outline', {})
-            num_slides = len(outline.get('slides', [])) or DEFAULT_NUM_SLIDES
-            words_per_content_slide = int((required_words - 50) / max(1, num_slides - 1)) if num_slides > 1 else required_words - 50
-            
-            duration_note = f"""
-═══════════════════════════════════════════════════════════════
-⏱️ CRITICAL DURATION REQUIREMENT ⏱️
-═══════════════════════════════════════════════════════════════
-TARGET DURATION: {self.config.duration} ({target_seconds} seconds)
-
-You MUST generate enough script content to fill this duration.
-
-TIMING CALCULATION:
-- System calculates: estimated_seconds = total_words / 2 (≈120 words/minute)
-- Target: {target_seconds} seconds = {required_words} words total
-- Distribute across all slides:
-  * Cover slide (slide 1): ~40-50 words (opening remarks + brief intro)
-  * Content slides: ~{words_per_content_slide} words each
-  * Each slide's main_content explanations should be DETAILED (40-80 words per point)
-
-CRITICAL: Your script explanations must be DETAILED enough to reach ~{required_words} words total.
-If your current content is too short, EXPAND the explanations with more detail, examples, context, and elaboration.
-
-After generation, verify: Sum of all estimated_time values should be close to {target_seconds} seconds.
-═══════════════════════════════════════════════════════════════
-"""
-            message_parts.append(duration_note)
-            message_parts.append(f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}")
-            
-            slide_and_script = await self.executor.run_agent(
-                self.agent_registry.get("slide_and_script_generator"),
-                "\n".join(message_parts),
-                "slide_and_script",
-                parse_json=True
-            )
-            
-            # Validate that custom instruction was followed (for icon-feature card)
-            if custom_instruction_note and ("icon-feature card" in self.config.custom_instruction.lower() or "icon feature card" in self.config.custom_instruction.lower()):
-                has_comparison_grid = False
-                for slide in slide_and_script.get("slide_deck", {}).get("slides", []):
-                    if slide.get("design_spec", {}).get("layout_type") == "comparison-grid":
-                        sections = slide.get("visual_elements", {}).get("sections", [])
-                        if sections and any(s.get("image_keyword") for s in sections):
-                            has_comparison_grid = True
-                            break
-                
-                if not has_comparison_grid:
-                    print("\n⚠️  WARNING: Custom instruction requires comparison-grid with image_keyword, but agent did not create one.")
-                    print("   The generated slides may not fully satisfy the custom instruction.")
-                    print("   Consider re-running or adjusting the custom instruction.")
-        except JSONParseError as e:
-            # If JSON parsing failed, we should retry the LLM call
-            # JSONParseError means the LLM didn't return valid JSON, which could be due to:
-            # 1. Syntax errors (malformed JSON)
-            # 2. Plain text response (question/explanation instead of JSON)
-            # 3. Incomplete JSON (truncated response)
-            # All of these indicate the LLM call should be retried
-            # NOTE: This must come BEFORE AgentExecutionError since JSONParseError inherits from it
-            error_msg = str(e)
-            raw_output = getattr(e, 'raw_output', '')
-            
-            # Check if it's a syntax error or plain text response (should retry)
-            is_syntax_error = any(indicator in error_msg.lower() for indicator in [
-                "expecting property name",
-                "expecting ',' delimiter",
-                "expecting ':' delimiter",
-                "invalid escape",
-                "expecting value",  # Often means no JSON at all
-                "failed to parse json",  # Generic parsing failure
-            ])
-            
-            # Also check if the raw output looks like plain text (question/explanation) instead of JSON
-            # This happens when the agent asks questions instead of returning JSON
-            if raw_output and not raw_output.strip().startswith('{'):
-                # Output doesn't start with JSON - likely plain text response
-                is_syntax_error = True
-                logger.warning(f"Agent returned plain text instead of JSON (likely asked a question). Will retry LLM call.")
-            
-            # If we can't determine, default to retrying (safer approach)
-            # Generic "Failed to parse JSON" errors should also trigger retry
-            if not is_syntax_error and "failed to parse json" in error_msg.lower():
-                is_syntax_error = True
-                logger.warning(f"Generic JSON parsing failure detected. Will retry LLM call.")
-            
-            if is_syntax_error:
-                logger.warning(f"JSONParseError indicates syntax error (malformed JSON from LLM). Retrying LLM call (up to {LLM_RETRY_COUNT} times): {e}")
-                
-                # Retry loop
-                last_error = e
-                for retry_attempt in range(1, LLM_RETRY_COUNT + 1):
-                    try:
-                        logger.info(f"Retry attempt {retry_attempt}/{LLM_RETRY_COUNT} for JSON syntax error")
-                        # Use cached serialization for performance
-                        serialized_outline = self._get_serialized_presentation_outline(pretty=False)
-                        
-                        # Use selective context for retry as well
-                        selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
-                        selective_report_knowledge_str = self.serialization_service.serialize(
-                            selective_report_knowledge,
-                            pretty=False
-                        )
-                        
-                        slide_and_script = await self.executor.run_agent(
-                            self.agent_registry.get("slide_and_script_generator"),
-                            f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}",
-                            "slide_and_script",
-                            parse_json=True  # Retry with JSON parsing
-                        )
-                        logger.info(f"✅ Successfully parsed JSON after LLM retry attempt {retry_attempt}")
-                        # Success! Continue with the retried output
-                        if isinstance(slide_and_script, dict):
-                            # Continue with normal flow
-                            break  # Exit retry loop on success
-                    except (AgentExecutionError, JSONParseError) as e2:
-                        last_error = e2
-                        if retry_attempt < LLM_RETRY_COUNT:
-                            logger.warning(f"Retry attempt {retry_attempt} failed, will retry again: {e2}")
-                        else:
-                            logger.error(f"All {LLM_RETRY_COUNT} retry attempts failed. Last error: {e2}")
-                            # All retries exhausted - raise the error
-                            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e2), has_output=False)
-                            raise
-            else:
-                # Not a syntax error - might be incomplete JSON that we can't fix
-                # Still try to retry once, as it might be a transient issue
-                logger.warning(f"JSONParseError (non-syntax): {e}. Attempting one retry.")
-                try:
-                    serialized_outline = self._get_serialized_presentation_outline(pretty=False)
-                    selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
-                    selective_report_knowledge_str = self.serialization_service.serialize(
-                        selective_report_knowledge,
-                        pretty=False
-                    )
-                    slide_and_script = await self.executor.run_agent(
-                        self.agent_registry.get("slide_and_script_generator"),
-                        f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}",
-                        "slide_and_script",
-                        parse_json=True
-                    )
-                    logger.info(f"✅ Successfully parsed JSON after retry for non-syntax error")
-                    if isinstance(slide_and_script, dict):
-                        # Continue with normal flow
-                        pass
-                except Exception as e2:
-                    logger.error(f"Retry for non-syntax JSONParseError also failed: {e2}")
-                    self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e2), has_output=False)
-                    raise
-        except AgentExecutionError as e:
-            # Agent failed to return output - this could be due to LLM not returning correct format
-            # Retry the LLM call up to LLM_RETRY_COUNT times before giving up
-            error_msg = str(e)
-            if "no output for key" in error_msg.lower():
-                logger.warning(f"AgentExecutionError: Agent returned no output. This may be due to LLM format issue. Retrying LLM call (up to {LLM_RETRY_COUNT} times): {e}")
-                
-                # Retry loop
-                last_error = e
-                for retry_attempt in range(1, LLM_RETRY_COUNT + 1):
-                    try:
-                        logger.info(f"Retry attempt {retry_attempt}/{LLM_RETRY_COUNT} for missing output")
-                        # Use cached serialization for performance
-                        serialized_outline = self._get_serialized_presentation_outline(pretty=False)
-                        
-                        # Use selective context for retry as well
-                        selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
-                        selective_report_knowledge_str = self.serialization_service.serialize(
-                            selective_report_knowledge,
-                            pretty=False
-                        )
-                        
-                        slide_and_script = await self.executor.run_agent(
-                            self.agent_registry.get("slide_and_script_generator"),
-                            f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}",
-                            "slide_and_script",
-                            parse_json=True
-                        )
-                        logger.info(f"✅ Successfully got output after LLM retry attempt {retry_attempt}")
-                        # Success! Continue with the retried output - don't finish agent execution yet,
-                        # let the normal flow continue to process slide_and_script
-                        break  # Exit retry loop on success
-                    except (AgentExecutionError, JSONParseError) as e2:
-                        last_error = e2
-                        if retry_attempt < LLM_RETRY_COUNT:
-                            logger.warning(f"Retry attempt {retry_attempt} failed, will retry again: {e2}")
-                        else:
-                            logger.error(f"All {LLM_RETRY_COUNT} retry attempts failed. Last error: {e2}")
-                            # All retries exhausted - raise the error
-                            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e2), has_output=False)
-                            raise
-            else:
-                # Other types of AgentExecutionError - don't retry
-                self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
-                raise
-        except JSONParseError as e:
-            # If JSON parsing failed, we should retry the LLM call
-            # JSONParseError means the LLM didn't return valid JSON, which could be due to:
-            # 1. Syntax errors (malformed JSON)
-            # 2. Plain text response (question/explanation instead of JSON)
-            # 3. Incomplete JSON (truncated response)
-            # All of these indicate the LLM call should be retried
-            # NOTE: This must come AFTER AgentExecutionError since JSONParseError inherits from it
-            # But wait, that's wrong - we want to catch JSONParseError FIRST since it's more specific
-            # Actually, since JSONParseError is a subclass, we need to catch it BEFORE AgentExecutionError
-            # But the current structure has AgentExecutionError first, which will catch JSONParseError
-            # So we need to move this block BEFORE the AgentExecutionError block
-            # Actually wait, I already moved it - let me check the structure again
-            error_msg = str(e)
-            raw_output = getattr(e, 'raw_output', '')
-            
-            # Check if it's a syntax error or plain text response (should retry)
-            is_syntax_error = any(indicator in error_msg.lower() for indicator in [
-                "expecting property name",
-                "expecting ',' delimiter",
-                "expecting ':' delimiter",
-                "invalid escape",
-                "expecting value",  # Often means no JSON at all
-                "failed to parse json",  # Generic parsing failure
-            ])
-            
-            # Also check if the raw output looks like plain text (question/explanation) instead of JSON
-            # This happens when the agent asks questions instead of returning JSON
-            if raw_output and not raw_output.strip().startswith('{'):
-                # Output doesn't start with JSON - likely plain text response
-                is_syntax_error = True
-                logger.warning(f"Agent returned plain text instead of JSON (likely asked a question). Will retry LLM call.")
-            
-            # If we can't determine, default to retrying (safer approach)
-            # Generic "Failed to parse JSON" errors should also trigger retry
-            if not is_syntax_error and "failed to parse json" in error_msg.lower():
-                is_syntax_error = True
-                logger.warning(f"Generic JSON parsing failure detected. Will retry LLM call.")
-            
-            if is_syntax_error:
-                logger.warning(f"JSONParseError indicates syntax error (malformed JSON from LLM). Retrying LLM call (up to {LLM_RETRY_COUNT} times): {e}")
-                
-                # Retry loop
-                last_error = e
-                for retry_attempt in range(1, LLM_RETRY_COUNT + 1):
-                    try:
-                        logger.info(f"Retry attempt {retry_attempt}/{LLM_RETRY_COUNT} for JSON syntax error")
-                        # Use cached serialization for performance
-                        serialized_outline = self._get_serialized_presentation_outline(pretty=False)
-                        
-                        # Use selective context for retry as well
-                        selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
-                        selective_report_knowledge_str = self.serialization_service.serialize(
-                            selective_report_knowledge,
-                            pretty=False
-                        )
-                        
-                        slide_and_script = await self.executor.run_agent(
-                            self.agent_registry.get("slide_and_script_generator"),
-                            f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}",
-                            "slide_and_script",
-                            parse_json=True  # Retry with JSON parsing
-                        )
-                        logger.info(f"✅ Successfully parsed JSON after LLM retry attempt {retry_attempt}")
-                        # Success! Continue with the retried output - don't finish agent execution yet,
-                        # let the normal flow continue to process slide_and_script
-                        break  # Exit retry loop on success
-                    except (AgentExecutionError, JSONParseError) as e2:
-                        last_error = e2
-                        if retry_attempt < LLM_RETRY_COUNT:
-                            logger.warning(f"Retry attempt {retry_attempt} failed, will retry again: {e2}")
-                        else:
-                            logger.error(f"All {LLM_RETRY_COUNT} retry attempts failed. Last error: {e2}")
-                            # All retries exhausted - raise the error
-                            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e2), has_output=False)
-                            raise
-            
-            if not is_syntax_error:
-                # If JSON parsing failed, try fallback parsing strategies
-                logger.warning(f"JSONParseError from agent executor, trying fallback parsing: {e}")
-                # Try to get raw output without JSON parsing
-                try:
-                    # Use cached serialization for performance
-                    serialized_outline = self._get_serialized_presentation_outline(pretty=False)
-                    
-                    # Use selective context for fallback as well
-                    selective_report_knowledge = self._build_selective_context(presentation_outline, report_knowledge)
-                    selective_report_knowledge_str = self.serialization_service.serialize(
-                        selective_report_knowledge,
-                        pretty=False
-                    )
-                    
-                    slide_and_script = await self.executor.run_agent(
-                        self.agent_registry.get("slide_and_script_generator"),
-                        f"Generate slides and script based on:\nOutline: {serialized_outline}\nReport Knowledge: {selective_report_knowledge_str}",
-                        "slide_and_script",
-                        parse_json=False  # Get raw string output
-                    )
-                except AgentExecutionError as e2:
-                    self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e2), has_output=False)
-                    raise
-            # Now try fallback parsing
-            if isinstance(slide_and_script, str):
-                logger.debug(f"slide_and_script is a string (length: {len(slide_and_script)}). Attempting to parse...")
-                logger.debug(f"First 500 chars: {slide_and_script[:500]}")
-                
-                parsed = parse_json_robust(slide_and_script, extract_wrapped=True)
-                if parsed:
-                    logger.info(f"✅ Successfully parsed slide_and_script from string (keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'N/A'})")
-                    slide_and_script = parsed
-                else:
-                    logger.warning(f"⚠️ parse_json_robust failed. Trying alternative parsing...")
-                    # If parse_json_robust failed, try extracting JSON from markdown code block
-                    import re
-                    # Look for ```json ... ``` or ``` ... ```
-                    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', slide_and_script, re.DOTALL)
-                    if json_match:
-                        json_str = json_match.group(1)
-                        try:
-                            slide_and_script = json.loads(json_str)
-                            logger.info(f"✅ Successfully parsed JSON from markdown code block")
-                        except json.JSONDecodeError as e:
-                            logger.error(f"Failed to parse JSON from markdown block: {e}")
-                            # Try direct JSON parsing as last resort
-                            try:
-                                cleaned = slide_and_script.strip()
-                                if cleaned.startswith("```json"):
-                                    cleaned = cleaned[7:].lstrip()
-                                elif cleaned.startswith("```"):
-                                    cleaned = cleaned[3:].lstrip()
-                                if cleaned.endswith("```"):
-                                    cleaned = cleaned[:-3].rstrip()
-                                slide_and_script = json.loads(cleaned)
-                            except json.JSONDecodeError as e2:
-                                logger.error(f"Failed to parse slide_and_script: {e2}")
-                                logger.error(f"First 1000 chars: {slide_and_script[:1000]}")
-                                raise JSONParseError(
-                                    f"Failed to parse slide_and_script as JSON: {e2}",
-                                    agent_name="SlideAndScriptGeneratorAgent",
-                                    output_key="slide_and_script",
-                                    raw_output=slide_and_script[:1000]
-                                )
-                    else:
-                        # Try direct JSON parsing as last resort
-                        try:
-                            cleaned = slide_and_script.strip()
-                            if cleaned.startswith("```json"):
-                                cleaned = cleaned[7:].lstrip()
-                            elif cleaned.startswith("```"):
-                                cleaned = cleaned[3:].lstrip()
-                            if cleaned.endswith("```"):
-                                cleaned = cleaned[:-3].rstrip()
-                            slide_and_script = json.loads(cleaned)
-                        except json.JSONDecodeError as e:
-                            logger.error(f"Failed to parse slide_and_script: {e}")
-                            logger.error(f"First 1000 chars: {slide_and_script[:1000]}")
-                            # Check if it looks like an error message
-                            if "unable" in slide_and_script.lower() or "error" in slide_and_script.lower() or "cannot" in slide_and_script.lower():
-                                raise JSONParseError(
-                                    f"Agent returned a plain text error message instead of JSON. "
-                                    f"This usually means the agent encountered an issue (e.g., missing data) but failed to return JSON. "
-                                    f"Error message: {slide_and_script[:500]}",
-                                    agent_name="SlideAndScriptGeneratorAgent",
-                                    output_key="slide_and_script",
-                                    raw_output=slide_and_script[:500]
-                                )
-                            raise JSONParseError(
-                                f"Failed to parse slide_and_script as JSON: {e}",
-                                agent_name="SlideAndScriptGeneratorAgent",
-                                output_key="slide_and_script",
-                                raw_output=slide_and_script[:1000]
-                            )
-        
-        # Ensure it's a dict
-        if not isinstance(slide_and_script, dict):
-            logger.error(f"slide_and_script is not a dict, got {type(slide_and_script).__name__}")
-            logger.error(f"slide_and_script value (first 500 chars): {str(slide_and_script)[:500]}")
-            raise AgentOutputError(
-                f"slide_and_script is not a dict, got {type(slide_and_script).__name__}",
-                agent_name="SlideAndScriptGeneratorAgent",
-                output_key="slide_and_script"
-            )
-        
-        # Log what we got for debugging
-        logger.info(f"✅ slide_and_script parsed successfully. Keys: {list(slide_and_script.keys())}")
-        logger.info(f"   Full structure preview: {json.dumps(slide_and_script, indent=2)[:2000]}")
-        
-        # CRITICAL VALIDATION: Check if agent returned a single slide object instead of the required structure
-        # Single slide objects have keys like: slide_number, title, content, visual_elements, design_spec, etc.
-        # The required structure should have: slide_deck, presentation_script
-        single_slide_keys = {'slide_number', 'title', 'content', 'visual_elements', 'design_spec', 'formatting_notes', 'speaker_notes'}
-        if single_slide_keys.issubset(set(slide_and_script.keys())):
-            logger.warning(f"⚠️ Agent returned a SINGLE SLIDE OBJECT instead of the required structure!")
-            logger.warning(f"   The agent returned a slide with keys: {list(slide_and_script.keys())}")
-            logger.warning(f"   This looks like a single slide object, not the required structure with 'slide_deck' and 'presentation_script'")
-            logger.warning(f"   Attempting to auto-fix by wrapping the single slide in the required structure...")
-            
-            # AUTO-FIX: Wrap the single slide in the required structure
-            single_slide = slide_and_script.copy()
-            # Create a minimal presentation_script if missing
-            presentation_script_fallback = {
-                "script_sections": [
-                    {
-                        "slide_number": single_slide.get("slide_number", 1),
-                        "script_text": single_slide.get("speaker_notes", "Present this slide.")
-                    }
-                ],
-                "total_duration_seconds": 60,
-                "notes": "Auto-generated script from single slide output"
-            }
-            
-            # Wrap in required structure
-            slide_and_script = {
-                "slide_deck": {
-                    "slides": [single_slide]
-                },
-                "presentation_script": presentation_script_fallback
-            }
-            
-            logger.warning(f"   ✅ Auto-fixed: Wrapped single slide in required structure")
-            logger.warning(f"   ⚠️ NOTE: This is a fallback fix. The agent should return the correct structure directly.")
-        
-        slide_deck = slide_and_script.get("slide_deck")
-        presentation_script = slide_and_script.get("presentation_script")
-        
+        slide_deck = self.outputs.get("slide_deck")
         if not slide_deck:
-            logger.error(f"❌ slide_and_script missing 'slide_deck' field")
-            logger.error(f"   Available keys: {list(slide_and_script.keys())}")
-            logger.error(f"   slide_and_script type: {type(slide_and_script)}")
-            logger.error(f"   slide_and_script preview (first 1000 chars): {json.dumps(slide_and_script, indent=2)[:1000]}")
-            raise AgentOutputError(
-                f"slide_and_script missing 'slide_deck' field",
-                agent_name="SlideAndScriptGeneratorAgent",
-                output_key="slide_deck",
-                available_keys=list(slide_and_script.keys())
-            )
-        if not presentation_script:
-            logger.error(f"❌ slide_and_script missing 'presentation_script' field")
-            logger.error(f"   Available keys: {list(slide_and_script.keys())}")
-            raise AgentOutputError(
-                f"slide_and_script missing 'presentation_script' field",
-                agent_name="SlideAndScriptGeneratorAgent",
-                output_key="presentation_script",
-                available_keys=list(slide_and_script.keys())
-            )
+            print("   ℹ️  No slide deck available")
+            self.obs_logger.finish_agent_execution(AgentStatus.SKIPPED, "No slide deck", has_output=False)
+            return
         
-        # Recalculate estimated_time based on word count (estimated_seconds = total_words / 2)
-        presentation_script = self._recalculate_speech_timing(presentation_script)
+        # Check if any slides need charts
+        slides_with_charts = []
+        for slide in slide_deck.get('slides', []):
+            visual_elements = slide.get('visual_elements', {})
+            if visual_elements.get('charts_needed', False) and visual_elements.get('chart_spec'):
+                slides_with_charts.append(slide)
         
-        # Store outputs
-        self.outputs["slide_deck"] = slide_deck
-        self.session.state["slide_deck"] = slide_deck
-        self.outputs["presentation_script"] = presentation_script
-        self.session.state["presentation_script"] = presentation_script
+        if not slides_with_charts:
+            print("   ℹ️  No slides require charts")
+            self.obs_logger.finish_agent_execution(AgentStatus.SKIPPED, "No charts needed", has_output=False)
+            return
         
-        if self.save_intermediate:
-            save_json_output(slide_deck, str(self.output_dir / SLIDE_DECK_FILE))
-            save_json_output(presentation_script, str(self.output_dir / PRESENTATION_SCRIPT_FILE))
-            print(f"✅ Slide deck and script saved")
+        # Generate charts for each slide
+        chart_results = []
+        for slide in slides_with_charts:
+            chart_spec = slide['visual_elements']['chart_spec']
+            chart_type = chart_spec.get('type', 'bar')
+            
+            try:
+                from presentation_agent.agents.utils.chart_generator import generate_chart_tool
+                
+                chart_result = await generate_chart_tool(
+                    chart_type=chart_type,
+                    chart_data=chart_spec.get('data', {}),
+                    chart_config=chart_spec.get('config', {}),
+                    output_dir=str(self.output_dir / "generated_images")
+                )
+                
+                if chart_result and chart_result.get('image_path'):
+                    slide['visual_elements']['chart_image_path'] = chart_result['image_path']
+                    chart_results.append({
+                        'slide_number': slide.get('slide_number'),
+                        'chart_path': chart_result['image_path'],
+                        'status': 'success'
+                    })
+                    print(f"   ✅ Generated chart for slide {slide.get('slide_number')}")
+                else:
+                    chart_results.append({
+                        'slide_number': slide.get('slide_number'),
+                        'status': 'failed',
+                        'error': 'Chart generation returned no image path'
+                    })
+                    print(f"   ⚠️  Chart generation failed for slide {slide.get('slide_number')}")
+            except Exception as e:
+                logger.error(f"Error generating chart for slide {slide.get('slide_number')}: {e}")
+                chart_results.append({
+                    'slide_number': slide.get('slide_number'),
+                    'status': 'error',
+                    'error': str(e)
+                })
+                print(f"   ❌ Error generating chart for slide {slide.get('slide_number')}: {e}")
+        
+        self.outputs["chart_generation_status"] = {
+            "charts_generated": len([r for r in chart_results if r.get('status') == 'success']),
+            "charts_failed": len([r for r in chart_results if r.get('status') != 'success']),
+            "results": chart_results
+        }
         
         self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
-    
-    def _recalculate_speech_timing(self, presentation_script: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Recalculate estimated_time based on word count.
-        Formula: estimated_seconds = total_words / 2
-        
-        Args:
-            presentation_script: The presentation script dictionary
-            
-        Returns:
-            Updated presentation_script with recalculated estimated_time values
-        """
-        if not presentation_script or not isinstance(presentation_script, dict):
-            return presentation_script
-        
-        script_sections = presentation_script.get("script_sections", [])
-        total_estimated_time = 0
-        
-        for section in script_sections:
-            if not isinstance(section, dict):
-                continue
-            
-            # Count words in opening_line if present and store the time
-            opening_line = section.get("opening_line", "")
-            if opening_line:
-                opening_words = len(opening_line.split())
-                # Calculate opening_line time: total_words / 2
-                opening_time = round(opening_words / 2)
-                opening_time = max(1, opening_time)
-                # Store opening_line_time in the section for frontend use
-                section["opening_line_time"] = opening_time
-                total_estimated_time += opening_time
-            
-            # Recalculate estimated_time for each point in main_content
-            main_content = section.get("main_content", [])
-            for point in main_content:
-                if not isinstance(point, dict):
-                    continue
-                
-                explanation = point.get("explanation", "")
-                if explanation:
-                    # Count words in explanation
-                    word_count = len(explanation.split())
-                    # Calculate estimated_time: total_words / 2
-                    estimated_time = word_count / 2
-                    # Round to nearest integer
-                    estimated_time = round(estimated_time)
-                    # Ensure minimum of 1 second
-                    estimated_time = max(1, estimated_time)
-                    
-                    point["estimated_time"] = estimated_time
-                    total_estimated_time += estimated_time
-        
-        # Update total_estimated_time in script_metadata
-        if "script_metadata" in presentation_script:
-            script_metadata = presentation_script["script_metadata"]
-            if isinstance(script_metadata, dict):
-                script_metadata["total_estimated_time"] = f"{total_estimated_time} seconds"
-        
-        logger.info(f"✅ Recalculated speech timing: total_estimated_time = {total_estimated_time} seconds")
-        
-        return presentation_script
     
     async def _step_chart_generation(self):
         """Step 3.5: Chart Generation."""
