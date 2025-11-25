@@ -254,7 +254,7 @@ def generate_web_slides_tool(
         presentation_script: Presentation script JSON
         config: Optional config dict (scenario, duration, etc.)
         title: Presentation title
-        output_path: Output JSON file path (default: presentation_agent/output/slides_data.json)
+        output_path: Output JSON file path (default: from config OUTPUT_DIR/SLIDES_DATA_FILE)
         
     Returns:
         Dict with status, slides_data_path, and slides_data (for frontend)
@@ -262,9 +262,10 @@ def generate_web_slides_tool(
     try:
         # Default output path
         if output_path is None:
-            output_dir = Path("presentation_agent/output")
+            from config import OUTPUT_DIR, SLIDES_DATA_FILE
+            output_dir = Path(OUTPUT_DIR)
             output_dir.mkdir(parents=True, exist_ok=True)
-            output_path = str(output_dir / "slides_data.json")
+            output_path = str(output_dir / SLIDES_DATA_FILE)
         
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)

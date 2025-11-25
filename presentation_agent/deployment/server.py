@@ -31,14 +31,14 @@ from google.adk.sessions import InMemorySessionService
 
 # Import main pipeline components
 try:
-    from config import PresentationConfig
+    from config import PresentationConfig, OUTPUT_DIR_DEPLOYMENT
     from presentation_agent.core.pipeline_orchestrator import PipelineOrchestrator
     from presentation_agent.core.app_initializer import AppInitializer
     
     # Create wrapper function to match old API signature
     async def run_presentation_pipeline(
         config: PresentationConfig,
-        output_dir: str = "/tmp/output",
+        output_dir: str = OUTPUT_DIR_DEPLOYMENT,
         include_critics: bool = True,
         save_intermediate: bool = True,
         open_browser: bool = False
@@ -188,7 +188,7 @@ def generate_presentation():
             logger.info("🚀 Starting presentation pipeline execution...")
             
             # Use /tmp/output for Cloud Run (ephemeral writable storage)
-            output_dir = "/tmp/output"
+            output_dir = OUTPUT_DIR_DEPLOYMENT
             
             outputs = await run_presentation_pipeline(
                 config=config,

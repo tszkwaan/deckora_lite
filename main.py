@@ -10,14 +10,14 @@ Refactored following SOLID principles:
 """
 
 import asyncio
-from config import PresentationConfig
+from config import PresentationConfig, OUTPUT_DIR
 from presentation_agent.core.pipeline_orchestrator import PipelineOrchestrator
 from presentation_agent.core.app_initializer import AppInitializer
 
 
 async def main():
     """Main function for local development."""
-    output_dir = "presentation_agent/output"
+    output_dir = OUTPUT_DIR
     
     # Initialize application (logging, environment, API key validation)
     initializer = AppInitializer(output_dir=output_dir)

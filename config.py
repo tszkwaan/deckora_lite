@@ -3,6 +3,7 @@ Configuration file for the presentation generation pipeline.
 Contains retry config, model settings, and presentation config structure.
 """
 
+import os
 from google.genai import types
 
 # Retry configuration for API calls
@@ -13,8 +14,46 @@ RETRY_CONFIG = types.HttpRetryOptions(
     http_status_codes=[429, 500, 503, 504],  # Retry on these HTTP errors
 )
 
+# LLM retry configuration for agent execution
+# Number of times to retry LLM calls when they fail due to format issues
+LLM_RETRY_COUNT = 2  # Default: 2 retries (total of 3 attempts: 1 initial + 2 retries)
+
 # Model configuration
 DEFAULT_MODEL = "gemini-2.5-flash-lite"
+
+# ============================================================================
+# Application Configuration
+# ============================================================================
+
+# Session/Application Configuration
+APP_NAME = os.getenv("APP_NAME", "presentation_agent")
+USER_ID = os.getenv("USER_ID", "local_user")  # Use env var for deployment (e.g., user session ID)
+
+# Output Directory Configuration
+# Use environment variable for deployment, fallback to local development path
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "presentation_agent/output")
+OUTPUT_DIR_DEPLOYMENT = os.getenv("OUTPUT_DIR", "/tmp/output")  # For Cloud Run deployment
+OUTPUT_DIR_IMAGES = os.path.join(OUTPUT_DIR, "generated_images")
+
+# Default Logic Values
+DEFAULT_DURATION_SECONDS = 60  # Default to 1 minute if duration cannot be parsed
+DEFAULT_NUM_SLIDES = 8  # Default number of slides if outline doesn't specify
+
+# Output File Names
+TRACE_HISTORY_FILE = "trace_history.json"
+OBSERVABILITY_LOG_FILE = "observability.log"
+REPORT_KNOWLEDGE_FILE = "report_knowledge.json"
+PRESENTATION_OUTLINE_FILE = "presentation_outline.json"
+SLIDE_AND_SCRIPT_DEBUG_FILE = "slide_and_script_raw_debug.json"
+SLIDE_DECK_FILE = "slide_deck.json"
+PRESENTATION_SCRIPT_FILE = "presentation_script.json"
+WEB_SLIDES_RESULT_FILE = "web_slides_result.json"
+SLIDES_DATA_FILE = "slides_data.json"
+
+# Log File Names
+LOGGER_LOG_FILE = "logger.log"
+WEB_LOG_FILE = "web.log"
+TUNNEL_LOG_FILE = "tunnel.log"
 
 # Presentation Config structure
 # This represents the input configuration for the pipeline

@@ -7,6 +7,7 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional
+from config import OUTPUT_DIR, LOGGER_LOG_FILE, WEB_LOG_FILE, TUNNEL_LOG_FILE, OBSERVABILITY_LOG_FILE
 
 
 class AppInitializer:
@@ -14,14 +15,14 @@ class AppInitializer:
     Handles application initialization: logging, environment setup, API key validation.
     """
     
-    def __init__(self, output_dir: str = "presentation_agent/output"):
+    def __init__(self, output_dir: str = OUTPUT_DIR):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
     
     def setup_logging(self) -> None:
         """Configure logging."""
         # Clean up old log files
-        for log_file in ["logger.log", "web.log", "tunnel.log", "observability.log"]:
+        for log_file in [LOGGER_LOG_FILE, WEB_LOG_FILE, TUNNEL_LOG_FILE, OBSERVABILITY_LOG_FILE]:
             # Clean up old root location
             if os.path.exists(log_file):
                 os.remove(log_file)
@@ -34,7 +35,7 @@ class AppInitializer:
         
         # Configure logging
         logging.basicConfig(
-            filename=str(self.output_dir / "logger.log"),
+            filename=str(self.output_dir / LOGGER_LOG_FILE),
             level=logging.DEBUG,
             format="%(filename)s:%(lineno)s %(levelname)s:%(message)s",
         )

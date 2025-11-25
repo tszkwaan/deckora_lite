@@ -611,7 +611,8 @@ def generate_image_tool(keyword: str) -> Dict[str, Any]:
     """
     try:
         # Use output directory for caching
-        output_dir = Path("presentation_agent/output/generated_images")
+        from config import OUTPUT_DIR_IMAGES
+        output_dir = Path(OUTPUT_DIR_IMAGES)
         image_url = generate_image(keyword, source="auto", output_dir=output_dir)
         
         return {

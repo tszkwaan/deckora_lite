@@ -233,7 +233,7 @@ def verify_presentation_exists(presentation_id: str, credentials: Credentials) -
         }
 
 
-def export_slides_as_images(presentation_id: str, output_dir: str = "presentation_agent/output") -> List[bytes]:
+def export_slides_as_images(presentation_id: str, output_dir: str = None) -> List[bytes]:
     """
     Export Google Slides presentation as images.
     
@@ -244,11 +244,15 @@ def export_slides_as_images(presentation_id: str, output_dir: str = "presentatio
     
     Args:
         presentation_id: Google Slides presentation ID
-        output_dir: Output directory (default: "presentation_agent/output")
+        output_dir: Output directory (default: from config OUTPUT_DIR)
         
     Returns:
         List of image bytes (one per slide)
     """
+    if not output_dir:
+        from config import OUTPUT_DIR
+        output_dir = OUTPUT_DIR
+    
     print("\n" + "=" * 60)
     print("📥 STEP 1: Export Google Slides to PDF")
     print("=" * 60)
@@ -960,7 +964,7 @@ def analyze_slide_with_vision_api(image_bytes: bytes, slide_num: int = 0) -> Dic
         }
 
 
-def review_slides_layout(presentation_id: str, output_dir: str = "presentation_agent/output") -> Dict:
+def review_slides_layout(presentation_id: str, output_dir: str = None) -> Dict:
     """
     Review Google Slides presentation for layout issues using Vision API.
     
@@ -972,11 +976,15 @@ def review_slides_layout(presentation_id: str, output_dir: str = "presentation_a
     
     Args:
         presentation_id: Google Slides presentation ID
-        output_dir: Output directory for saving PDFs (default: "presentation_agent/output")
+        output_dir: Output directory for saving PDFs (default: from config OUTPUT_DIR)
         
     Returns:
         Dict with layout review results
     """
+    if not output_dir:
+        from config import OUTPUT_DIR
+        output_dir = OUTPUT_DIR
+    
     try:
         print(f"\n🔍 Starting layout review for presentation: {presentation_id}")
         
