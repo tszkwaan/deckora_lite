@@ -334,7 +334,12 @@ def call_export_tool_after_agent(callback_context):
             except Exception as e:
                 logger.warning(f"   ⚠️ Error saving result to state: {e}")
         
-        return export_result
+        # Return a simple textual status so ADK Event validation succeeds
+        shareable_url = export_result.get('shareable_url', '')
+        status_message = export_result.get('message', 'Slides export completed')
+        if shareable_url:
+            status_message = f"{status_message}. URL: {shareable_url}"
+        return {"text": status_message}
         
     except Exception as e:
         logger.error(f"   ❌ Error in after_agent callback: {e}")
