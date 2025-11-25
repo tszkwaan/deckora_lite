@@ -360,7 +360,7 @@ agent = LlmAgent(
     ),
     instruction=_instruction,
     tools=[],  # Remove tool - will be called directly via callback
-    # Don't use output_key - callback will store the result directly to avoid conflicts
+    output_key="slides_export_result",  # Add output_key so LoopAgent knows when agent completes
     before_agent_callback=log_slides_export_start,
     after_agent_callback=call_export_tool_after_agent,
 )
