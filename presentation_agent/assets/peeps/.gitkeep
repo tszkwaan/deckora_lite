@@ -1,6 +1,0 @@
-# This directory will contain:
-# - svgs/ - Downloaded Open Peeps SVG files
-# - metadata.json - File metadata
-# - peeps_index.faiss - FAISS search index
-# - peeps_index.pkl - Index metadata
-
