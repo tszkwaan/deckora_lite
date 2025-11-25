@@ -28,9 +28,9 @@ async def main():
     # Note: target_audience is optional - if not provided (or set to None), LLM will infer from scenario and report
     config = PresentationConfig(
         scenario="academic teaching",
-        duration="10 minutes",
+        duration="3 minutes",
         target_audience="Master students",  # Optional - can be None to let LLM infer from scenario and report contentho
-        custom_instruction="",
+        custom_instruction="must include at least one bar chart across all slides",
         report_url="https://arxiv.org/pdf/2312.14197",
         style_images=[],  # Add image URLs here if you have them
     )

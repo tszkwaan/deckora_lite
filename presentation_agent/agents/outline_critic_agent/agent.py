@@ -1,3 +1,31 @@
+"""
+Outline Critic Agent.
+
+This agent evaluates the quality of generated presentation outlines, providing
+feedback on completeness, coherence, relevance, and accuracy. It implements
+LLM-as-a-Judge pattern using a stronger model for better evaluation judgment.
+
+Implementation:
+- Uses Gemini 2.5 Flash (stronger model) instead of Flash Lite for better judgment
+- Follows industry best practice: use stronger models for evaluation/critique tasks
+- Evaluates multiple dimensions: completeness, coherence, relevance, accuracy
+- Outputs structured review with quality score, acceptability flag, and actionable feedback
+
+Design:
+- No tools required - pure LLM-based evaluation
+- Designed to work with both outline and full report knowledge for context
+- Provides structured feedback (strengths, weaknesses, recommendations) for retry scenarios
+- Returns is_acceptable flag to trigger retry logic in orchestrator
+
+Behavior:
+- Evaluates outline against report knowledge to check for hallucinations and accuracy
+- Assesses logical flow and coherence of slide structure
+- Checks completeness (covers all key points from report)
+- Provides actionable recommendations for improvement
+- Returns quality score (0-100) and acceptability flag
+- Outputs critic_review_outline.json that triggers retry if unacceptable
+"""
+
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
 import sys

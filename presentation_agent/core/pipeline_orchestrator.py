@@ -623,7 +623,27 @@ class PipelineOrchestrator:
             return None
     
     async def _step_outline_generation(self):
-        """Step 2: Outline Generation with Evaluation and Retry Logic."""
+        """
+        Step 2: Outline Generation with Evaluation and Retry Logic.
+        
+        This method implements a feedback loop for quality assurance:
+        1. Generate initial outline
+        2. Evaluate outline quality using critic agent
+        3. If unacceptable, retry with critic feedback and previous outline (max 1 retry)
+        4. Re-evaluate retried outline
+        
+        Design:
+        - Uses stronger model (gemini-2.5-flash) for critic evaluation (industry best practice)
+        - Passes both previous outline and critic feedback to generator for actionable improvements
+        - Limits retry to 1 attempt to prevent infinite loops
+        - Continues with original outline if retry fails (graceful degradation)
+        
+        Behavior:
+        - Always evaluates outline after generation
+        - Retry only triggered if critic marks outline as unacceptable
+        - Both previous outline and feedback are passed to generator for context
+        - Final outline (original or retried) is stored regardless of evaluation result
+        """
         print("\n📝 Step 2: Outline Generation")
         
         # Generate outline (first attempt)
@@ -637,29 +657,31 @@ class PipelineOrchestrator:
         
         self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, "Outline generated successfully")
         
-        # Evaluate outline quality
+        # Evaluate outline quality using critic agent (stronger model for better judgment)
         critic_review = await self._evaluate_outline(presentation_outline)
         
-        # Check if retry is needed (max 1 retry)
+        # Retry logic: If outline is unacceptable, regenerate with feedback (max 1 retry)
+        # This implements the feedback loop pattern for quality assurance
         if critic_review and not critic_review.get("is_acceptable", False):
             print("\n🔄 Outline not acceptable. Retrying with critic feedback and previous outline (max 1 retry)...")
             self.obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline")
             
             try:
-                # Retry with critic feedback AND previous outline
+                # Retry with critic feedback AND previous outline for context
+                # This allows the generator to see what was wrong and what needs improvement
                 presentation_outline = await self._generate_outline(
                     critic_feedback=critic_review,
                     previous_outline=presentation_outline
                 )
                 self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, "Outline regenerated with critic feedback")
                 
-                # Re-evaluate the retried outline
+                # Re-evaluate the retried outline to check if improvements were made
                 print("\n🔍 Re-evaluating retried outline...")
                 critic_review = await self._evaluate_outline(presentation_outline)
             except (AgentExecutionError, JSONParseError) as e:
                 self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
                 print(f"⚠️  Outline retry failed: {e}")
-                # Continue with original outline if retry fails
+                # Graceful degradation: Continue with original outline if retry fails
                 log_agent_error(logger, e, "OutlineGeneratorAgent")
         
         # Store final outline
@@ -824,6 +846,29 @@ class PipelineOrchestrator:
         """
         Step 3.5: Generate charts and images in parallel (OPTIMIZATION).
         
+        This method demonstrates parallel processing by running chart generation and
+        image pre-generation simultaneously using asyncio.gather(). This significantly
+        reduces total execution time compared to sequential execution.
+        
+        Implementation:
+        - Uses asyncio.gather() to run both tasks concurrently
+        - Chart generation uses ChartGeneratorAgent (LLM-based) with generate_chart_tool
+        - Image pre-generation uses pre_generate_images utility (tool-based)
+        - Both tasks are independent and can run simultaneously
+        
+        Design:
+        - Parallel execution reduces total pipeline time (performance optimization)
+        - Both tasks write to session.state independently
+        - Returns image_cache and keyword_usage_tracker for web slides generation
+        - Handles cases where charts may not be needed (skips chart generation)
+        
+        Behavior:
+        - Always pre-generates images (required for web slides)
+        - Conditionally generates charts only if slides require them
+        - If charts needed: runs both tasks in parallel
+        - If no charts needed: only runs image pre-generation
+        - Returns cached results for downstream web slides generation
+        
         Returns:
             Tuple of (image_cache, keyword_usage_tracker) for use in web slides generation
         """
@@ -834,18 +879,19 @@ class PipelineOrchestrator:
             print("   ℹ️  No slide deck available")
             return {}, {}
         
-        # Check if charts are needed
+        # Check if charts are needed (some presentations may not require charts)
         slides_with_charts = []
         for slide in slide_deck.get('slides', []):
             visual_elements = slide.get('visual_elements', {})
             if visual_elements.get('charts_needed', False) and visual_elements.get('chart_spec'):
                 slides_with_charts.append(slide.get('slide_number'))
         
-        # Pre-generate images (always needed for web slides)
+        # Pre-generate images (always needed for web slides, regardless of charts)
         from presentation_agent.agents.tools.web_slides_generator_tool import pre_generate_images
         print("   🖼️  Pre-generating images...")
         
-        # Run chart generation and image pre-generation in parallel
+        # Run chart generation and image pre-generation in parallel using asyncio.gather()
+        # This optimization reduces total execution time by running independent tasks concurrently
         if slides_with_charts:
             print(f"   📊 Found {len(slides_with_charts)} slide(s) needing charts: {slides_with_charts}")
             # Run both in parallel: chart generation (async) and image pre-generation (sync, wrapped in thread)

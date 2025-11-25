@@ -2,9 +2,8 @@
 Tools package for agent tools.
 """
 
-from presentation_agent.agents.tools.google_slides_tool import export_slideshow_tool
+# Note: google_slides_tool removed - we no longer export to Google Slides
+# Main pipeline uses web slides generation instead
 
-__all__ = [
-    "export_slideshow_tool",
-]
+__all__ = []
 

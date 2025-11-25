@@ -1,4 +1,4 @@
-from google.adk.agents import LlmAgent, SequentialAgent, LoopAgent
+from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.models.google_llm import Gemini
 import sys
 import os
@@ -12,7 +12,7 @@ from config import RETRY_CONFIG, DEFAULT_MODEL
 from presentation_agent.agents.report_understanding_agent.agent import agent as report_understanding_agent
 from presentation_agent.agents.outline_generator_agent.agent import agent as outline_generator_agent
 from presentation_agent.agents.slide_and_script_generator_agent.agent import agent as slide_and_script_generator_agent
-from presentation_agent.agents.slides_export_agent.agent import agent as slides_export_agent
+# Note: SlidesExportAgent removed - we no longer export to Google Slides, main pipeline uses web slides instead
 
 # Import PDF loader utility
 from presentation_agent.agents.utils.pdf_loader import load_pdf_from_url
@@ -57,30 +57,21 @@ Include the [REPORT_CONTENT] section in your response so downstream agents can a
 )
 
 
-# slides_export_agent is now imported from presentation_agent.agents.slides_export_agent.agent
-
-# Create a LoopAgent for slide generation and export
-# Using LoopAgent instead of nested SequentialAgent to avoid execution issues
-# Flow: generate slides -> export to Google Slides
-# max_iterations=1 ensures it runs once
-slides_generation_sequence = LoopAgent(
-    name="SlidesGenerationSequence",
-    sub_agents=[
-        slide_and_script_generator_agent,  # Generate slides and script
-        slides_export_agent,                # Export to Google Slides
-    ],
-    max_iterations=1,  # Run once to execute all agents sequentially
-)
+# Note: We no longer export to Google Slides - main pipeline uses web slides generation instead
+# The root_agent is kept for ADK-web compatibility but uses a simplified flow
 
 
 # Create the main SequentialAgent pipeline
+# Note: This root_agent is for ADK-web compatibility only
+# The main pipeline execution uses PipelineOrchestrator which generates web slides (not Google Slides)
 root_agent = SequentialAgent(
     name="PresentationGeneratorAgent",
     sub_agents=[
         pdf_loader_agent,                    # Step 0: Load PDF if URL provided
         report_understanding_agent,           # Step 1: Extract report knowledge
         outline_generator_agent,              # Step 2: Generate outline
-        slides_generation_sequence,            # Step 3: Generate slides and export to Google Slides
+        slide_and_script_generator_agent,     # Step 3: Generate slides and script
+        # Note: Web slides generation is handled by PipelineOrchestrator, not in root_agent
     ],
-    description="Generates presentations from research reports using a multi-agent pipeline",
+    description="Generates presentations from research reports using a multi-agent pipeline (ADK-web compatibility only)",
 )
