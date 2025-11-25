@@ -7,7 +7,6 @@ LLM-as-a-Judge pattern using a stronger model for better evaluation judgment.
 
 Implementation:
 - Uses Gemini 2.5 Flash (stronger model) instead of Flash Lite for better judgment
-- Follows industry best practice: use stronger models for evaluation/critique tasks
 - Evaluates multiple dimensions: completeness, coherence, relevance, accuracy
 - Outputs structured review with quality score, acceptability flag, and actionable feedback
 
@@ -44,7 +43,7 @@ _instruction = load_instruction(_agent_dir)
 agent = LlmAgent(
     name="OutlineCriticAgent",
     model=Gemini(
-        model=CRITIC_MODEL,  # Use stronger model for evaluation (industry best practice)
+        model=CRITIC_MODEL,
         retry_options=RETRY_CONFIG,
     ),
     instruction=_instruction,

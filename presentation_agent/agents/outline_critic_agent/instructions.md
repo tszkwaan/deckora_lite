@@ -6,7 +6,8 @@ INPUTS
 
 You receive:
 - [PRESENTATION_OUTLINE] ... [END_PRESENTATION_OUTLINE] - The outline to evaluate
-- [REPORT_KNOWLEDGE] ... [END_REPORT_KNOWLEDGE] - The source report knowledge for validation
+- [REPORT_CONTENT] ... [END_REPORT_CONTENT] - The original report content for validation (preferred)
+- OR [REPORT_KNOWLEDGE] ... [END_REPORT_KNOWLEDGE] - The extracted report knowledge (fallback if original content unavailable)
 
 ---
 OUTPUT FORMAT
