@@ -33,9 +33,3 @@ ipython
 # Async file I/O for performance optimization
 aiofiles>=23.2.0
 
-# Open Peeps illustration search
-sentence-transformers>=2.2.0
-faiss-cpu>=1.7.4
-fastapi>=0.104.0
-uvicorn>=0.24.0
-
