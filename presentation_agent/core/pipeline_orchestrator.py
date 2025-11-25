@@ -502,33 +502,58 @@ class PipelineOrchestrator:
         
         print("=" * 60)
     
-    async def _step_outline_generation(self):
-        """Step 2: Outline Generation."""
-        print("\n📝 Step 2: Outline Generation")
+    async def _generate_outline(self, critic_feedback: Optional[Dict[str, Any]] = None, previous_outline: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Helper method to generate presentation outline.
         
-        report_knowledge = self.outputs["report_knowledge"]
+        Args:
+            critic_feedback: Optional critic review from previous attempt (for retry)
+            previous_outline: Optional previous outline that was evaluated (for retry)
         
-        # Generate outline
-        self.obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline")
+        Returns:
+            Generated presentation outline dictionary
+        """
+        # Include custom instruction in outline generation message if present
+        custom_instr_note = ""
+        if self.config.custom_instruction and self.config.custom_instruction.strip():
+            custom_instr_note = f"\n\n[CUSTOM_INSTRUCTION]\n{self.config.custom_instruction}\n\nIMPORTANT: If the custom instruction requires icon-feature cards, timeline, flowchart, or table layouts, you MUST suggest those specific layout types in the relevant slide's content_notes (e.g., 'Use a comparison-grid layout with icon-feature cards' instead of just 'use an icon').\n"
         
-        try:
-            # Include custom instruction in outline generation message if present
-            custom_instr_note = ""
-            if self.config.custom_instruction and self.config.custom_instruction.strip():
-                custom_instr_note = f"\n\n[CUSTOM_INSTRUCTION]\n{self.config.custom_instruction}\n\nIMPORTANT: If the custom instruction requires icon-feature cards, timeline, flowchart, or table layouts, you MUST suggest those specific layout types in the relevant slide's content_notes (e.g., 'Use a comparison-grid layout with icon-feature cards' instead of just 'use an icon').\n"
+        # Build previous outline note if provided (for retry)
+        previous_outline_note = ""
+        if previous_outline:
+            serialized_previous_outline = self.serialization_service.serialize(previous_outline, pretty=False)
+            previous_outline_note = f"\n\n[PREVIOUS_OUTLINE]\nThe following outline was previously generated but needs improvement:\n{serialized_previous_outline}\n[END_PREVIOUS_OUTLINE]\n"
+        
+        # Build critic feedback note if provided
+        critic_feedback_note = ""
+        if critic_feedback:
+            strengths = critic_feedback.get("strengths", [])
+            weaknesses = critic_feedback.get("weaknesses", [])
+            recommendations = critic_feedback.get("recommendations", [])
+            evaluation_notes = critic_feedback.get("evaluation_notes", "")
             
-            # Use cached serialization for performance
-            serialized_report_knowledge = self._get_serialized_report_knowledge(pretty=False)
+            feedback_parts = []
+            if weaknesses:
+                feedback_parts.append(f"**Weaknesses identified:**\n" + "\n".join(f"- {w}" for w in weaknesses))
+            if recommendations:
+                feedback_parts.append(f"**Recommendations:**\n" + "\n".join(f"- {r}" for r in recommendations))
+            if evaluation_notes:
+                feedback_parts.append(f"**Evaluation Notes:**\n{evaluation_notes}")
             
-            presentation_outline = await self.executor.run_agent(
-                self.agent_registry.get("outline_generator"),
-                f"Based on the report knowledge:\n{serialized_report_knowledge}{custom_instr_note}\n\nGenerate a presentation outline.",
-                "presentation_outline",
-                parse_json=True
-            )
-        except (AgentExecutionError, JSONParseError) as e:
-            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
-            raise
+            if feedback_parts:
+                critic_feedback_note = f"\n\n[PREVIOUS_CRITIC_REVIEW]\nThe previous outline was evaluated and found to need improvement. Please address the following feedback:\n\n" + "\n\n".join(feedback_parts) + "\n\n[END_PREVIOUS_CRITIC_REVIEW]\n"
+        
+        # Use cached serialization for performance
+        serialized_report_knowledge = self._get_serialized_report_knowledge(pretty=False)
+        
+        message = f"Based on the report knowledge:\n{serialized_report_knowledge}{custom_instr_note}{previous_outline_note}{critic_feedback_note}\n\nGenerate a presentation outline."
+        
+        presentation_outline = await self.executor.run_agent(
+            self.agent_registry.get("outline_generator"),
+            message,
+            "presentation_outline",
+            parse_json=True
+        )
         
         if not presentation_outline:
             raise AgentExecutionError(
@@ -537,6 +562,107 @@ class PipelineOrchestrator:
                 output_key="presentation_outline"
             )
         
+        return presentation_outline
+    
+    async def _evaluate_outline(self, presentation_outline: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Evaluate outline quality using critic agent.
+        
+        Args:
+            presentation_outline: The outline to evaluate
+        
+        Returns:
+            Critic review dictionary, or None if evaluation failed
+        """
+        print("\n🔍 Evaluating outline quality...")
+        self.obs_logger.start_agent_execution("OutlineCriticAgent", output_key="critic_review_outline")
+        
+        try:
+            # Serialize outline and report knowledge for critic
+            serialized_outline = self.serialization_service.serialize(presentation_outline, pretty=False)
+            serialized_report_knowledge = self._get_serialized_report_knowledge(pretty=False)
+            
+            critic_review = await self.executor.run_agent(
+                self.agent_registry.get("outline_critic"),
+                f"[PRESENTATION_OUTLINE]\n{serialized_outline}\n[END_PRESENTATION_OUTLINE]\n\n[REPORT_KNOWLEDGE]\n{serialized_report_knowledge}\n[END_REPORT_KNOWLEDGE]\n\nEvaluate the presentation outline quality.",
+                "critic_review_outline",
+                parse_json=True
+            )
+            
+            if critic_review:
+                self.outputs["critic_review_outline"] = critic_review
+                self.session.state["critic_review_outline"] = critic_review
+                
+                # Log the evaluation result
+                quality_score = critic_review.get("overall_quality_score", "N/A")
+                is_acceptable = critic_review.get("is_acceptable", False)
+                evaluation_notes = critic_review.get("evaluation_notes", "")
+                
+                print(f"📊 Outline Quality Score: {quality_score}/100")
+                print(f"✅ Acceptable: {is_acceptable}")
+                if evaluation_notes:
+                    print(f"📝 Evaluation: {evaluation_notes}")
+                
+                # Save critic review if intermediate saving is enabled
+                if self.save_intermediate:
+                    save_json_output(critic_review, str(self.output_dir / "outline_review.json"))
+                    print(f"✅ Outline evaluation saved")
+                
+                self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, f"Quality score: {quality_score}, Acceptable: {is_acceptable}")
+                return critic_review
+            else:
+                self.obs_logger.finish_agent_execution(AgentStatus.FAILED, "Critic returned empty result", has_output=False)
+                print("⚠️  Outline evaluation returned empty result")
+                return None
+                
+        except (AgentExecutionError, JSONParseError) as e:
+            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+            # Don't raise - evaluation failure shouldn't stop the pipeline
+            print(f"⚠️  Outline evaluation failed: {e}")
+            log_agent_error(logger, e, "OutlineCriticAgent")
+            return None
+    
+    async def _step_outline_generation(self):
+        """Step 2: Outline Generation with Evaluation and Retry Logic."""
+        print("\n📝 Step 2: Outline Generation")
+        
+        # Generate outline (first attempt)
+        self.obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline")
+        
+        try:
+            presentation_outline = await self._generate_outline()
+        except (AgentExecutionError, JSONParseError) as e:
+            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+            raise
+        
+        self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, "Outline generated successfully")
+        
+        # Evaluate outline quality
+        critic_review = await self._evaluate_outline(presentation_outline)
+        
+        # Check if retry is needed (max 1 retry)
+        if critic_review and not critic_review.get("is_acceptable", False):
+            print("\n🔄 Outline not acceptable. Retrying with critic feedback and previous outline (max 1 retry)...")
+            self.obs_logger.start_agent_execution("OutlineGeneratorAgent", output_key="presentation_outline")
+            
+            try:
+                # Retry with critic feedback AND previous outline
+                presentation_outline = await self._generate_outline(
+                    critic_feedback=critic_review,
+                    previous_outline=presentation_outline
+                )
+                self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, "Outline regenerated with critic feedback")
+                
+                # Re-evaluate the retried outline
+                print("\n🔍 Re-evaluating retried outline...")
+                critic_review = await self._evaluate_outline(presentation_outline)
+            except (AgentExecutionError, JSONParseError) as e:
+                self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
+                print(f"⚠️  Outline retry failed: {e}")
+                # Continue with original outline if retry fails
+                log_agent_error(logger, e, "OutlineGeneratorAgent")
+        
+        # Store final outline
         self.outputs["presentation_outline"] = presentation_outline
         self.session.state["presentation_outline"] = presentation_outline
         # Invalidate cache when outline is updated

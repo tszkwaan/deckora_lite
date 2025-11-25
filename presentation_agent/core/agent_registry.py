@@ -86,12 +86,14 @@ def create_default_agent_registry() -> AgentRegistry:
     # Import agents (lazy import to avoid circular dependencies)
     from presentation_agent.agents.report_understanding_agent.agent import agent as report_understanding_agent
     from presentation_agent.agents.outline_generator_agent.agent import agent as outline_generator_agent
+    from presentation_agent.agents.outline_critic_agent.agent import agent as outline_critic_agent
     from presentation_agent.agents.slide_and_script_generator_agent.agent import agent as slide_and_script_generator_agent
     from presentation_agent.agents.chart_generator_agent.agent import agent as chart_generator_agent
     
     # Register all agents
     registry.register("report_understanding", report_understanding_agent)
     registry.register("outline_generator", outline_generator_agent)
+    registry.register("outline_critic", outline_critic_agent)
     registry.register("slide_and_script_generator", slide_and_script_generator_agent)
     registry.register("chart_generator", chart_generator_agent)
     

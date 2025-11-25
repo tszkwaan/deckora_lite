@@ -19,7 +19,8 @@ RETRY_CONFIG = types.HttpRetryOptions(
 LLM_RETRY_COUNT = 2  # Default: 2 retries (total of 3 attempts: 1 initial + 2 retries)
 
 # Model configuration
-DEFAULT_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_MODEL = "gemini-2.5-flash-lite"  # For generation agents (fast, cost-effective)
+CRITIC_MODEL = "gemini-2.5-flash"  # For evaluation agents (stronger model for better judgment)
 
 # ============================================================================
 # Application Configuration

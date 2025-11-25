@@ -1,0 +1,26 @@
+from google.adk.agents import LlmAgent
+from google.adk.models.google_llm import Gemini
+import sys
+import os
+
+# Add parent directory to path to import config
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import RETRY_CONFIG, CRITIC_MODEL
+from pathlib import Path
+from presentation_agent.agents.utils.instruction_loader import load_instruction
+
+# Load instruction from markdown file
+_agent_dir = Path(__file__).parent
+_instruction = load_instruction(_agent_dir)
+
+agent = LlmAgent(
+    name="OutlineCriticAgent",
+    model=Gemini(
+        model=CRITIC_MODEL,  # Use stronger model for evaluation (industry best practice)
+        retry_options=RETRY_CONFIG,
+    ),
+    instruction=_instruction,
+    tools=[],
+    output_key="critic_review_outline",
+)
+
