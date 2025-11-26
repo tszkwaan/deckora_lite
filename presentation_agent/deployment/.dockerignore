@@ -70,6 +70,7 @@ presentation_agent/deployment/deploy_to_agent_engine.py
 
 # Frontend (not needed in backend container)
 deckora-frontend/
+deckora_frontend/
 node_modules/
 npm-cache/
 

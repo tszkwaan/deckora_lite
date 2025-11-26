@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import type { SlidesData } from '@/types/slides';
 
 /**
@@ -38,28 +38,38 @@ export async function GET(
     // Fallback: Read from local file system
     // When backend API is unavailable, load the default slides_data.json file
     // This allows quick preview of the presentation without running the backend
-    // Path: from deckora-frontend to ../presentation_agent/output/slides_data.json
+    // Path: from deckora_frontend to ../presentation_agent/output/slides_data.json
     try {
-      const filePath = join(process.cwd(), '..', 'presentation_agent', 'output', 'slides_data.json');
+      // Use resolve() for more reliable path resolution
+      // In Next.js, process.cwd() is the project root (deckora_frontend)
+      // We need to go up one level to reach presentation_agent
+      const filePath = resolve(process.cwd(), '..', 'presentation_agent', 'output', 'slides_data.json');
+      console.log('Attempting to read file from:', filePath);
       const fileContents = await readFile(filePath, 'utf-8');
       const slidesData: SlidesData = JSON.parse(fileContents);
-      console.log(`✅ Loaded slides data from local file (presentationId: ${presentationId}):`, filePath);
+      console.log(`✅ Loaded slides data from local file (presentationId: ${presentationId})`);
       return NextResponse.json(slidesData);
     } catch (fileError) {
       console.error('Failed to read local slides_data.json:', fileError);
       // If file doesn't exist, provide a helpful error message
-      if ((fileError as NodeJS.ErrnoException).code === 'ENOENT') {
+      const err = fileError as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') {
         return NextResponse.json(
           { 
             error: 'Slides data file not found. Please run the pipeline to generate slides_data.json',
-            hint: 'The file should be at: presentation_agent/output/slides_data.json'
+            hint: 'The file should be at: presentation_agent/output/slides_data.json',
+            attemptedPath: resolve(process.cwd(), '..', 'presentation_agent', 'output', 'slides_data.json'),
+            cwd: process.cwd()
           },
           { status: 404 }
         );
       }
       return NextResponse.json(
-        { error: 'Failed to fetch slides data from backend API or local file' },
-        { status: 404 }
+        { 
+          error: 'Failed to fetch slides data from backend API or local file',
+          details: err.message || String(err)
+        },
+        { status: 500 }
       );
     }
   } catch (error) {

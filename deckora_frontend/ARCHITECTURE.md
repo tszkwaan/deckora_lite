@@ -79,7 +79,7 @@ app/
 ## File Organization
 
 ```
-deckora-frontend/
+deckora_frontend/
 ├── app/                    # Next.js App Router
 │   ├── layout.tsx         # Root layout with metadata
 │   ├── page.tsx           # Home page composition

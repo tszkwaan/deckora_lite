@@ -25,7 +25,7 @@ npm install
 
 ### Environment Setup
 
-1. Create a `.env.local` file in the `deckora-frontend` directory:
+1. Create a `.env.local` file in the `deckora_frontend` directory:
 
 ```bash
 cp .env.example .env.local
@@ -34,7 +34,7 @@ cp .env.example .env.local
 2. Update `.env.local` with your API URL:
 
 ```env
-NEXT_PUBLIC_API_URL=https://presentation-agent-385552249410.us-central1.run.app
+NEXT_PUBLIC_API_URL=YOUR_CLOUD_RUN_APP_URL
 ```
 
 **Note**: `.env.local` is already in `.gitignore` and will not be committed to version control.
@@ -57,7 +57,7 @@ npm start
 ## Project Structure
 
 ```
-deckora-frontend/
+deckora_frontend/
 ├── app/                    # Next.js app directory
 │   ├── layout.tsx         # Root layout
 │   ├── page.tsx           # Home page
