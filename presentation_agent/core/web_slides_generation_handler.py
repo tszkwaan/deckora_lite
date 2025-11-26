@@ -154,8 +154,11 @@ class WebSlidesGenerationHandler:
                 image_cache=image_cache,
                 keyword_usage_tracker=keyword_usage_tracker
             )
+            logger.debug(f"web_result type: {type(web_result)}, value: {str(web_result)[:200] if isinstance(web_result, str) else 'dict'}")
         except Exception as e:
             logger.error(f"❌ Error calling generate_web_slides_tool: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             self.obs_logger.finish_agent_execution(AgentStatus.FAILED, str(e), has_output=False)
             raise AgentExecutionError(
                 f"Failed to generate web slides: {e}",
@@ -184,6 +187,16 @@ class WebSlidesGenerationHandler:
                 agent_name="WebSlidesGenerator"
             )
         
+        # Ensure web_result is a dict before accessing it
+        if not isinstance(web_result, dict):
+            error_msg = f"web_result is {type(web_result).__name__}, expected dict. Value: {str(web_result)[:200]}"
+            logger.error(f"❌ {error_msg}")
+            self.obs_logger.finish_agent_execution(AgentStatus.FAILED, error_msg, has_output=False)
+            raise AgentExecutionError(
+                f"Failed to generate web slides: {error_msg}",
+                agent_name="WebSlidesGenerator"
+            )
+        
         if web_result.get('status') == 'success':
             self.outputs["web_slides_result"] = web_result
             self.session.state["web_slides_result"] = web_result
@@ -195,8 +208,10 @@ class WebSlidesGenerationHandler:
             if self.open_browser:
                 import webbrowser
                 try:
-                    webbrowser.open(web_result.get('url'))
-                    print(f"   🌐 Opened in browser")
+                    url = web_result.get('url')
+                    if url:
+                        webbrowser.open(url)
+                        print(f"   🌐 Opened in browser")
                 except Exception as e:
                     print(f"   ⚠️  Could not open browser: {e}")
             
@@ -206,7 +221,7 @@ class WebSlidesGenerationHandler:
             self.obs_logger.finish_agent_execution(AgentStatus.SUCCESS, has_output=True)
             return {"web_slides_result": web_result}
         else:
-            error_msg = web_result.get('error', 'Unknown error')
+            error_msg = web_result.get('error', 'Unknown error') if isinstance(web_result, dict) else str(web_result)
             self.obs_logger.finish_agent_execution(AgentStatus.FAILED, error_msg, has_output=False)
             raise AgentExecutionError(
                 f"Failed to generate web slides: {error_msg}",

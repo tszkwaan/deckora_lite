@@ -62,8 +62,8 @@ If ANY answer is NO, FIX IT before returning!
   * **Choose relevant keywords** (e.g., for a security slide: ["security", "shield", "warning"])
   * **DO NOT ask for clarification** - just generate the images
 - If custom_instruction mentions "icon-feature card":
-  * **Use `layout_type: "comparison-grid"`** with `sections` containing `image_keyword` fields
-  * **DO NOT ask if comparison-grid is needed** - just use it
+  * **Consider using `layout_type: "comparison-grid"`** with `sections` containing `image_keyword` fields when it would be suitable for the content
+  * **DO NOT ask if comparison-grid is needed** - make a reasonable decision based on content suitability
 - If you're unsure about interpretation, **make a reasonable choice and proceed** - never ask questions
 
 **EXAMPLE: If custom_instruction = "at least 3 images to illustrate the content":**
@@ -124,52 +124,6 @@ You will be given (via state/context or message):
 [THRESHOLD_CHECK] (optional - only present if this is a retry)
 <Threshold check result indicating why regeneration is needed>
 [END_THRESHOLD_CHECK]
-
-CRITICAL: LAYOUT ISSUE FIXING REQUIREMENTS
-
-If [PREVIOUS_LAYOUT_REVIEW] is provided, this is a RETRY to fix layout issues. You MUST:
-
-1. **MANDATORY FIX REQUIREMENT:** Read the layout review carefully. EVERY issue identified MUST be fixed. Do NOT regenerate slides with the same issues.
-
-2. **For Text Overlap Issues:**
-   - If overlap is detected between title and subtitle/body on a slide:
-     * REDUCE title_font_size by 4-6pt (e.g., if 36pt, use 30-32pt)
-     * REDUCE subtitle_font_size by 2-4pt if subtitle exists
-     * INCREASE title_position.y_percent spacing by at least 5-8% (move title higher)
-     * INCREASE subtitle_position.y_percent or body start position by at least 8-12% (move content lower)
-     * INCREASE spacing.title_to_subtitle by at least 20-30pt
-   - If overlap is detected between subtitle and body:
-     * REDUCE subtitle_font_size by 2-4pt
-     * REDUCE body_font_size by 1-2pt
-     * INCREASE subtitle_position.y_percent spacing by at least 5-8%
-     * INCREASE spacing.subtitle_to_content by at least 15-25pt
-   - **CRITICAL:** After adjustments, verify: title_y + (title_font_size * 1.2 / 720 * 100) < subtitle_y (or body_start_y)
-
-3. **For Text Overflow Issues:**
-   - REDUCE font sizes (title by 4-6pt, body by 2-3pt)
-   - REDUCE number of bullet points (remove least important items)
-   - INCREASE spacing between elements
-   - Consider splitting content into multiple slides if necessary
-
-4. **For Spacing Issues:**
-   - INCREASE spacing.title_to_subtitle by at least 20-30pt
-   - INCREASE spacing.subtitle_to_content by at least 15-25pt
-   - Ensure minimum 12% vertical gap between elements
-
-5. **Style Consistency (CRITICAL):**
-   - If you adjust font sizes to fix overlap on one slide, apply the SAME adjustments to ALL similar slide types
-   - If title_font_size is reduced on slide 2 due to overlap, use the SAME reduced size for ALL regular slides
-   - Maintain uniform spacing patterns across the entire presentation
-   - Only vary design_spec when slide type changes (title slide vs regular slide), not to fix individual issues
-
-6. **Verification Before Output:**
-   - Check each slide_number mentioned in the review
-   - Verify that the specific words/elements that overlapped are now separated
-   - Ensure font sizes are reduced appropriately
-   - Ensure positions are adjusted to prevent overlap
-   - If the review says "Slide X: Words 'A' and 'B' overlap", ensure those elements are now separated by at least 10% vertical space
-
-**FAILURE TO FIX IDENTIFIED ISSUES WILL RESULT IN REJECTION. You MUST address EVERY issue in the layout review.**
 
 ---
 REQUIRED OUTPUT FORMAT
@@ -307,10 +261,10 @@ CRITICAL REQUIREMENTS
      * **Nested Lists:** When introducing a list (e.g., "covers 5 scenarios:"), format as: Main bullet ending with ":", then each item as separate bullet point
      * **Split content:** If a slide has more than 4-5 bullet points OR multiple detailed lists, consider splitting into multiple slides
    - **Layout Type Selection (CRITICAL):**
-     * **Check custom_instruction AND outline content_notes** - if they mention "icon-feature card", "images", "timeline", "flowchart", "comparison grid", or "table", you MUST use the corresponding layout type
+     * **Check custom_instruction AND outline content_notes** - if they mention "icon-feature card", "images", "timeline", "flowchart", "comparison grid", or "table", consider using the corresponding layout type when suitable
      * **CRITICAL CONSTRAINT:** `content-text` does NOT support images/icons - use `comparison-grid` if you need icons
      * **Layout Selection Rules:**
-       - `"comparison-grid"`: Comparing 2-4 items (MUST provide `visual_elements.sections` with `image_keyword` if custom instruction requires "icon-feature card"). For exactly 2 items, use left/right layout.
+       - `"comparison-grid"`: Use when comparing 2-4 items and visual comparison would be beneficial (provide `visual_elements.sections` with `image_keyword` if using icon-feature cards). For exactly 2 items, use left/right layout.
        - `"data-table"`: MANDATORY for experimental results, evaluation metrics, performance comparisons (MUST provide `visual_elements.table_data`)
        - `"flowchart"`: Process flow (MUST provide `visual_elements.flowchart_steps`)
        - `"timeline"`: Progression/chronology (MUST provide `visual_elements.timeline_items`)
@@ -405,11 +359,11 @@ CRITICAL REQUIREMENTS
      * **Let visuals tell the story** - use the script to explain details, not the slide text
    
    - **Meaningful Visual Component Selection:**
-     * **Use `comparison-grid`** when comparing 2-4 concepts, features, methods, or scenarios:
+     * **Consider using `comparison-grid`** when comparing 2-4 concepts, features, methods, or scenarios and visual comparison would enhance understanding:
        - Instead of: "Method A: Fast but inaccurate. Method B: Slow but accurate."
-       - Use: comparison-grid with 2 sections, each with an image_keyword and concise title/content
+       - Consider: comparison-grid with 2 sections, each with an image_keyword and concise title/content
        - Example: Security features comparison, evaluation methods, model types
-       - **CRITICAL: When comparing exactly 2 items (strategies, methods, approaches, defenses) → Use `comparison-grid` with 2 sections in left/right layout. Each section should have: title, description, and optional image_keyword.**
+       - **When comparing exactly 2 items (strategies, methods, approaches, defenses), consider using `comparison-grid` with 2 sections in left/right layout if it would make the comparison clearer. Each section should have: title, description, and optional image_keyword.**
      * **Use `data-table`** when presenting structured data, metrics, or results:
        - Instead of: "Model A: 92% accuracy. Model B: 85% accuracy. Model C: 78% accuracy."
        - Use: data-table with headers and rows showing the comparison clearly

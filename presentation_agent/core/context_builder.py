@@ -86,7 +86,6 @@ class ContextBuilder:
                         score += len(common_words) * 2
                 
                 # Match section key points with slide key points (strong match)
-                # Refactored: Use itertools.product to avoid nested loops
                 for section_kp, slide_kp in product(section_key_points, key_points):
                     section_kp_words = set(section_kp.split()[:5])  # First 5 words
                     slide_kp_words = set(slide_kp.split()[:5])
