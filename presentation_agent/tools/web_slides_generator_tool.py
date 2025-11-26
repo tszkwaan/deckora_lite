@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 import logging
 
-from presentation_agent.agents.utils.helpers import is_valid_chart_data, clean_chart_data
+from presentation_agent.utils.helpers import is_valid_chart_data, clean_chart_data
 from presentation_agent.templates.template_helpers import (
     render_comparison_grid_html,
     render_data_table_html,
@@ -26,6 +26,27 @@ from presentation_agent.templates.template_helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_keywords_from_items(items: list, all_keywords: list) -> None:
+    """
+    Helper function to extract image keywords from a list of items.
+    
+    Refactored to reduce repetitive nested loops in _collect_all_image_keywords.
+    
+    Args:
+        items: List of dict items that may contain image_keyword or image fields
+        all_keywords: List to append extracted keywords to (modified in-place)
+    """
+    for item in items:
+        if isinstance(item, dict):
+            image_keyword = item.get("image_keyword")
+            if image_keyword and image_keyword.strip():
+                all_keywords.append(image_keyword.strip())
+            # Also check legacy 'image' field
+            image = item.get("image")
+            if image and isinstance(image, str) and not image.startswith('http'):
+                all_keywords.append(image.strip())
 
 
 def _collect_all_image_keywords(slides: list) -> list:
@@ -65,101 +86,51 @@ def _collect_all_image_keywords(slides: list) -> list:
         
         # Collect from figures
         figures = visual_elements.get("figures", [])
-        for fig in figures:
-            if isinstance(fig, dict):
-                image_keyword = fig.get("image_keyword")
-                if image_keyword and image_keyword.strip():
-                    all_keywords.append(image_keyword.strip())
+        _extract_keywords_from_items(figures, all_keywords)
         
         # Collect from template layouts
+        # Refactored: Use helper function to reduce repetitive nested loops
         if layout_type == "comparison-grid":
             sections = visual_elements.get("sections", [])
-            for section in sections:
-                if isinstance(section, dict):
-                    image_keyword = section.get("image_keyword")
-                    if image_keyword and image_keyword.strip():
-                        all_keywords.append(image_keyword.strip())
-                    # Also check legacy 'image' field
-                    image = section.get("image")
-                    if image and isinstance(image, str) and not image.startswith('http'):
-                        all_keywords.append(image.strip())
+            _extract_keywords_from_items(sections, all_keywords)
         
         elif layout_type == "icon-row":
             icon_items = visual_elements.get("icon_items", [])
-            for item in icon_items:
-                if isinstance(item, dict):
-                    image_keyword = item.get("image_keyword")
-                    if image_keyword and image_keyword.strip():
-                        all_keywords.append(image_keyword.strip())
-                    image = item.get("image")
-                    if image and isinstance(image, str) and not image.startswith('http'):
-                        all_keywords.append(image.strip())
+            _extract_keywords_from_items(icon_items, all_keywords)
         
         elif layout_type == "icon-sequence":
             sequence_items = visual_elements.get("sequence_items", [])
-            for item in sequence_items:
-                if isinstance(item, dict):
-                    image_keyword = item.get("image_keyword")
-                    if image_keyword and image_keyword.strip():
-                        all_keywords.append(image_keyword.strip())
-                    image = item.get("image")
-                    if image and isinstance(image, str) and not image.startswith('http'):
-                        all_keywords.append(image.strip())
+            _extract_keywords_from_items(sequence_items, all_keywords)
         
         elif layout_type == "linear-process":
             process_steps = visual_elements.get("process_steps", [])
-            for step in process_steps:
-                if isinstance(step, dict):
-                    image_keyword = step.get("image_keyword")
-                    if image_keyword and image_keyword.strip():
-                        all_keywords.append(image_keyword.strip())
-                    image = step.get("image")
-                    if image and isinstance(image, str) and not image.startswith('http'):
-                        all_keywords.append(image.strip())
+            _extract_keywords_from_items(process_steps, all_keywords)
         
         elif layout_type == "workflow-diagram":
             workflow = visual_elements.get("workflow", {})
             if isinstance(workflow, dict):
-                # Collect from inputs
+                # Collect from inputs, processes, and outputs
+                # Refactored: Use helper function to reduce nested loops
                 inputs = workflow.get("inputs", [])
-                for inp in inputs:
-                    if isinstance(inp, dict):
-                        image_keyword = inp.get("image_keyword")
-                        if image_keyword and image_keyword.strip():
-                            all_keywords.append(image_keyword.strip())
-                # Collect from processes
+                _extract_keywords_from_items(inputs, all_keywords)
                 processes = workflow.get("processes", [])
-                for proc in processes:
-                    if isinstance(proc, dict):
-                        image_keyword = proc.get("image_keyword")
-                        if image_keyword and image_keyword.strip():
-                            all_keywords.append(image_keyword.strip())
-                # Collect from outputs
+                _extract_keywords_from_items(processes, all_keywords)
                 outputs = workflow.get("outputs", [])
-                for out in outputs:
-                    if isinstance(out, dict):
-                        image_keyword = out.get("image_keyword")
-                        if image_keyword and image_keyword.strip():
-                            all_keywords.append(image_keyword.strip())
+                _extract_keywords_from_items(outputs, all_keywords)
         
         elif layout_type == "process-flow":
             flow_stages = visual_elements.get("flow_stages", [])
             for stage in flow_stages:
                 if isinstance(stage, dict):
-                    # Collect from inputs
+                    # Collect from inputs, process, and output
+                    # Refactored: Use helper function to reduce nested loops
                     inputs = stage.get("inputs", [])
-                    for inp in inputs:
-                        if isinstance(inp, dict):
-                            image_keyword = inp.get("image_keyword")
-                            if image_keyword and image_keyword.strip():
-                                all_keywords.append(image_keyword.strip())
-                    # Collect from process
+                    _extract_keywords_from_items(inputs, all_keywords)
                     process = stage.get("process", {})
                     if isinstance(process, dict):
                         image_keyword = process.get("image_keyword")
                         if image_keyword and image_keyword.strip():
                             all_keywords.append(image_keyword.strip())
-                    # Collect from output
                     output = stage.get("output", {})
                     if isinstance(output, dict):
                         image_keyword = output.get("image_keyword")
@@ -1013,7 +984,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     elif chart_spec:
         # Generate chart on-the-fly from chart_spec if chart_data is missing
         try:
-            from presentation_agent.agents.tools.chart_generator_tool import generate_chart_tool
+            from presentation_agent.tools.chart_generator_tool import generate_chart_tool
             
             # Handle both dict and list chart_specs
             if isinstance(chart_spec, list):

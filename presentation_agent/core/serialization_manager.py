@@ -1,6 +1,5 @@
 """
 Serialization manager - manages serialization and caching of pipeline outputs.
-Extracted from pipeline_orchestrator to centralize serialization logic and improve code organization.
 """
 
 from typing import Dict, Any, Optional

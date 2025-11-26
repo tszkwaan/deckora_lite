@@ -1,6 +1,5 @@
 """
 Pipeline orchestrator - coordinates all agents in the presentation generation pipeline.
-Extracted from main.py to follow Single Responsibility Principle.
 """
 
 import json
@@ -21,9 +20,9 @@ from config import (
     REPORT_KNOWLEDGE_FILE,
 )
 from presentation_agent.core.agent_registry import AgentRegistry, create_default_agent_registry
-from presentation_agent.agents.utils.pdf_loader import load_pdf
-from presentation_agent.agents.utils.helpers import save_json_output, is_valid_chart_data
-from presentation_agent.agents.utils.observability import get_observability_logger, AgentStatus
+from presentation_agent.utils.pdf_loader import load_pdf
+from presentation_agent.utils.helpers import save_json_output, is_valid_chart_data
+from presentation_agent.utils.observability import get_observability_logger, AgentStatus
 from presentation_agent.core.agent_executor import AgentExecutor
 from presentation_agent.core.json_parser import parse_json_robust
 from presentation_agent.core.exceptions import AgentExecutionError, JSONParseError, AgentOutputError
@@ -42,7 +41,6 @@ logger = logging.getLogger(__name__)
 class PipelineOrchestrator:
     """
     Orchestrates the complete presentation generation pipeline.
-    Follows Single Responsibility Principle - only handles orchestration.
     """
     
     def __init__(
@@ -409,7 +407,7 @@ class PipelineOrchestrator:
                 slides_with_charts.append(slide.get('slide_number'))
         
         # Pre-generate images (always needed for web slides, regardless of charts)
-        from presentation_agent.agents.tools.web_slides_generator_tool import pre_generate_images
+        from presentation_agent.tools.web_slides_generator_tool import pre_generate_images
         print("   🖼️  Pre-generating images...")
         
         # Run chart generation and image pre-generation in parallel using asyncio.gather()

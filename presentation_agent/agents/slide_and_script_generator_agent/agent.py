@@ -34,11 +34,11 @@ from pathlib import Path
 # Add parent directory to path to import config
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import RETRY_CONFIG, DEFAULT_MODEL
-from presentation_agent.agents.utils.instruction_loader import load_instruction
+from presentation_agent.utils.instruction_loader import load_instruction
 
 # Import chart generator tool (available but chart generation handled separately in parallel)
 try:
-    from presentation_agent.agents.tools.chart_generator_tool import generate_chart_tool
+    from presentation_agent.tools.chart_generator_tool import generate_chart_tool
 except ImportError:
     # If chart tool is not available, use empty list
     generate_chart_tool = None

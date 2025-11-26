@@ -1,10 +1,10 @@
 """
 Context builder - extracts relevant report sections for slide generation.
-Extracted from pipeline_orchestrator to improve code organization and reusability.
 """
 
 import logging
 from typing import Dict, List
+from itertools import product, chain
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +86,13 @@ class ContextBuilder:
                         score += len(common_words) * 2
                 
                 # Match section key points with slide key points (strong match)
-                for section_kp in section_key_points:
+                # Refactored: Use itertools.product to avoid nested loops
+                for section_kp, slide_kp in product(section_key_points, key_points):
                     section_kp_words = set(section_kp.split()[:5])  # First 5 words
-                    for slide_kp in key_points:
-                        slide_kp_words = set(slide_kp.split()[:5])
-                        common_words = section_kp_words.intersection(slide_kp_words)
-                        if common_words:
-                            score += len(common_words) * 2
+                    slide_kp_words = set(slide_kp.split()[:5])
+                    common_words = section_kp_words.intersection(slide_kp_words)
+                    if common_words:
+                        score += len(common_words) * 2
                 
                 # Match section label in content_notes (medium match)
                 if section_label and section_label in content_notes:
@@ -154,15 +154,15 @@ class ContextBuilder:
         slide_to_sections = ContextBuilder.extract_relevant_report_sections(outline, report_knowledge, max_sections_per_slide=5)
         
         # Collect all unique relevant sections (deduplicated by section ID)
+        # Refactored: Use itertools.chain to flatten nested lists, then deduplicate
         seen_section_ids = set()
         relevant_sections = []
         
-        for sections in slide_to_sections.values():
-            for section in sections:
-                section_id = section.get("id")
-                if section_id and section_id not in seen_section_ids:
-                    relevant_sections.append(section)
-                    seen_section_ids.add(section_id)
+        for section in chain.from_iterable(slide_to_sections.values()):
+            section_id = section.get("id")
+            if section_id and section_id not in seen_section_ids:
+                relevant_sections.append(section)
+                seen_section_ids.add(section_id)
         
         # LESS AGGRESSIVE: Ensure minimum 70% coverage to prevent information loss
         min_coverage = max(7, int(total_sections * 0.7))  # At least 70% or minimum 7 sections

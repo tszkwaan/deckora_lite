@@ -1,5 +1,5 @@
 """
-Web slides generation handler - extracted from pipeline_orchestrator for better code organization.
+Web slides generation handler
 Handles the web slides (HTML) generation step of the pipeline.
 """
 
@@ -9,10 +9,10 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 
 from config import PresentationConfig, WEB_SLIDES_RESULT_FILE
-from presentation_agent.agents.utils.helpers import save_json_output
-from presentation_agent.agents.utils.observability import AgentStatus
+from presentation_agent.utils.helpers import save_json_output
+from presentation_agent.utils.observability import AgentStatus
 from presentation_agent.core.exceptions import AgentExecutionError, AgentOutputError
-from presentation_agent.agents.tools.web_slides_generator_tool import generate_web_slides_tool
+from presentation_agent.tools.web_slides_generator_tool import generate_web_slides_tool
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 class WebSlidesGenerationHandler:
     """
     Handles web slides generation step.
-    Extracted from PipelineOrchestrator to reduce file size and improve maintainability.
     """
     
     def __init__(

@@ -15,7 +15,7 @@ from presentation_agent.agents.slide_and_script_generator_agent.agent import age
 # Note: SlidesExportAgent removed - we no longer export to Google Slides, main pipeline uses web slides instead
 
 # Import PDF loader utility
-from presentation_agent.agents.utils.pdf_loader import load_pdf_from_url
+from presentation_agent.utils.pdf_loader import load_pdf_from_url
 
 
 def load_pdf_from_url_tool(url: str) -> str:

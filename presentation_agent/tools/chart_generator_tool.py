@@ -9,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    from presentation_agent.agents.utils.chart_generator import generate_chart_from_spec
+    from presentation_agent.utils.chart_generator import generate_chart_from_spec
     CHART_GENERATOR_AVAILABLE = True
 except ImportError:
     CHART_GENERATOR_AVAILABLE = False

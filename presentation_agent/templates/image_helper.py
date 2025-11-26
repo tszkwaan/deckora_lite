@@ -135,7 +135,7 @@ _load_persistent_cache()
 
 # Import image generation tool
 try:
-    from presentation_agent.agents.tools.image_generator_tool import generate_image
+    from presentation_agent.tools.image_generator_tool import generate_image
     IMAGE_GENERATION_AVAILABLE = True
 except (ImportError, Exception) as e:
     logger.debug(f"Image generation tool not available: {e}")
@@ -370,7 +370,7 @@ def generate_images_parallel(
         
         # Generate only uncached keywords in parallel
         if keywords_to_generate_uncached:
-            from presentation_agent.agents.tools.image_generator_tool import generate_image
+            from presentation_agent.tools.image_generator_tool import generate_image
             cache_dir = Path("presentation_agent/output/generated_images")
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -455,7 +455,7 @@ def generate_images_parallel(
         
         # Generate only uncached keywords in parallel
         if keywords_to_generate_uncached:
-            from presentation_agent.agents.tools.image_generator_tool import generate_image
+            from presentation_agent.tools.image_generator_tool import generate_image
             cache_dir = Path("presentation_agent/output/generated_images")
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:

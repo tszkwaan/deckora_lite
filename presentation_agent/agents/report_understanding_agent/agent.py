@@ -32,7 +32,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import RETRY_CONFIG, DEFAULT_MODEL
 from pathlib import Path
-from presentation_agent.agents.utils.instruction_loader import load_instruction
+from presentation_agent.utils.instruction_loader import load_instruction
 
 # Load instruction from markdown file
 _agent_dir = Path(__file__).parent

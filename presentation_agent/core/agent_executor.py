@@ -9,7 +9,7 @@ from typing import Any, Optional, Dict
 from google.adk.runners import InMemoryRunner
 # Session type is dynamic from ADK
 
-from presentation_agent.agents.utils.helpers import extract_output_from_events
+from presentation_agent.utils.helpers import extract_output_from_events
 from presentation_agent.core.json_parser import parse_json_robust
 from presentation_agent.core.exceptions import AgentExecutionError, JSONParseError
 from presentation_agent.core.logging_utils import (

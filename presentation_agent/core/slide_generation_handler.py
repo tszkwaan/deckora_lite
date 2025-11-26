@@ -13,8 +13,8 @@ from config import (
     SLIDE_DECK_FILE,
     PRESENTATION_SCRIPT_FILE,
 )
-from presentation_agent.agents.utils.helpers import save_json_output
-from presentation_agent.agents.utils.observability import AgentStatus
+from presentation_agent.utils.helpers import save_json_output
+from presentation_agent.utils.observability import AgentStatus
 from presentation_agent.core.agent_executor import AgentExecutor
 from presentation_agent.core.json_parser import parse_json_robust
 from presentation_agent.core.exceptions import AgentExecutionError, JSONParseError, AgentOutputError
@@ -27,7 +27,6 @@ logger = logging.getLogger(__name__)
 class SlideGenerationHandler:
     """
     Handles slide and script generation step.
-    Extracted from PipelineOrchestrator to reduce file size and improve maintainability.
     """
     
     def __init__(

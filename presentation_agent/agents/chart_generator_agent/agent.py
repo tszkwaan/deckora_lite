@@ -16,9 +16,9 @@ import re
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import RETRY_CONFIG, DEFAULT_MODEL
 from pathlib import Path
-from presentation_agent.agents.utils.instruction_loader import load_instruction
+from presentation_agent.utils.instruction_loader import load_instruction
 try:
-    from presentation_agent.agents.tools.chart_generator_tool import generate_chart_tool
+    from presentation_agent.tools.chart_generator_tool import generate_chart_tool
     CHART_TOOL_AVAILABLE = True
 except ImportError:
     CHART_TOOL_AVAILABLE = False
@@ -143,7 +143,7 @@ def call_chart_generation_after_agent(callback_context):
                 continue
             
             # Skip if chart_data already exists and is valid (not placeholder)
-            from presentation_agent.agents.utils.helpers import is_valid_chart_data
+            from presentation_agent.utils.helpers import is_valid_chart_data
             if is_valid_chart_data(chart_data):
                 logger.info(f"   ✅ Slide {slide_number}: Chart data already exists, skipping")
                 continue
