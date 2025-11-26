@@ -33,21 +33,27 @@ This process can take hours or even days, especially for technical or complex co
 
 ## Solution
 
-Agents are the ideal solution for this problem because:
+Deckora is a multi-agent system that automates the entire presentation generation workflow from research reports to polished slides and scripts. The system uses a sequential pipeline of specialized AI agents, each optimized for a specific task, working together to transform raw documents into presentation-ready materials.
 
-1. **Specialized Expertise**: Each agent handles a specific task (knowledge extraction, outline generation, content creation, quality evaluation), allowing for focused optimization and better results.
+### How It Works
 
-2. **Quality Assurance with Automatic Retry**: Evaluation agents can review and improve outputs through feedback loops, automatically retrying failed operations or regenerating content that doesn't meet quality standards, ensuring high-quality results without human intervention.
+Deckora transforms research documents into presentation-ready materials through a **specialized multi-agent pipeline**. Each agent focuses on a specific task—from understanding the document structure to generating polished slides—with built-in quality evaluation that automatically improves outputs when needed. The system intelligently extracts only relevant content per slide to optimize efficiency, while parallel processing handles visual assets simultaneously for faster generation. The final output is a web-ready HTML presentation that can be viewed in a Next.js frontend application or integrated into existing workflows.
 
-3. **State Management**: Agents can pass context and intermediate results between stages, maintaining coherence throughout the pipeline.
+### Key Technical Approach
 
-4. **Parallel Processing**: Multiple agents can work simultaneously (e.g., chart generation and image processing), improving efficiency.
+**Specialized Multi-Agent Architecture**: Five specialized agents, each optimized for a specific task (knowledge extraction, outline generation, quality evaluation, content creation, visualization), work together in a coordinated pipeline. This specialization enables better results than a single general-purpose model.
 
-5. **Extensibility**: New agents can be easily added to handle additional tasks (e.g., translation, accessibility checks) without disrupting existing workflows.
+**Quality Assurance with Automatic Retry**: The system uses a stronger model (Gemini 2.5 Flash) for evaluation, automatically regenerating content when quality is unacceptable. This ensures high-quality outputs without human intervention.
+
+**Efficiency Optimizations**: Selective context extraction reduces token usage by including only relevant report sections per slide (maintaining 70%+ coverage), while parallel processing handles charts and images simultaneously.
+
+**Production-Ready Design**: Full observability, error handling, and state management enable reliable deployment to Google Cloud Run with extensibility for future enhancements.
 
 ---
 
 ## Architecture
+
+![Deckora Architecture](docs/deckora_architecture.png)
 
 ### Pipeline Flow
 
@@ -104,29 +110,6 @@ The system uses a sequential multi-agent architecture with quality gates, feedba
   - Creates frontend-ready JSON format
 - **Output**: `slides_data.json` (for frontend integration), `web_slides_result.json`
 
-### Flow Summary
-
-1. **Sequential Steps**: Report Understanding → Outline Generation → Slide Generation
-2. **Conditional Loop**: Outline evaluation triggers retry if unacceptable (max 1 retry)
-3. **Parallel Processing**: Chart generation and image pre-generation run simultaneously
-4. **Tool-based**: Web slides generation uses tool (not agent) for final output
-
-### Agent and Tool Usage
-
-**Agents Used:**
-- `ReportUnderstandingAgent`: Knowledge extraction
-- `OutlineGeneratorAgent`: Outline creation
-- `OutlineCriticAgent`: Quality evaluation (with retry loop)
-- `SlideAndScriptGeneratorAgent`: Content generation
-- `ChartGeneratorAgent`: Data visualization
-
-**Tools Used:**
-- `load_pdf`: PDF loading utility
-- `generate_chart_tool`: Chart generation (Plotly/Kaleido)
-- `generate_image`: Image generation (Gemini/Stability AI)
-- `generate_web_slides_tool`: HTML presentation generation
-- `pre_generate_images`: Image pre-generation utility
-
 ### Key Components
 
 **Agents (5+ specialized agents):**
@@ -172,7 +155,7 @@ The system uses a sequential multi-agent architecture with quality gates, feedba
 
 1. **Clone the repository**
 ```bash
-git clone <repository-url>
+git clone https://github.com/tszkwaan/deckora_lite
 cd deckora-lite
 ```
 
@@ -303,34 +286,6 @@ See [presentation_agent/deployment/DEPLOYMENT.md](presentation_agent/deployment/
 
 ---
 
-## Key Features
-
-### Agent Evaluation with Feedback Loop
-
-The system implements a complete evaluation framework:
-
-- **OutlineCriticAgent** uses a stronger model (gemini-2.5-flash) for better evaluation judgment
-- Evaluates outline quality across multiple dimensions (completeness, coherence, relevance, accuracy)
-- Provides actionable feedback (weaknesses, recommendations, evaluation notes)
-- **Retry Logic**: If outline is unacceptable, regenerates with previous outline + critic feedback (max 1 retry)
-- Demonstrates industry best practice: using stronger models for evaluation
-
-### Quality Assurance
-
-- **Structured Evaluation**: Quality scores, acceptability flags, and detailed feedback
-- **Automatic Retry**: Content regeneration based on evaluation feedback
-- **State Management**: Previous outputs and feedback passed between agents
-- **Observability**: Full execution tracing and metrics collection
-
-### Performance Optimizations
-
-- **Selective Context Extraction**: Only relevant report sections included per slide
-- **Serialization Caching**: JSON serialization results cached for performance
-- **Parallel Processing**: Charts and images generated in parallel
-- **Efficient Token Usage**: Compact serialization formats for agent messages
-
----
-
 ## Project Structure
 
 ```
@@ -342,16 +297,40 @@ deckora-lite/
 │   │   ├── outline_generator_agent/
 │   │   ├── outline_critic_agent/   # Evaluation agent with retry logic
 │   │   ├── slide_and_script_generator_agent/
-│   │   ├── chart_generator_agent/
-│   │   ├── tools/                  # Custom tools
-│   │   └── utils/                  # Utility functions
+│   │   └── chart_generator_agent/
 │   ├── core/                       # Core services
 │   │   ├── pipeline_orchestrator.py
 │   │   ├── agent_executor.py
 │   │   ├── agent_registry.py
 │   │   └── ...
+│   ├── tools/                      # Custom tools
+│   │   ├── web_slides_generator/   # Web slides generation
+│   │   │   ├── __init__.py
+│   │   │   ├── image_collection.py    # Image keyword collection & pre-generation
+│   │   │   ├── slide_generation.py     # Slide HTML fragment generation
+│   │   │   ├── frontend_data.py        # Frontend JSON data generation
+│   │   │   ├── css_generation.py       # CSS and styling
+│   │   │   └── utils.py                # Theme colors and utilities
+│   │   ├── chart_generator_tool.py
+│   │   └── image_generator_tool.py
+│   ├── utils/                      # Utility functions
+│   │   ├── template_helpers/       # Template rendering helpers
+│   │   │   ├── __init__.py
+│   │   │   ├── comparison.py          # Comparison sections & grids
+│   │   │   ├── tables.py               # Data table rendering
+│   │   │   ├── diagrams.py             # Flowcharts, workflows, process flows
+│   │   │   ├── icons.py                # Icon-related components
+│   │   │   ├── slides.py               # Slide layouts (cover, fancy content/charts)
+│   │   │   └── utils.py                # Shared utilities (markdown, number highlighting)
+│   │   ├── template_loader.py
+│   │   ├── image_helper.py
+│   │   └── ...
 │   ├── deployment/                 # Deployment configuration
 │   └── output/                     # Generated outputs
+├── deckora_frontend/               # Next.js frontend application
+│   ├── app/                        # Next.js app directory
+│   ├── components/                # React components
+│   └── ...
 ├── config.py                       # Configuration
 ├── main.py                         # Main execution script
 └── requirements.txt                # Dependencies
@@ -361,40 +340,40 @@ deckora-lite/
 
 ## Key Concepts Demonstrated
 
-This project demonstrates **6 out of 8** key ADK concepts (exceeds minimum requirement of 3):
+This project demonstrates **7 out of 8** key ADK concepts:
 
-1. ✅ **Multi-agent System**: Sequential pipeline with 5+ specialized agents
-2. ✅ **Tools**: 4+ custom tools (PDF loader, chart generator, web slides generator, image generator)
-3. ✅ **Sessions & Memory**: State management via `session.state` for agent coordination
-4. ✅ **Agent Evaluation**: Full evaluation framework with retry logic and feedback loop
-5. ✅ **Long-running Operations**: LoopAgent for sequential execution, retry logic for LLM failures
-6. ✅ **Observability**: Structured logging, execution tracing, metrics collection
-7. ❌ **A2A Protocol**: Not implemented (not required)
-8. ✅ **Agent Deployment**: Deployed to Google Cloud Run with CI/CD
+### Multi-agent System ✅
+- **Agent powered by an LLM**: All agents use `LlmAgent` with Gemini models (2.5 Flash Lite for generation, 2.5 Flash for evaluation)
+- **Sequential agents**: Pipeline with 5+ specialized agents executed sequentially (ReportUnderstandingAgent → OutlineGeneratorAgent → OutlineCriticAgent → SlideAndScriptGeneratorAgent → ChartGeneratorAgent)
+- **Loop agents**: Retry logic with OutlineGeneratorAgent and OutlineCriticAgent feedback loop (max 1 retry when outline quality is unacceptable)
 
----
+### Tools ✅
+- **Custom tools**: 4+ custom tools (PDF loader, chart generator, web slides generator, image generator)
 
-## Technical Details
+### Sessions & Memory ✅
+- **Sessions & state management**: Uses `InMemorySessionService` via `session.state` for agent coordination and intermediate result storage (report_knowledge, presentation_outline, slide_deck, etc.)
 
-### Model Configuration
+### Context Engineering ✅
+- **Custom implementation**: Selective context extraction via `ContextBuilder` class - extracts only relevant report sections per slide while maintaining 70%+ coverage for accuracy
 
-- **Generation Agents**: `gemini-2.5-flash-lite` (fast, cost-effective)
-- **Evaluation Agent**: `gemini-2.5-flash` (stronger model for better judgment - industry best practice)
-- Configurable in `config.py`
+### Observability ✅
+- **Logging**: Structured logging via ObservabilityLogger (saved to `observability.log`)
+- **Tracing**: Complete execution trace history (saved to `trace_history.json`)
+- **Metrics**: Agent execution metrics displayed in console at pipeline completion:
+  - Total agents executed, successful/failed/retried counts
+  - Success rates (calculated via `get_success_rate()`)
+  - Timing data (per-agent `duration_seconds` and total pipeline duration)
+  - Metrics also saved to `trace_history.json` and logged to `observability.log`
+- **ADK-web UI**: Interactive development and debugging interface for agent testing and visualization (setup instructions in Usage section)
 
-### Error Handling
+### Agent Evaluation ✅
+- **Full evaluation framework**: OutlineCriticAgent evaluates outline quality (completeness, coherence, relevance, accuracy) with automatic retry logic and feedback loop
 
-- **Retry Logic**: Configurable retry count (default: 2) for transient failures
-- **Error Types**: Specific exceptions (AgentExecutionError, JSONParseError, AgentOutputError)
-- **Fallback Strategies**: JSON parsing with multiple fallback methods
-- **Observability**: All errors logged with full context
+### Agent Deployment ✅
+- **Cloud Run deployment**: Deployed to Google Cloud Run with GitHub Actions CI/CD
 
-### Security
-
-- **No API Keys in Code**: All credentials via environment variables
-- **Git Ignore**: Credentials files properly excluded
-- **GitHub Secrets**: Secure credential management for deployment
-- **Security Review**: No exposed secrets in codebase
+### Not Implemented
+- ❌ **A2A Protocol**
 
 ---
 
@@ -445,23 +424,3 @@ config = PresentationConfig(
 ```
 
 Deckora generates presentation materials for internal team meetings, saving hours of preparation time.
-
----
-
-## Contributing
-
-This is a competition submission project. For questions or issues, please refer to the competition guidelines.
-
----
-
-## License
-
-See LICENSE file for details.
-
----
-
-## Acknowledgments
-
-- Built with Google's Agent Development Kit (ADK)
-- Uses Gemini models for LLM capabilities
-- Deployed on Google Cloud Run

@@ -407,7 +407,7 @@ class PipelineOrchestrator:
                 slides_with_charts.append(slide.get('slide_number'))
         
         # Pre-generate images (always needed for web slides, regardless of charts)
-        from presentation_agent.tools.web_slides_generator_tool import pre_generate_images
+        from presentation_agent.tools.web_slides_generator import pre_generate_images
         print("   🖼️  Pre-generating images...")
         
         # Run chart generation and image pre-generation in parallel using asyncio.gather()

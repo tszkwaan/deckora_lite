@@ -12,7 +12,7 @@ from config import PresentationConfig, WEB_SLIDES_RESULT_FILE
 from presentation_agent.utils.helpers import save_json_output
 from presentation_agent.utils.observability import AgentStatus
 from presentation_agent.core.exceptions import AgentExecutionError, AgentOutputError
-from presentation_agent.tools.web_slides_generator_tool import generate_web_slides_tool
+from presentation_agent.tools.web_slides_generator import generate_web_slides_tool
 
 logger = logging.getLogger(__name__)
 

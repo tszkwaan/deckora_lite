@@ -106,6 +106,25 @@ OBJECTIVES
 8. **Vary visual components** across slides to keep the presentation engaging and less boring
 
 ---
+📊 CHART & DATA TABLE DECISION CHECKLIST (CHECK FOR EVERY SLIDE)
+---
+
+**Before generating each slide, ask yourself:**
+
+□ **Does this slide contain ANY numbers, percentages, or metrics?** → USE CHART or DATA TABLE
+□ **Does this slide compare 2+ items with values?** → USE DATA TABLE or CHART
+□ **Does this slide discuss results, findings, or performance?** → USE DATA TABLE or CHART
+□ **Does this slide mention experimental data or evaluation metrics?** → USE DATA TABLE (HIGHLY RECOMMENDED)
+□ **Does this slide show trends, growth, or changes?** → USE CHART (line or bar)
+□ **Does this slide have structured data (rows/columns)?** → USE DATA TABLE
+□ **Am I about to list multiple items with associated values?** → USE DATA TABLE instead of bullet points
+□ **Would this information be clearer as a visual?** → USE CHART or DATA TABLE
+
+**If you answered YES to ANY question above, you SHOULD use charts or data tables - prefer visual data representation over bullet points or text lists for quantitative data.**
+
+**Default rule: When in doubt between text and visual data representation, choose the visual (chart/table).**
+
+---
 INPUTS YOU WILL RECEIVE
 ---
 
@@ -279,7 +298,7 @@ CRITICAL REQUIREMENTS
      * **CRITICAL CONSTRAINT:** `content-text` does NOT support images/icons - use `comparison-grid` if you need icons
      * **Layout Selection Rules:**
        - `"comparison-grid"`: Use when comparing 2-4 items and visual comparison would be beneficial (provide `visual_elements.sections` with `image_keyword` if using icon-feature cards). For exactly 2 items, use left/right layout.
-       - `"data-table"`: MANDATORY for experimental results, evaluation metrics, performance comparisons (MUST provide `visual_elements.table_data` with `headers` and `rows`):
+       - `"data-table"`: **HIGHLY RECOMMENDED** for experimental results, evaluation metrics, performance comparisons, benchmark data, model comparisons, ANY tabular data (MUST provide `visual_elements.table_data` with `headers` and `rows`):
          * `table_data.headers`: Array of header objects, each with `{"text": "Header Name", "align": "left|center|right", "width": "optional"}`
          * `table_data.rows`: Array of row arrays, each row is an array of cell values (strings or numbers)
          * `table_data.style`: Optional - "default", "striped", "bordered", or "minimal" (default: "striped")
@@ -296,7 +315,7 @@ CRITICAL REQUIREMENTS
            ```
        - `"flowchart"`: Process flow (MUST provide `visual_elements.flowchart_steps`)
        - `"icon-row"`: 2-4 problems/features (MUST provide `visual_elements.icon_items` with `label` and `image_keyword`)
-       - `"content-with-chart"`: Text + chart (MUST provide `visual_elements.chart_spec`)
+       - `"content-with-chart"`: Text + chart - **USE WHENEVER you have quantitative/comparative data** (MUST provide `visual_elements.chart_spec` and set `charts_needed: true`)
        - `"content-text"`: USE SPARINGLY - only when visual components are not applicable
      * **For each layout type, you MUST provide the required visual_elements data - never leave them empty or missing**
    - **IMAGE GENERATION (CRITICAL):**
@@ -308,25 +327,47 @@ CRITICAL REQUIREMENTS
      * **MUST NOT have:** bullet_points, subheadings, charts, figures, image_keywords (all must be empty/false)
      * Subtitle example: "Presented by [Name] | Conference 2024"
 
-2. **Chart Generation (Visual Elements):**
-   - **AUTOMATIC DETECTION FOR EXPERIMENTAL RESULTS (CRITICAL):**
-     * **When slide title/content contains keywords:** "results", "findings", "experimental", "evaluation", "performance", "comparison", "metrics", "statistics", "data", "analysis", "effectiveness", "vulnerability", "success rate"
-     * **AND report_knowledge contains quantitative data** (numbers, percentages, metrics, comparisons)
-     * **THEN automatically:**
-       - Set `layout_type: "data-table"` if data is tabular (rows/columns of structured data)
-       - OR set `layout_type: "content-with-chart"` with `charts_needed: true` if data is comparative/trend-based
+2. **Chart and Data Table Generation (Visual Elements) - HIGH PRIORITY:**
+   - **CRITICAL DECISION RULE: When in doubt, use charts or tables!**
+     * **If a slide contains ANY of the following, you SHOULD use charts or data tables:**
+       - Numbers, percentages, metrics, or statistics (e.g., "92%", "25 models", "3.5x improvement")
+       - Comparisons between items (e.g., "Model A vs Model B", "Before vs After")
+       - Performance data, evaluation results, or experimental findings
+       - Quantitative analysis or measurements
+       - Rankings, scores, or ratings
+       - Trends, growth, or changes over time
+     * **Default to visual data representation over text lists** - if you can show it in a chart/table, do it!
+   
+   - **AUTOMATIC DETECTION FOR EXPERIMENTAL RESULTS (HIGHLY RECOMMENDED):**
+     * **When slide title/content contains ANY of these keywords:** "results", "findings", "experimental", "evaluation", "performance", "comparison", "metrics", "statistics", "data", "analysis", "effectiveness", "vulnerability", "success rate", "accuracy", "improvement", "reduction", "increase", "decrease", "better", "worse", "higher", "lower", "benchmark", "test", "measurement", "score", "rate", "percentage", "correlation", "trend"
+     * **OR when report_knowledge contains quantitative data** (numbers, percentages, metrics, comparisons, any numeric values)
+     * **THEN you SHOULD automatically:**
+       - Set `layout_type: "data-table"` if data is tabular (rows/columns of structured data, comparisons, metrics)
+       - OR set `layout_type: "content-with-chart"` with `charts_needed: true` if data is comparative/trend-based (showing relationships, trends, or distributions)
        - Extract quantitative data from report_knowledge and create chart/table
-     * **Data Extraction Priority:**
-       1. Check `report_knowledge.sections[]` for sections labeled "Results", "Experiments", "Evaluation", "Findings", "Analysis"
-       2. Extract from `key_points`, `summary`, or `key_takeaways` that contain numbers
-       3. Look for patterns: "Model X: Y%", "X vs Y", "X showed higher/lower Y", "X achieved Y%"
+       - **Prefer visual data representation over bullet points or text lists for quantitative data.**
+     * **Data Extraction Priority (BE AGGRESSIVE IN FINDING DATA):**
+       1. Check `report_knowledge.sections[]` for sections labeled "Results", "Experiments", "Evaluation", "Findings", "Analysis", "Performance", "Metrics", "Statistics", "Comparison", "Benchmark"
+       2. Extract from `key_points`, `summary`, or `key_takeaways` that contain numbers - **even if they're embedded in text**
+       3. Look for patterns: "Model X: Y%", "X vs Y", "X showed higher/lower Y", "X achieved Y%", "X is Y%", "X has Y", "X reached Y", "X scored Y", "X improved by Y%", "X reduced by Y%"
        4. Extract comparative data (e.g., "GPT-4: 92%, GPT-3.5-turbo: 85%")
+       5. **Extract numbers from ANYWHERE in the report** - don't limit yourself to structured sections
+       6. **If you see ANY numeric values mentioned in the slide outline or report, extract them and create a chart/table**
+       7. **Even partial data is better than no visualization** - if you find 2-3 data points, create a chart/table with what you have
      * **Key Findings Highlighting:**
        - Identify items mentioned as key findings in slide content (e.g., "GPT-4 and GPT-3.5-turbo showed higher success rates")
        - For charts: Add `highlighted_items: ["GPT-4", "GPT-3.5-turbo"]` to chart_spec, use brand color (#EC4899) for highlighted items, muted color (#94A3B8) for others
        - For tables: Use `highlight_rows: [0, 1]` to highlight rows containing key findings, `highlight_columns: [1, 2]` for important metric columns
        - Highlight items explicitly mentioned as "key", "notable", "significant", "highest", "lowest", or compared in slide text
-   - **When to Generate Charts:** If a slide contains quantitative data (percentages, metrics, comparisons, trends), consider generating a chart to visualize the data.
+   - **When to Generate Charts (EXPANDED TRIGGERS):** 
+     * **ALWAYS generate charts if a slide contains:**
+       - Quantitative data (percentages, metrics, comparisons, trends)
+       - Multiple numeric values (e.g., "3 models: 92%, 85%, 78%")
+       - Comparative statements (e.g., "X is higher than Y", "A achieved 92% while B achieved 85%")
+       - Performance metrics, scores, or ratings
+       - Statistical data or analysis results
+       - Any data that would be clearer as a visual
+     * **Rule of thumb: If you're listing numbers, make it a chart. If you're comparing items, make it a chart or table.**
    - **MANDATORY Chart Generation Workflow (if charts_needed: true):**
      1. **Identify chart need:** If slide has numeric data that would benefit from visualization (e.g., "Model A: 85%, Model B: 92%, Model C: 78%"), set `charts_needed: true`.
      2. **Generate complete chart_spec:** You MUST create a complete `chart_spec` object with ALL required fields:
@@ -391,19 +432,32 @@ CRITICAL REQUIREMENTS
        - Consider: comparison-grid with 2 sections, each with an image_keyword and concise title/content
        - Example: Security features comparison, evaluation methods, model types
        - **When comparing exactly 2 items (strategies, methods, approaches, defenses), consider using `comparison-grid` with 2 sections in left/right layout if it would make the comparison clearer. Each section should have: title, description, and optional image_keyword.**
-     * **Use `data-table`** when presenting structured data, metrics, or results:
+     * **Use `data-table`** when presenting structured data, metrics, or results (USE FREQUENTLY):
        - Instead of: "Model A: 92% accuracy. Model B: 85% accuracy. Model C: 78% accuracy."
        - Use: data-table with headers and rows showing the comparison clearly
-       - Example: Performance metrics, financial data, comparison results
-       - **MANDATORY for experimental results, evaluation metrics, performance comparisons, vulnerability analysis results, defense effectiveness data. If a slide discusses experimental results or quantitative findings, you MUST use `data-table` instead of icons/text.**
+       - Example: Performance metrics, financial data, comparison results, evaluation scores, attack success rates, defense effectiveness, model comparisons, benchmark results
+       - **MANDATORY for ANY slide containing:**
+         * Experimental results, evaluation metrics, performance comparisons
+         * Vulnerability analysis results, defense effectiveness data
+         * Model comparisons, benchmark results, test scores
+         * Any tabular data (rows and columns of information)
+         * Multiple items with associated metrics/values
+       - **If a slide discusses experimental results or quantitative findings, you SHOULD use `data-table` instead of icons/text/bullet points.**
+       - **When you see patterns like "X: Y%", "A vs B", "Item1: value1, Item2: value2", immediately think DATA TABLE.**
      * **Use `flowchart`** when showing a process, workflow, or sequence:
        - Instead of: "Step 1: Input → Step 2: Process → Step 3: Output"
        - Use: flowchart with visual flow arrows and step labels
        - Example: Evaluation pipeline, decision process, workflow steps
-     * **Use `content-with-chart`** when you have quantitative data to visualize:
-       - Instead of: "Revenue increased 25% year-over-year"
-       - Use: chart showing the trend visually with minimal text
-       - Example: Growth trends, performance metrics, statistical comparisons
+     * **Use `content-with-chart`** when you have quantitative data to visualize (USE FREQUENTLY):
+       - Instead of: "Revenue increased 25% year-over-year" or "Model A: 92%, Model B: 85%, Model C: 78%"
+       - Use: chart showing the trend/comparison visually with minimal text
+       - Example: Growth trends, performance metrics, statistical comparisons, model performance comparisons, attack success rates, correlation data, distributions, proportions
+       - **Use charts for:**
+         * Comparing 3+ items with numeric values (bar chart)
+         * Showing trends over time (line chart)
+         * Showing proportions or distributions (pie chart)
+         * Any data that benefits from visual comparison
+       - **When you see multiple numbers or percentages, immediately consider if a chart would be clearer than text.**
      * **Use `icon-row`** when explaining 2 key concepts/points with visual representation:
        - Instead of: Vertical bullet points with icons on the side
        - Use: icon-row with 2 items, each with icon above and text below
