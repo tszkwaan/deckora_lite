@@ -11,8 +11,8 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# Template directory
-TEMPLATES_DIR = Path(__file__).parent
+# Template directory (now in utils, need to go up one level to find templates)
+TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 PAGE_LAYOUTS_DIR = TEMPLATES_DIR / "page_layouts"
 COMPONENTS_DIR = TEMPLATES_DIR / "components"
 

@@ -197,7 +197,9 @@ class WebSlidesGenerationHandler:
                 agent_name="WebSlidesGenerator"
             )
         
-        if web_result.get('status') == 'success':
+        # Safely check status
+        status = web_result.get('status') if isinstance(web_result, dict) else None
+        if status == 'success':
             self.outputs["web_slides_result"] = web_result
             self.session.state["web_slides_result"] = web_result
             print(f"   ✅ Web slides generated successfully!")

@@ -10,13 +10,10 @@ The template system provides reusable page layouts and components for generating
 templates/
 ├── page_layouts/          # Overall slide structure templates
 │   ├── comparison-grid.json
-│   ├── data-table.json
-│   └── timeline.json
+│   └── data-table.json
 ├── components/            # Reusable component templates
 │   ├── comparison-section.json
 │   ├── data-table.json
-│   ├── flowchart.json
-│   ├── timeline-item.json
 │   └── icon-feature-card.json
 ├── template_loader.py    # Template loading and caching
 ├── template_helpers.py   # Helper functions for rendering
@@ -85,28 +82,6 @@ templates/
 }
 ```
 
-#### 3. `timeline`
-**Purpose**: Timeline layout for showing progression, roadmap, or chronological flow
-
-**When to use**: Steps, phases, chronological sequences
-
-**Configuration**:
-- `timeline_items`: Array of timeline item objects
-- `timeline_orientation`: "vertical" (default) | "horizontal"
-
-**Example**:
-```json
-{
-  "layout_type": "timeline",
-  "visual_elements": {
-    "timeline_items": [
-      {"year": "Step 1", "title": "Generate MHQ", "description": "Create mitigated harmful queries"},
-      {"year": "Step 2", "title": "Test Models", "description": "Evaluate on multiple models"}
-    ]
-  }
-}
-```
-
 ### Components
 
 #### 1. `comparison-section`
@@ -119,17 +94,7 @@ Generic table component (can be used standalone or in `data-table` layout).
 
 **Variables**: `headers`, `rows`, `style`, `highlight_rows`, `highlight_columns`, `caption`
 
-#### 3. `flowchart`
-Simple flowchart/process diagram.
-
-**Variables**: `steps` (array of `{label, description}`), `orientation`, `style`
-
-#### 4. `timeline-item`
-Single item in a timeline (used by `timeline` layout).
-
-**Variables**: `year`, `title`, `description`, `icon`, `highlight`
-
-#### 5. `icon-feature-card`
+#### 3. `icon-feature-card`
 Feature/item card with icon, title, and description.
 
 **Variables**: `icon`, `icon_url`, `title`, `description`, `highlight`
@@ -177,18 +142,6 @@ For `data-table`:
 }
 ```
 
-For `timeline`:
-```json
-{
-  "visual_elements": {
-    "timeline_items": [
-      {"year": "2024", "title": "Phase 1", "description": "..."},
-      {"year": "2025", "title": "Phase 2", "description": "..."}
-    ]
-  }
-}
-```
-
 ## Adding New Templates
 
 1. Create a JSON file in `page_layouts/` or `components/`
@@ -230,8 +183,6 @@ Use helper functions from `template_helpers.py` for complex rendering:
 
 - `render_comparison_grid_html()` - Render comparison grid with sections
 - `render_data_table_html()` - Render data table
-- `render_flowchart_html()` - Render flowchart
-- `render_timeline_html()` - Render timeline
 - `render_icon_feature_card_html()` - Render feature card
 
 These handle conditional logic, array processing, and component composition automatically.

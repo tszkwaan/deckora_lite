@@ -98,7 +98,7 @@ OBJECTIVES
 
 1. Read presentation_outline (from Outline Generator Agent)
 2. Read report_knowledge for detailed content
-3. **Generate visually engaging slides** - prioritize visual components (comparison-grid, data-table, flowchart, timeline, charts, images) over text-heavy bullet points
+3. **Generate visually engaging slides** - prioritize visual components (comparison-grid, data-table, flowchart, charts, images) over text-heavy bullet points
 4. **Keep slide text minimal** - use visuals to convey information, move detailed explanations to the script
 5. Generate a natural, conversational script that expands on slide content (script can be detailed, slides should be visual summaries)
 6. Ensure content is appropriate for the target audience and scenario
@@ -164,10 +164,24 @@ Respond with only valid JSON in the following structure:
             "color": "#7C3AED",
             "colors": ["#7C3AED", "#EC4899", "#10B981"]
           },
-          "chart_data": "<base64_encoded_png_string> (MANDATORY if charts_needed: true, obtained by calling generate_chart_tool)"
+          "chart_data": "<base64_encoded_png_string> (MANDATORY if charts_needed: true, obtained by calling generate_chart_tool)",
+          "table_data": {
+            "headers": [
+              {"text": "<Header 1>", "width": "<optional width like '30%'>", "align": "<left | center | right>"},
+              {"text": "<Header 2>", "width": "<optional>", "align": "<left | center | right>"}
+            ],
+            "rows": [
+              ["<Cell 1>", "<Cell 2>"],
+              ["<Cell 1>", "<Cell 2>"]
+            ],
+            "style": "<default | striped | bordered | minimal>",
+            "highlight_rows": [<optional array of row indices to highlight, e.g., [0, 2]>],
+            "highlight_columns": [<optional array of column indices to highlight, e.g., [1]>],
+            "caption": "<optional table caption>"
+          }
         },
         "design_spec": {
-          "layout_type": "<cover-slide | content-text | content-with-chart | comparison-grid | data-table | timeline | flowchart | icon-row | icon-sequence | linear-process | workflow-diagram | process-flow | null>",
+          "layout_type": "<cover-slide | content-text | content-with-chart | comparison-grid | data-table | flowchart | icon-row | icon-sequence | linear-process | workflow-diagram | process-flow | null>",
           "title_font_size": <number in PT, typically 36-48 for title slides, 28-36 for regular slides>,
           "subtitle_font_size": <number in PT, typically 20-28, must be smaller than title_font_size>,
           "body_font_size": <number in PT, typically 14-18 for body text>,
@@ -261,13 +275,26 @@ CRITICAL REQUIREMENTS
      * **Nested Lists:** When introducing a list (e.g., "covers 5 scenarios:"), format as: Main bullet ending with ":", then each item as separate bullet point
      * **Split content:** If a slide has more than 4-5 bullet points OR multiple detailed lists, consider splitting into multiple slides
    - **Layout Type Selection (CRITICAL):**
-     * **Check custom_instruction AND outline content_notes** - if they mention "icon-feature card", "images", "timeline", "flowchart", "comparison grid", or "table", consider using the corresponding layout type when suitable
+     * **Check custom_instruction AND outline content_notes** - if they mention "icon-feature card", "images", "flowchart", "comparison grid", or "table", consider using the corresponding layout type when suitable
      * **CRITICAL CONSTRAINT:** `content-text` does NOT support images/icons - use `comparison-grid` if you need icons
      * **Layout Selection Rules:**
        - `"comparison-grid"`: Use when comparing 2-4 items and visual comparison would be beneficial (provide `visual_elements.sections` with `image_keyword` if using icon-feature cards). For exactly 2 items, use left/right layout.
-       - `"data-table"`: MANDATORY for experimental results, evaluation metrics, performance comparisons (MUST provide `visual_elements.table_data`)
+       - `"data-table"`: MANDATORY for experimental results, evaluation metrics, performance comparisons (MUST provide `visual_elements.table_data` with `headers` and `rows`):
+         * `table_data.headers`: Array of header objects, each with `{"text": "Header Name", "align": "left|center|right", "width": "optional"}`
+         * `table_data.rows`: Array of row arrays, each row is an array of cell values (strings or numbers)
+         * `table_data.style`: Optional - "default", "striped", "bordered", or "minimal" (default: "striped")
+         * `table_data.highlight_rows`: Optional - array of row indices to highlight (0-based)
+         * `table_data.highlight_columns`: Optional - array of column indices to highlight (0-based)
+         * `table_data.caption`: Optional - table caption text
+         * Example: For "Model A: 92%, Model B: 85%, Model C: 78%", create:
+           ```json
+           "table_data": {
+             "headers": [{"text": "Model", "align": "left"}, {"text": "Accuracy", "align": "right"}],
+             "rows": [["Model A", "92%"], ["Model B", "85%"], ["Model C", "78%"]],
+             "style": "striped"
+           }
+           ```
        - `"flowchart"`: Process flow (MUST provide `visual_elements.flowchart_steps`)
-       - `"timeline"`: Progression/chronology (MUST provide `visual_elements.timeline_items`)
        - `"icon-row"`: 2-4 problems/features (MUST provide `visual_elements.icon_items` with `label` and `image_keyword`)
        - `"content-with-chart"`: Text + chart (MUST provide `visual_elements.chart_spec`)
        - `"content-text"`: USE SPARINGLY - only when visual components are not applicable
@@ -352,7 +379,7 @@ CRITICAL REQUIREMENTS
 3. **VISUAL-FIRST DESIGN PRINCIPLE (CRITICAL - REDUCE TEXT, INCREASE ENGAGEMENT):**
    - **PRIORITY: Use Visual Components Over Text-Heavy Slides**
      * **AVOID text-heavy slides with long bullet point lists** - these are boring and hard to digest
-     * **PREFER visual components** (comparison-grid, data-table, flowchart, timeline, charts, images) to convey information
+     * **PREFER visual components** (comparison-grid, data-table, flowchart, charts, images) to convey information
      * **Replace bullet points with visual representations** whenever possible
      * **Use images/icons to illustrate concepts** - a picture is worth a thousand words
      * **Keep text minimal** - only essential keywords, labels, and titles
@@ -373,10 +400,6 @@ CRITICAL REQUIREMENTS
        - Instead of: "Step 1: Input → Step 2: Process → Step 3: Output"
        - Use: flowchart with visual flow arrows and step labels
        - Example: Evaluation pipeline, decision process, workflow steps
-     * **Use `timeline`** when showing progression, chronology, or milestones:
-       - Instead of: "2020: Started. 2021: Growth. 2022: Expansion."
-       - Use: timeline with visual progression and key milestones
-       - Example: Project timeline, historical progression, development stages
      * **Use `content-with-chart`** when you have quantitative data to visualize:
        - Instead of: "Revenue increased 25% year-over-year"
        - Use: chart showing the trend visually with minimal text
@@ -396,10 +419,10 @@ CRITICAL REQUIREMENTS
      * Limit bullet points to 3-4 items max - use visual components for more
      * Move detailed explanations to script - slides should be visual summaries
      * Mix different visual components across slides - vary layouts to keep presentation engaging
-     * **Decision Framework:** Use visual components for comparisons, data, processes, timelines, or quantitative findings. Text-only is acceptable for cover slides, simple conclusions, or purely descriptive/informational content where visuals don't add value.
+     * **Decision Framework:** Use visual components for comparisons, data, processes, or quantitative findings. Text-only is acceptable for cover slides, simple conclusions, or purely descriptive/informational content where visuals don't add value.
 
 4. **Layout Requirements:**
-   - **Layout Types:** `"cover-slide"` (slide 1 only), `"content-text"` (USE SPARINGLY, includes decorative icon), `"content-with-chart"`, `"comparison-grid"`, `"data-table"`, `"flowchart"`, `"timeline"`, `"icon-row"`, `"icon-sequence"`, `"linear-process"`, `"workflow-diagram"`, `"process-flow"`, or `null` (auto-selected)
+   - **Layout Types:** `"cover-slide"` (slide 1 only), `"content-text"` (USE SPARINGLY, includes decorative icon), `"content-with-chart"`, `"comparison-grid"`, `"data-table"`, `"flowchart"`, `"icon-row"`, `"icon-sequence"`, `"linear-process"`, `"workflow-diagram"`, `"process-flow"`, or `null` (auto-selected)
    - **Design Specification:** MUST provide "design_spec" with font sizes, positions, spacing, alignment for each slide
    - **CRITICAL: Slide Dimensions: 1200px width × 500px height** - all design decisions must account for this
    - **Font Sizes:** Title slides: 36-44pt title, 22-26pt subtitle, 14-16pt body. Regular slides: 28-36pt title, 18-22pt subtitle, 12-16pt body

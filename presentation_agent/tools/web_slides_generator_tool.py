@@ -10,11 +10,10 @@ from pathlib import Path
 import logging
 
 from presentation_agent.utils.helpers import is_valid_chart_data, clean_chart_data
-from presentation_agent.templates.template_helpers import (
+from presentation_agent.utils.template_helpers import (
     render_comparison_grid_html,
     render_data_table_html,
     render_flowchart_html,
-    render_timeline_html,
     render_icon_feature_card_html,
     render_icon_row_html,
     render_fancy_chart_html,
@@ -164,7 +163,7 @@ def pre_generate_images(slide_deck: Dict) -> Tuple[Dict[str, List[str]], Dict[st
     
     if all_image_keywords:
         logger.info(f"🖼️  Pre-generating {len(all_image_keywords)} images in parallel...")
-        from presentation_agent.templates.image_helper import generate_images_parallel
+        from presentation_agent.utils.image_helper import generate_images_parallel
         try:
             # Generate all images in parallel (no deduplication - each keyword occurrence gets separate image)
             image_results = generate_images_parallel(
@@ -941,7 +940,30 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     bullet_points = content.get("bullet_points", [])
     main_text = content.get("main_text")
     visual_elements = slide.get("visual_elements", {})
+    # Ensure visual_elements is a dict (handle cases where it might be a string)
+    if isinstance(visual_elements, str):
+        try:
+            import json
+            visual_elements = json.loads(visual_elements)
+        except (json.JSONDecodeError, ValueError):
+            logger.warning(f"⚠️  visual_elements is a string but not valid JSON, using empty dict. Value: {visual_elements[:100]}")
+            visual_elements = {}
+    if not isinstance(visual_elements, dict):
+        logger.warning(f"⚠️  visual_elements is not a dict (got {type(visual_elements).__name__}), using empty dict")
+        visual_elements = {}
+    
     design_spec = slide.get("design_spec", {})
+    # Ensure design_spec is a dict
+    if isinstance(design_spec, str):
+        try:
+            import json
+            design_spec = json.loads(design_spec)
+        except (json.JSONDecodeError, ValueError):
+            logger.warning(f"⚠️  design_spec is a string but not valid JSON, using empty dict. Value: {design_spec[:100]}")
+            design_spec = {}
+    if not isinstance(design_spec, dict):
+        logger.warning(f"⚠️  design_spec is not a dict (got {type(design_spec).__name__}), using empty dict")
+        design_spec = {}
     
     # Default theme colors if not provided
     if theme_colors is None:
@@ -1146,7 +1168,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     
     # Look up images from pre-generated cache (or generate on-demand if not in cache)
     if keywords_to_lookup:
-        from presentation_agent.templates.image_helper import get_image_url
+        from presentation_agent.utils.image_helper import get_image_url
         for keyword, alt_text, priority in keywords_to_lookup:
             # Try cache first (case-insensitive lookup)
             keyword_lower = keyword.lower().strip()
@@ -1196,7 +1218,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     
     # Handle cover slide (first slide or explicit cover-slide layout)
     if layout_type == "cover-slide" or slide_number == 1:
-        from presentation_agent.templates.template_helpers import render_cover_slide_html
+        from presentation_agent.utils.template_helpers import render_cover_slide_html
         
         # Extract title and subtitle from content
         subtitle = content.get("main_text") or content.get("subtitle") or ""
@@ -1281,44 +1303,69 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
             )
     
     elif layout_type == "data-table":
-        # Extract table data from visual_elements or content
+        # Extract table data from visual_elements
         table_data = visual_elements.get("table_data", {})
+        
+        # Ensure table_data is a dict (handle cases where it might be a string or None)
+        if isinstance(table_data, str):
+            try:
+                import json
+                table_data = json.loads(table_data)
+                logger.info(f"✅ Parsed table_data from JSON string for slide {slide_number}")
+            except (json.JSONDecodeError, ValueError):
+                logger.warning(f"⚠️  table_data is a string but not valid JSON for slide {slide_number}, using empty dict. Value: {table_data[:100]}")
+                table_data = {}
+        if not isinstance(table_data, dict):
+            logger.warning(f"⚠️  table_data is not a dict (got {type(table_data).__name__}) for slide {slide_number}, using empty dict. Value: {str(table_data)[:100]}")
+            table_data = {}
+        
+        # Safely extract headers and rows
+        headers = []
+        rows = []
         if table_data:
-            headers = table_data.get("headers", [])
-            rows = table_data.get("rows", [])
-            if headers and rows:
-                table_html = render_data_table_html(
-                    headers=headers,
-                    rows=rows,
-                    theme_colors=theme_colors,
-                    style=table_data.get("style", "default"),
-                    highlight_rows=table_data.get("highlight_rows"),
-                    highlight_columns=table_data.get("highlight_columns"),
-                    caption=table_data.get("caption")
-                )
-                
-                # Render page layout with table
-                from presentation_agent.templates.template_loader import render_page_layout
-                variables = {
-                    "title": slide_title,
-                    "table_html": table_html,
-                    "title_font_size": title_font_size,
-                    "title_align": title_align,
-                    "additional_content_html": content_html if content_html else ""
-                }
-                return render_page_layout("data-table", variables, theme_colors)
-    
-    elif layout_type == "timeline":
-        timeline_items = visual_elements.get("timeline_items", [])
-        if timeline_items:
-            return render_timeline_html(
-                title=slide_title,
-                timeline_items=timeline_items,
+            headers_raw = table_data.get("headers", [])
+            rows_raw = table_data.get("rows", [])
+            
+            # Ensure headers is a list
+            if isinstance(headers_raw, list):
+                headers = headers_raw
+            else:
+                logger.warning(f"⚠️  headers is not a list (got {type(headers_raw).__name__}) for slide {slide_number}")
+                headers = []
+            
+            # Ensure rows is a list
+            if isinstance(rows_raw, list):
+                rows = rows_raw
+            else:
+                logger.warning(f"⚠️  rows is not a list (got {type(rows_raw).__name__}) for slide {slide_number}")
+                rows = []
+        
+        if headers and rows:
+            # Render table
+            table_html = render_data_table_html(
+                headers=headers,
+                rows=rows,
                 theme_colors=theme_colors,
-                title_font_size=title_font_size,
-                title_align=title_align,
-                orientation=visual_elements.get("timeline_orientation", "vertical")
+                style=table_data.get("style", "striped"),
+                highlight_rows=table_data.get("highlight_rows"),
+                highlight_columns=table_data.get("highlight_columns"),
+                caption=table_data.get("caption")
             )
+            
+            # Render page layout with table
+            from presentation_agent.utils.template_loader import render_page_layout
+            variables = {
+                "title": slide_title,
+                "table_html": table_html,
+                "title_font_size": title_font_size,
+                "title_align": title_align,
+                "additional_content_html": content_html if content_html else ""
+            }
+            return render_page_layout("data-table", variables, theme_colors)
+        else:
+            # Fallback: if table_data is missing, render as normal text content
+            logger.info(f"ℹ️  layout_type is 'data-table' but no table_data available for slide {slide_number}, falling back to normal text content")
+            # Continue to normal text rendering below (don't return early)
     
     elif layout_type == "flowchart":
         flowchart_steps = visual_elements.get("flowchart_steps", [])
@@ -1484,7 +1531,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     # Use fancy template for content-text slides with bullet points (even if they have image_keywords)
     if layout_type == "content-text" and bullet_points and len(bullet_points) >= 2 and not (charts_needed and has_chart):
         try:
-            from presentation_agent.templates.template_helpers import render_fancy_content_text_html
+            from presentation_agent.utils.template_helpers import render_fancy_content_text_html
             
             # Extract icon keyword from visual_elements if available
             icon_keyword = None
@@ -1591,7 +1638,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         if layout_type == "content-text" and bullet_points and len(bullet_points) >= 2:
             logger.info(f"🎨 Using fancy template for slide {slide_number} (content-text with {len(bullet_points)} bullet points)")
             try:
-                from presentation_agent.templates.template_helpers import render_fancy_content_text_html
+                from presentation_agent.utils.template_helpers import render_fancy_content_text_html
                 
                 # Extract icon keyword from visual_elements if available
                 icon_keyword = None

@@ -6,8 +6,8 @@ These handle conditional rendering, arrays, and nested components.
 import logging
 import re
 from typing import Dict, Any, List, Optional, Tuple
-from .template_loader import render_component, render_template
-from .image_helper import get_image_url
+from presentation_agent.utils.template_loader import render_component, render_template
+from presentation_agent.utils.image_helper import get_image_url
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ _loader = None
 def _get_loader():
     global _loader
     if _loader is None:
-        from .template_loader import TemplateLoader
+        from presentation_agent.utils.template_loader import TemplateLoader
         _loader = TemplateLoader()
     return _loader
 
@@ -156,23 +156,50 @@ def render_data_table_html(
     Returns:
         Rendered HTML string
     """
-    # Render headers
+    # Render headers - ensure headers is a list and each header is a dict
+    if not isinstance(headers, list):
+        logger.warning(f"⚠️  headers is not a list (got {type(headers).__name__}), using empty list")
+        headers = []
+    
+    # Collect alignment for each column to apply to cells
+    column_alignments = []
+    
     header_html = ""
     for header in headers:
+        # Ensure header is a dict
+        if not isinstance(header, dict):
+            logger.warning(f"⚠️  header is not a dict (got {type(header).__name__}), skipping. Value: {str(header)[:50]}")
+            column_alignments.append('left')  # Default alignment
+            continue
+        
         width = header.get('width', '')
         align = header.get('align', 'left')
         text = header.get('text', '')
+        column_alignments.append(align)  # Store alignment for this column
         style_attr = f' style="width: {width}; text-align: {align};"' if width else f' style="text-align: {align};"'
         header_html += f'<th{style_attr}>{text}</th>\n      '
     
-    # Render rows
+    # Render rows - ensure rows is a list and each row is a list
+    if not isinstance(rows, list):
+        logger.warning(f"⚠️  rows is not a list (got {type(rows).__name__}), using empty list")
+        rows = []
+    
     rows_html = ""
     for row_idx, row in enumerate(rows):
+        # Ensure row is a list
+        if not isinstance(row, list):
+            logger.warning(f"⚠️  row {row_idx} is not a list (got {type(row).__name__}), skipping. Value: {str(row)[:50]}")
+            continue
+        
         row_class = "highlight-row" if highlight_rows and row_idx in highlight_rows else ""
         rows_html += f'<tr class="{row_class}">\n        '
         for col_idx, cell in enumerate(row):
             cell_class = "highlight-cell" if highlight_columns and col_idx in highlight_columns else ""
-            rows_html += f'<td class="{cell_class}">{cell}</td>\n        '
+            # Get alignment for this column (use stored alignment or default to 'left')
+            cell_align = column_alignments[col_idx] if col_idx < len(column_alignments) else 'left'
+            # Convert cell to string safely
+            cell_text = str(cell) if cell is not None else ""
+            rows_html += f'<td class="{cell_class}" style="text-align: {cell_align};">{cell_text}</td>\n        '
         rows_html += '</tr>\n      '
     
     # Build caption HTML
@@ -253,90 +280,6 @@ def render_flowchart_html(
 <pre class="mermaid">
 {mermaid_code}</pre>
 </div>'''
-
-
-def render_timeline_item_html(
-    year: Optional[str],
-    title: str,
-    description: str,
-    theme_colors: Optional[Dict] = None,
-    icon: Optional[str] = None,
-    highlight: bool = False
-) -> str:
-    """
-    Render a timeline item component.
-    
-    Args:
-        year: Year or step number
-        title: Item title
-        description: Item description
-        theme_colors: Optional theme colors
-        icon: Optional icon
-        highlight: Whether to highlight
-        
-    Returns:
-        Rendered HTML string
-    """
-    marker = year or icon or '•'
-    variables = {
-        'year': marker,
-        'title': title,
-        'description': description,
-        'highlight': 'highlighted' if highlight else ''
-    }
-    
-    return render_component('timeline-item', variables, theme_colors)
-
-
-def render_timeline_html(
-    title: str,
-    timeline_items: List[Dict],
-    theme_colors: Optional[Dict] = None,
-    title_font_size: int = 36,
-    title_align: str = "left",
-    orientation: str = "vertical"
-) -> str:
-    """
-    Render a timeline layout.
-    
-    Args:
-        title: Slide title
-        timeline_items: List of timeline item dicts
-        theme_colors: Optional theme colors
-        title_font_size: Title font size
-        title_align: Title alignment
-        orientation: 'vertical' or 'horizontal'
-        
-    Returns:
-        Rendered HTML string
-    """
-    # Render each timeline item
-    rendered_items = []
-    for item in timeline_items:
-        rendered_item = render_timeline_item_html(
-            item.get('year'),
-            item.get('title', ''),
-            item.get('description', ''),
-            theme_colors,
-            item.get('icon'),
-            item.get('highlight', False)
-        )
-        rendered_items.append(rendered_item)
-    
-    variables = {
-        'title': title,
-        'timeline_items_html': '\n'.join(rendered_items),
-        'title_font_size': title_font_size,
-        'title_align': title_align,
-        'orientation': orientation
-    }
-    
-    layout = _get_loader().get_page_layout('timeline')
-    if not layout:
-        logger.error("timeline layout not found")
-        return f'<div class="slide-content"><h1>{title}</h1><div>Error: timeline layout not found</div></div>'
-    
-    return render_template(layout, variables, theme_colors)
 
 
 def render_icon_feature_card_html(
@@ -432,13 +375,13 @@ def render_icon_row_html(
         # Get image URL
         image_url = item.get('image_url')
         if not image_url and item.get('image_keyword'):
-            from presentation_agent.templates.image_helper import get_image_url
+            from presentation_agent.utils.image_helper import get_image_url
             image_url = get_image_url(item['image_keyword'], source="generative", is_logo=False)
         elif not image_url and item.get('image'):
             if item['image'].startswith('http'):
                 image_url = item['image']
             else:
-                from presentation_agent.templates.image_helper import get_image_url
+                from presentation_agent.utils.image_helper import get_image_url
                 image_url = get_image_url(item['image'], source="generative", is_logo=False)
         
         icon_html = f'<img src="{image_url}" alt="{item.get("label", "")}" />' if image_url else ''

@@ -96,7 +96,7 @@ class PipelineOrchestrator:
         self.obs_logger.start_pipeline("presentation_pipeline")
         
         # Clear image cache at the start of each pipeline run (async)
-        from presentation_agent.templates.image_helper import clear_image_cache_async
+        from presentation_agent.utils.image_helper import clear_image_cache_async
         await clear_image_cache_async()
     
     async def run(self) -> Dict[str, Any]:

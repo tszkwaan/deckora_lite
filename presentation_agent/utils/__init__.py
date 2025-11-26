@@ -9,6 +9,12 @@ from .helpers import (
     preview_json,
     build_initial_message,
 )
+from .image_helper import (
+    get_image_url,
+    generate_images_parallel,
+    clear_image_cache,
+    clear_image_cache_async,
+)
 
 __all__ = [
     "load_pdf_from_url",
@@ -18,5 +24,9 @@ __all__ = [
     "save_json_output",
     "preview_json",
     "build_initial_message",
+    "get_image_url",
+    "generate_images_parallel",
+    "clear_image_cache",
+    "clear_image_cache_async",
 ]
 

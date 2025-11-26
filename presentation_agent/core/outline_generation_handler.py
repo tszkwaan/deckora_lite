@@ -175,7 +175,7 @@ class OutlineGenerationHandler:
         # Include custom instruction in outline generation message if present
         custom_instr_note = ""
         if self.config.custom_instruction and self.config.custom_instruction.strip():
-            custom_instr_note = f"\n\n[CUSTOM_INSTRUCTION]\n{self.config.custom_instruction}\n\nIMPORTANT: If the custom instruction requires icon-feature cards, timeline, flowchart, or table layouts, you MUST suggest those specific layout types in the relevant slide's content_notes (e.g., 'Use a comparison-grid layout with icon-feature cards' instead of just 'use an icon').\n"
+            custom_instr_note = f"\n\n[CUSTOM_INSTRUCTION]\n{self.config.custom_instruction}\n\nIMPORTANT: If the custom instruction requires icon-feature cards, flowchart, or table layouts, you MUST suggest those specific layout types in the relevant slide's content_notes (e.g., 'Use a comparison-grid layout with icon-feature cards' instead of just 'use an icon').\n"
         
         # Build previous outline note if provided (for retry)
         previous_outline_note = ""

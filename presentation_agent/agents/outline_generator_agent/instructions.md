@@ -60,8 +60,7 @@ CUSTOM INSTRUCTION HANDLING
 If [CUSTOM_INSTRUCTION] is provided, incorporate it:
 
 1. **Icon-Feature Card**: If mentioned, suggest "comparison-grid" layout in `content_notes` (requires 2-4 sections with title, content, image keyword)
-2. **Timeline**: If mentioned, suggest "timeline" layout in `content_notes`
-3. **Flowchart**: If mentioned, suggest "flowchart" layout in `content_notes`
+2. **Flowchart**: If mentioned, suggest "flowchart" layout in `content_notes`
 4. **Table**: If mentioned, suggest "data-table" layout in `content_notes`
 
 **CRITICAL**: Explicitly mention the specific layout type in `content_notes` (e.g., "Use comparison-grid layout with icon-feature cards"), not just generic terms.
