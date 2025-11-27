@@ -355,7 +355,12 @@ class ObservabilityLogger:
             retry_info = f" (retry {exec.retry_count})" if exec.retry_count > 0 else ""
             print(f"{status_icon} {exec.agent_name}{retry_info}: {exec.duration_seconds:.2f}s")
             if exec.error_message:
-                print(f"   Error: {exec.error_message}")
+                # Only show "Error:" prefix for failed executions
+                if exec.status == AgentStatus.FAILED:
+                    print(f"   Error: {exec.error_message}")
+                else:
+                    # For success messages, just show the message without "Error:" prefix
+                    print(f"   {exec.error_message}")
         
         print("=" * 60)
         print(f"📝 Structured logs: {self.log_file}")

@@ -3,8 +3,7 @@ Slide HTML fragment generation functions.
 """
 
 import logging
-import json
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from presentation_agent.utils.helpers import is_valid_chart_data, clean_chart_data
 from presentation_agent.utils.template_helpers import (
     render_comparison_grid_html,
@@ -18,8 +17,85 @@ from presentation_agent.utils.template_helpers import (
     render_process_flow_html,
     markdown_to_html
 )
+from .utils import _parse_json_safely, _ensure_dict
 
 logger = logging.getLogger(__name__)
+
+# Constants
+MAX_FALLBACK_POINTS = 3  # Maximum number of script points to use as fallback content
+
+# Layout type constants (to avoid magic strings)
+class LayoutType:
+    """Layout type constants to avoid magic strings."""
+    COVER_SLIDE = "cover-slide"
+    CONTENT_TEXT = "content-text"
+    CONTENT_WITH_CHART = "content-with-chart"
+    COMPARISON_GRID = "comparison-grid"
+    DATA_TABLE = "data-table"
+    FLOWCHART = "flowchart"
+    ICON_ROW = "icon-row"
+    ICON_SEQUENCE = "icon-sequence"
+    LINEAR_PROCESS = "linear-process"
+    WORKFLOW_DIAGRAM = "workflow-diagram"
+    PROCESS_FLOW = "process-flow"
+
+
+def _generate_content_from_script(script_section: Optional[Dict], max_points: int = MAX_FALLBACK_POINTS) -> Tuple[str, list]:
+    """
+    Generate HTML content and bullet points from script section as a fallback when slide content is missing.
+    
+    This follows Single Responsibility Principle by extracting content generation logic.
+    
+    Args:
+        script_section: Optional script section dict with main_content or opening_line
+        max_points: Maximum number of points to extract from main_content
+        
+    Returns:
+        Tuple of (HTML string with content, list of bullet point strings for template matching)
+        Returns ("", []) if no script content available
+    """
+    if not script_section or not isinstance(script_section, dict):
+        return "", []
+    
+    bullet_points_list = []  # Extract bullet points for template matching
+    
+    # Try to extract from main_content first (more detailed)
+    main_content = script_section.get("main_content")
+    if main_content and isinstance(main_content, list) and len(main_content) > 0:
+        content_html = '<ul class="bullet-points">'
+        points_added = 0
+        for point in main_content:
+            if points_added >= max_points:
+                break
+            if not isinstance(point, dict):
+                continue
+            point_text = point.get("point", "") or point.get("explanation", "")
+            if point_text and isinstance(point_text, str):
+                point_html = markdown_to_html(point_text)
+                content_html += f'<li>{point_html}</li>'
+                bullet_points_list.append(point_text)  # Add to list for template matching
+                points_added += 1
+        if points_added > 0:
+            content_html += '</ul>'
+            return content_html, bullet_points_list
+    
+    # Fallback to opening_line if main_content is not available
+    opening_line = script_section.get("opening_line")
+    if opening_line and isinstance(opening_line, str):
+        return f'<div class="main-text">{opening_line}</div>', []
+    
+    return "", []
+
+
+def _get_placeholder_content() -> str:
+    """
+    Get placeholder HTML content for slides with missing content.
+    
+    Returns:
+        HTML string with placeholder message
+    """
+    return '<div class="main-text" style="color: #94A3B8; font-style: italic;">Content will be generated based on the presentation script.</div>'
+
 
 def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], slide_index: int, theme_colors: Optional[Dict] = None, config: Optional[Dict] = None, image_cache: Optional[Dict] = None, keyword_usage_tracker: Optional[Dict] = None) -> str:
     """
@@ -34,46 +110,15 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     """
     slide_number = slide.get("slide_number", slide_index + 1)
     slide_title = slide.get("title", "")
-    content = slide.get("content", {})
-    # Ensure content is a dict (handle cases where it might be a string)
-    if isinstance(content, str):
-        try:
-            import json
-            content = json.loads(content)
-        except (json.JSONDecodeError, ValueError):
-            logger.warning(f"⚠️  content is a string but not valid JSON, using empty dict. Value: {content[:100]}")
-            content = {}
-    if not isinstance(content, dict):
-        logger.warning(f"⚠️  content is not a dict (got {type(content).__name__}), using empty dict")
-        content = {}
+    
+    # Parse and validate content, visual_elements, and design_spec (handle cases where they might be strings or escaped JSON)
+    # Using _ensure_dict helper to eliminate DRY violations
+    content = _ensure_dict(slide.get("content", {}), "content", slide_number=slide_number)
+    visual_elements = _ensure_dict(slide.get("visual_elements", {}), "visual_elements", slide_number=slide_number)
+    design_spec = _ensure_dict(slide.get("design_spec", {}), "design_spec", slide_number=slide_number)
     
     bullet_points = content.get("bullet_points", [])
     main_text = content.get("main_text")
-    visual_elements = slide.get("visual_elements", {})
-    # Ensure visual_elements is a dict (handle cases where it might be a string)
-    if isinstance(visual_elements, str):
-        try:
-            import json
-            visual_elements = json.loads(visual_elements)
-        except (json.JSONDecodeError, ValueError):
-            logger.warning(f"⚠️  visual_elements is a string but not valid JSON, using empty dict. Value: {visual_elements[:100]}")
-            visual_elements = {}
-    if not isinstance(visual_elements, dict):
-        logger.warning(f"⚠️  visual_elements is not a dict (got {type(visual_elements).__name__}), using empty dict")
-        visual_elements = {}
-    
-    design_spec = slide.get("design_spec", {})
-    # Ensure design_spec is a dict
-    if isinstance(design_spec, str):
-        try:
-            import json
-            design_spec = json.loads(design_spec)
-        except (json.JSONDecodeError, ValueError):
-            logger.warning(f"⚠️  design_spec is a string but not valid JSON, using empty dict. Value: {design_spec[:100]}")
-            design_spec = {}
-    if not isinstance(design_spec, dict):
-        logger.warning(f"⚠️  design_spec is not a dict (got {type(design_spec).__name__}), using empty dict")
-        design_spec = {}
     
     # Default theme colors if not provided
     if theme_colors is None:
@@ -106,6 +151,18 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     chart_data = visual_elements.get("chart_data")
     chart_spec = visual_elements.get("chart_spec")
     
+    # Parse chart_spec if it's a string (handle nested JSON strings from LLM)
+    # Note: chart_spec can be None, dict, or list, so we handle it specially
+    if chart_spec is not None:
+        if isinstance(chart_spec, str):
+            try:
+                chart_spec = _parse_json_safely(chart_spec)
+                logger.debug(f"   Parsed chart_spec from JSON string for slide {slide_number}")
+            except ValueError:
+                logger.warning(f"⚠️  chart_spec is a string but not valid JSON for slide {slide_number}, using None")
+                chart_spec = None
+        # chart_spec can be dict or list, so we don't force it to be dict here
+    
     if not charts_needed:
         # No chart needed, skip
         pass
@@ -123,45 +180,57 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 # Multiple charts - generate HTML for all of them
                 charts_html_list = []
                 for idx, spec in enumerate(chart_spec):
-                    if isinstance(spec, dict):
-                        chart_type = spec.get('chart_type', 'bar')
-                        data = spec.get('data', {})
-                        title = spec.get('title', f'Chart {idx+1}')
-                        x_label = spec.get('x_label')
-                        y_label = spec.get('y_label')
-                        width = spec.get('width', 700)
-                        height = spec.get('height', 350)
-                        color = spec.get('color')
-                        colors = spec.get('colors')
-                        highlighted_items = spec.get('highlighted_items')
+                    # Parse spec if it's a string (handle nested JSON strings)
+                    if isinstance(spec, str):
+                        try:
+                            spec = _parse_json_safely(spec)
+                        except ValueError:
+                            logger.warning(f"⚠️  chart_spec[{idx}] is a string but not valid JSON for slide {slide_number}, skipping")
+                            continue
+                    if not isinstance(spec, dict):
+                        logger.warning(f"⚠️  chart_spec[{idx}] is not a dict (got {type(spec).__name__}) for slide {slide_number}, skipping")
+                        continue
+                    
+                    chart_type = spec.get('chart_type', 'bar')
+                    # Use _ensure_dict helper to eliminate DRY violation
+                    data = _ensure_dict(spec.get('data', {}), f"chart_spec[{idx}].data", slide_number=slide_number)
+                    
+                    title = spec.get('title', f'Chart {idx+1}')
+                    x_label = spec.get('x_label')
+                    y_label = spec.get('y_label')
+                    width = spec.get('width', 700)
+                    height = spec.get('height', 350)
+                    color = spec.get('color')
+                    colors = spec.get('colors')
+                    highlighted_items = spec.get('highlighted_items')
+                    
+                    # Filter out null values from data
+                    filtered_data = {k: v for k, v in data.items() if v is not None}
+                    
+                    if not filtered_data:
+                        logger.warning(f"⚠️  No valid data in chart_spec[{idx}] for slide {slide_number}")
+                        charts_html_list.append('<div class="chart-container"><p class="text-slate-400 italic">No chart data available</p></div>')
+                    else:
+                        result = generate_chart_tool(
+                            chart_type=chart_type,
+                            data=filtered_data,
+                            title=title,
+                            x_label=x_label,
+                            y_label=y_label,
+                            width=width,
+                            height=height,
+                            color=color,
+                            colors=colors,
+                            highlighted_items=highlighted_items
+                        )
                         
-                        # Filter out null values from data
-                        filtered_data = {k: v for k, v in data.items() if v is not None}
-                        
-                        if not filtered_data:
-                            logger.warning(f"⚠️  No valid data in chart_spec[{idx}] for slide {slide_number}")
-                            charts_html_list.append('<div class="chart-container"><p class="text-slate-400 italic">No chart data available</p></div>')
+                        if result.get('status') == 'success' and result.get('chart_data'):
+                            generated_chart_data = result.get('chart_data')
+                            charts_html_list.append(f'<div class="chart-container"><img src="data:image/png;base64,{generated_chart_data}" alt="{title}" class="chart-image"></div>')
+                            logger.info(f"✅ Generated chart {idx+1} on-the-fly for slide {slide_number}")
                         else:
-                            result = generate_chart_tool(
-                                chart_type=chart_type,
-                                data=filtered_data,
-                                title=title,
-                                x_label=x_label,
-                                y_label=y_label,
-                                width=width,
-                                height=height,
-                                color=color,
-                                colors=colors,
-                                highlighted_items=highlighted_items
-                            )
-                            
-                            if result.get('status') == 'success' and result.get('chart_data'):
-                                generated_chart_data = result.get('chart_data')
-                                charts_html_list.append(f'<div class="chart-container"><img src="data:image/png;base64,{generated_chart_data}" alt="{title}" class="chart-image"></div>')
-                                logger.info(f"✅ Generated chart {idx+1} on-the-fly for slide {slide_number}")
-                            else:
-                                logger.warning(f"⚠️  Failed to generate chart {idx+1} for slide {slide_number}: {result.get('error', 'Unknown error')}")
-                                charts_html_list.append('<div class="chart-container"><p class="text-slate-400 italic">Chart generation failed</p></div>')
+                            logger.warning(f"⚠️  Failed to generate chart {idx+1} for slide {slide_number}: {result.get('error', 'Unknown error')}")
+                            charts_html_list.append('<div class="chart-container"><p class="text-slate-400 italic">Chart generation failed</p></div>')
                 
                 # Combine all charts into one HTML string
                 if charts_html_list:
@@ -171,7 +240,9 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
             elif isinstance(chart_spec, dict):
                 # Single chart
                 chart_type = chart_spec.get('chart_type', 'bar')
-                data = chart_spec.get('data', {})
+                # Use _ensure_dict helper to eliminate DRY violation
+                data = _ensure_dict(chart_spec.get('data', {}), "chart_spec.data", slide_number=slide_number)
+                
                 title = chart_spec.get('title', 'Chart')
                 x_label = chart_spec.get('x_label')
                 y_label = chart_spec.get('y_label')
@@ -327,7 +398,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     title_align = alignment.get("title", "left")
     
     # Handle cover slide (first slide or explicit cover-slide layout)
-    if layout_type == "cover-slide" or slide_number == 1:
+    if layout_type == LayoutType.COVER_SLIDE or slide_number == 1:
         from presentation_agent.utils.template_helpers import render_cover_slide_html
         
         # Extract title and subtitle from content
@@ -354,7 +425,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         )
     
     # Handle custom template layouts
-    if layout_type == "comparison-grid":
+    if layout_type == LayoutType.COMPARISON_GRID:
         # Extract sections from content or visual_elements
         sections = visual_elements.get("sections", [])
         if not sections:
@@ -412,17 +483,16 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 image_cache=image_cache
             )
     
-    elif layout_type == "data-table":
+    elif layout_type == LayoutType.DATA_TABLE:
         # Extract table data from visual_elements
         table_data = visual_elements.get("table_data", {})
         
-        # Ensure table_data is a dict (handle cases where it might be a string or None)
+        # Ensure table_data is a dict (handle cases where it might be a string or escaped JSON)
         if isinstance(table_data, str):
             try:
-                import json
-                table_data = json.loads(table_data)
+                table_data = _parse_json_safely(table_data)
                 logger.info(f"✅ Parsed table_data from JSON string for slide {slide_number}")
-            except (json.JSONDecodeError, ValueError):
+            except ValueError:
                 logger.warning(f"⚠️  table_data is a string but not valid JSON for slide {slide_number}, using empty dict. Value: {table_data[:100]}")
                 table_data = {}
         if not isinstance(table_data, dict):
@@ -475,9 +545,24 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         else:
             # Fallback: if table_data is missing, render as normal text content
             logger.info(f"ℹ️  layout_type is 'data-table' but no table_data available for slide {slide_number}, falling back to normal text content")
+            # Change layout_type to content-text so it goes through normal rendering path
+            layout_type = LayoutType.CONTENT_TEXT
+            # If there's no content_html, try to generate from script or use placeholder
+            if not content_html:
+                logger.debug(f"   Generating content from script for slide {slide_number}")
+                content_html, script_bullet_points = _generate_content_from_script(script_section)
+                # Update bullet_points from script so fancy template can use them
+                if script_bullet_points:
+                    bullet_points = script_bullet_points
+                    logger.debug(f"   Extracted {len(bullet_points)} bullet points from script for slide {slide_number}")
+                if content_html:
+                    logger.info(f"✅ Generated content from script for slide {slide_number} ({len(content_html)} chars)")
+                else:
+                    logger.warning(f"⚠️  Slide {slide_number} has no content (no main_text, bullet_points, or table_data). Using placeholder.")
+                    content_html = _get_placeholder_content()
             # Continue to normal text rendering below (don't return early)
     
-    elif layout_type == "flowchart":
+    elif layout_type == LayoutType.FLOWCHART:
         flowchart_steps = visual_elements.get("flowchart_steps", [])
         if not flowchart_steps:
             # Fallback: Generate flowchart steps from bullet points
@@ -522,7 +607,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     </div>
 """
     
-    elif layout_type == "icon-row":
+    elif layout_type == LayoutType.ICON_ROW:
         icon_items = visual_elements.get("icon_items", [])
         
         # Fallback: Auto-generate icon_items from bullet_points + image_keywords/icons_suggested
@@ -573,7 +658,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 image_cache=image_cache,
             )
     
-    elif layout_type == "icon-sequence":
+    elif layout_type == LayoutType.ICON_SEQUENCE:
         sequence_items = visual_elements.get("sequence_items", [])
         if sequence_items:
             goal_text = content.get("main_text") or None
@@ -585,7 +670,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 image_cache=image_cache,
             )
     
-    elif layout_type == "linear-process":
+    elif layout_type == LayoutType.LINEAR_PROCESS:
         process_steps = visual_elements.get("process_steps", [])
         if process_steps:
             section_header = visual_elements.get("section_header") or None
@@ -597,7 +682,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 image_cache=image_cache,
             )
     
-    elif layout_type == "workflow-diagram":
+    elif layout_type == LayoutType.WORKFLOW_DIAGRAM:
         workflow = visual_elements.get("workflow", {})
         if workflow:
             subtitle = content.get("main_text") or None
@@ -611,7 +696,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 image_cache=image_cache,
             )
     
-    elif layout_type == "process-flow":
+    elif layout_type == LayoutType.PROCESS_FLOW:
         flow_stages = visual_elements.get("flow_stages", [])
         if flow_stages:
             section_header = visual_elements.get("section_header") or None
@@ -624,7 +709,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
             )
     
     # Fallback for content-with-chart when chart_spec is missing
-    if layout_type == "content-with-chart" and not chart_html:
+    if layout_type == LayoutType.CONTENT_WITH_CHART and not chart_html:
         # If chart is missing, fall back to content-text layout
         layout_type = "content-text"
     
@@ -639,7 +724,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     # Check for fancy content-text template BEFORE other layouts
     # This should be checked early, but after all custom layouts
     # Use fancy template for content-text slides with bullet points (even if they have image_keywords)
-    if layout_type == "content-text" and bullet_points and len(bullet_points) >= 2 and not (charts_needed and has_chart):
+    if layout_type == LayoutType.CONTENT_TEXT and bullet_points and len(bullet_points) >= 2 and not (charts_needed and has_chart):
         try:
             from presentation_agent.utils.template_helpers import render_fancy_content_text_html
             
@@ -745,7 +830,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         
         logger.debug(f"Slide {slide_number}: layout_type={layout_type}, bullet_points={bullet_points}, len={len(bullet_points) if bullet_points else 0}")
         
-        if layout_type == "content-text" and bullet_points and len(bullet_points) >= 2:
+        if layout_type == LayoutType.CONTENT_TEXT and bullet_points and len(bullet_points) >= 2:
             logger.info(f"🎨 Using fancy template for slide {slide_number} (content-text with {len(bullet_points)} bullet points)")
             try:
                 from presentation_agent.utils.template_helpers import render_fancy_content_text_html
@@ -788,7 +873,21 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 import traceback
                 logger.error(traceback.format_exc())
         else:
-            # Standard text-only slide
+            # Standard text-only slide (or fallback from data-table/other layouts)
+            # If content_html is still empty, try to populate from script or use placeholder
+            if not content_html:
+                logger.debug(f"   Generating content from script for slide {slide_number} (standard text-only path)")
+                content_html, script_bullet_points = _generate_content_from_script(script_section)
+                # Update bullet_points from script so fancy template can use them
+                if script_bullet_points and not bullet_points:
+                    bullet_points = script_bullet_points
+                    logger.debug(f"   Extracted {len(bullet_points)} bullet points from script for slide {slide_number}")
+                if content_html:
+                    logger.info(f"✅ Generated content from script for slide {slide_number} ({len(content_html)} chars)")
+                else:
+                    logger.warning(f"⚠️  Slide {slide_number} has no content. Using placeholder.")
+                    content_html = _get_placeholder_content()
+            
             slide_html = f"""
     <div class="slide-content {layout_class}">
         <h1 class="slide-title" style="font-size: {title_font_size}pt; text-align: {title_align};">{slide_title}</h1>

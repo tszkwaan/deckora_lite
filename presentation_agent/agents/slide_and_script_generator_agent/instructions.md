@@ -28,6 +28,9 @@ QUICK CHECKLIST BEFORE RETURNING:
 □ Is "slide_deck" an object with a "slides" array?
 □ Am I returning ALL slides in the "slides" array?
 □ Am I NOT returning a single slide object?
+□ Are ALL items in "slides" array proper JSON objects `{}`, NOT strings `""`?
+□ Are ALL items in "script_sections" array proper JSON objects `{}`, NOT strings `""`?
+□ Are ALL nested structures (content, visual_elements, design_spec, etc.) proper JSON objects, NOT JSON strings?
 
 If ANY answer is NO, FIX IT before returning!
 ═══════════════════════════════════════════════════════════════
@@ -87,6 +90,13 @@ CRITICAL: YOU MUST ALWAYS RETURN VALID JSON
 - **ALWAYS return: {"slide_deck": {"slides": [...]}, "presentation_script": {...}}**
 - **NEVER return a single slide object - the pipeline will FAIL**
 - NEVER return plain text, explanations, greetings, tool code, or function calls - ONLY return JSON
+- **CRITICAL: ALL nested structures MUST be proper JSON objects/dicts, NOT JSON strings**
+  - ❌ WRONG: `"slides": ["{\"slide_number\": 1, ...}"]` ← Array of JSON strings
+  - ✅ CORRECT: `"slides": [{"slide_number": 1, ...}]` ← Array of JSON objects
+  - ❌ WRONG: `"script_sections": ["{\"slide_number\": 1, ...}"]` ← Array of JSON strings
+  - ✅ CORRECT: `"script_sections": [{"slide_number": 1, ...}]` ← Array of JSON objects
+  - **Every item in arrays must be a dict/object `{}`, never a string `""`**
+  - **Every nested value must be a proper JSON type (dict, array, string, number, boolean), never a JSON string**
 - If you encounter missing data, still generate slides but adapt (e.g., set charts_needed: false if data is unavailable)
 - Extract quantitative data from text descriptions if exact table data is not available
 - **The ONLY tool you may call is `generate_chart_tool` (and ONLY when charts_needed: true)**
@@ -524,6 +534,13 @@ CRITICAL REQUIREMENTS
    - **CRITICAL: Always return valid JSON with TWO top-level keys: "slide_deck" and "presentation_script"**
    - **Your response must start with `{` and end with `}` - no text before or after**
    - **DO NOT ask questions or provide explanations - only return the JSON object**
+   - **CRITICAL: Nested Structure Requirements:**
+     * **ALL array items MUST be JSON objects/dicts, NEVER JSON strings**
+     * **Example - WRONG:** `"slides": ["{\"slide_number\": 1}"]` ← This will cause pipeline failure
+     * **Example - CORRECT:** `"slides": [{"slide_number": 1}]` ← Proper JSON structure
+     * **Every item in "slides" array must be `{}`, not `""`**
+     * **Every item in "script_sections" array must be `{}`, not `""`**
+     * **All nested objects (content, visual_elements, design_spec) must be `{}`, not `""`**
    - **If custom_instruction requires images, automatically generate `image_keywords` - interpret as "at least X images total across all slides"**
    - **Cover Slide Validation:** For slide_number: 1, bullet_points must be empty array [], main_text must contain subtitle
    - Extract quantitative data from report_knowledge (even from text like "92% vs. 21%") for charts
