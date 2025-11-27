@@ -7,7 +7,7 @@ import type { SlidesData } from '@/types/slides';
  * API route to fetch slides data for a presentation
  * GET /api/presentation/[id]/slides
  * 
- * Falls back to reading from presentation_agent/output/slides_data.json if backend API is unavailable
+ * Falls back to reading from presentation_agent/output/6_slides_data.json if backend API is unavailable
  */
 export async function GET(
   request: NextRequest,
@@ -36,29 +36,29 @@ export async function GET(
     }
 
     // Fallback: Read from local file system
-    // When backend API is unavailable, load the default slides_data.json file
+    // When backend API is unavailable, load the default 6_slides_data.json file
     // This allows quick preview of the presentation without running the backend
-    // Path: from deckora_frontend to ../presentation_agent/output/slides_data.json
+    // Path: from deckora_frontend to ../presentation_agent/output/6_slides_data.json
     try {
       // Use resolve() for more reliable path resolution
       // In Next.js, process.cwd() is the project root (deckora_frontend)
       // We need to go up one level to reach presentation_agent
-      const filePath = resolve(process.cwd(), '..', 'presentation_agent', 'output', 'slides_data.json');
+      const filePath = resolve(process.cwd(), '..', 'presentation_agent', 'output', '6_slides_data.json');
       console.log('Attempting to read file from:', filePath);
       const fileContents = await readFile(filePath, 'utf-8');
       const slidesData: SlidesData = JSON.parse(fileContents);
       console.log(`✅ Loaded slides data from local file (presentationId: ${presentationId})`);
       return NextResponse.json(slidesData);
     } catch (fileError) {
-      console.error('Failed to read local slides_data.json:', fileError);
+      console.error('Failed to read local 6_slides_data.json:', fileError);
       // If file doesn't exist, provide a helpful error message
       const err = fileError as NodeJS.ErrnoException;
       if (err.code === 'ENOENT') {
         return NextResponse.json(
           { 
-            error: 'Slides data file not found. Please run the pipeline to generate slides_data.json',
-            hint: 'The file should be at: presentation_agent/output/slides_data.json',
-            attemptedPath: resolve(process.cwd(), '..', 'presentation_agent', 'output', 'slides_data.json'),
+            error: 'Slides data file not found. Please run the pipeline to generate 6_slides_data.json',
+            hint: 'The file should be at: presentation_agent/output/6_slides_data.json',
+            attemptedPath: resolve(process.cwd(), '..', 'presentation_agent', 'output', '6_slides_data.json'),
             cwd: process.cwd()
           },
           { status: 404 }

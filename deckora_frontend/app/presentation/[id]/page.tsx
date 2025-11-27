@@ -233,7 +233,7 @@ export default function PresentationViewPage() {
         }
         
         // If all methods fail
-        throw new Error('Failed to load slides data. Make sure the pipeline has generated slides_data.json or the backend API is running.');
+        throw new Error('Failed to load slides data. Make sure the pipeline has generated 6_slides_data.json or the backend API is running.');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load presentation');
         console.error('Error loading slides:', err);

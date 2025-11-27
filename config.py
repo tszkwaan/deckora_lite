@@ -40,16 +40,17 @@ OUTPUT_DIR_IMAGES = os.path.join(OUTPUT_DIR, "generated_images")
 DEFAULT_DURATION_SECONDS = 60  # Default to 1 minute if duration cannot be parsed
 DEFAULT_NUM_SLIDES = 8  # Default number of slides if outline doesn't specify
 
-# Output File Names
+# Output File Names (numbered by generation order)
 TRACE_HISTORY_FILE = "trace_history.json"
 OBSERVABILITY_LOG_FILE = "observability.log"
-REPORT_KNOWLEDGE_FILE = "report_knowledge.json"
-PRESENTATION_OUTLINE_FILE = "presentation_outline.json"
+REPORT_KNOWLEDGE_FILE = "1_report_knowledge.json"  # Step 1: ReportUnderstandingAgent
+PRESENTATION_OUTLINE_FILE = "2_presentation_outline.json"  # Step 2: OutlineGeneratorAgent
+OUTLINE_REVIEW_FILE = "3_outline_review.json"  # Step 3: OutlineCriticAgent
 SLIDE_AND_SCRIPT_DEBUG_FILE = "slide_and_script_raw_debug.json"
-SLIDE_DECK_FILE = "slide_deck.json"
-PRESENTATION_SCRIPT_FILE = "presentation_script.json"
-WEB_SLIDES_RESULT_FILE = "web_slides_result.json"
-SLIDES_DATA_FILE = "slides_data.json"
+SLIDE_DECK_FILE = "4_slide_deck.json"  # Step 4: SlideAndScriptGeneratorAgent
+PRESENTATION_SCRIPT_FILE = "5_presentation_script.json"  # Step 4: SlideAndScriptGeneratorAgent
+SLIDES_DATA_FILE = "6_slides_data.json"  # Step 6: WebSlidesGenerator
+WEB_SLIDES_RESULT_FILE = "7_web_slides_result.json"  # Step 6: WebSlidesGenerator
 
 # Log File Names
 LOGGER_LOG_FILE = "logger.log"
