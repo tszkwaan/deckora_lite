@@ -19,7 +19,9 @@ A multi-agent system that automatically generates professional presentations wit
   - [Technology Stack](#technology-stack)
 - [Instructions for Setup](#instructions-for-setup)
   - [Prerequisites](#prerequisites)
-  - [Setup](#setup)
+  - [Pipeline Setup & Run](#pipeline-setup--run)
+  - [Frontend Setup & Run](#frontend-setup--run)
+  - [ADK Setup & Run (Interactive Development)](#adk-setup--run-interactive-development)
 - [Usage](#usage)
   - [Basic Usage](#basic-usage)
   - [Configuration Options](#configuration-options)
@@ -208,7 +210,7 @@ The system uses a sequential multi-agent architecture with quality gates, feedba
 - Google ADK (for agent development and ADK-web)
 - (Optional) Google Cloud credentials for deployment
 
-### Setup
+### Pipeline Setup & Run
 
 #### 1. Clone the repository
 ```bash
@@ -216,14 +218,21 @@ git clone https://github.com/tszkwaan/deckora_lite
 cd deckora-lite
 ```
 
-#### 2. Install Python dependencies
+#### 2. Create and activate virtual environment
 ```bash
-python -m pip install -r requirements.txt
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On macOS/Linux:
+source venv/bin/activate
+# On Windows:
+# venv\Scripts\activate
 ```
 
-#### 3. Install Google ADK
+#### 3. Install Python dependencies
 ```bash
-pip install google-genai[adk]
+python -m pip install -r requirements.txt
 ```
 
 #### 4. Set API Key
@@ -236,27 +245,55 @@ Or create a `.env` file in the project root:
 GOOGLE_API_KEY=your-api-key-here
 ```
 
-#### 5. Setup Frontend (for viewing presentations)
+#### 5. Run the pipeline
+```bash
+# Make sure venv is activated
+python main.py
+```
+
+### Frontend Setup & Run
+
+#### 1. Install frontend dependencies
 ```bash
 cd deckora_frontend
 npm install
 ```
 
-Create a `.env.local` file under deckora_frontend:
+#### 2. Create environment file
+Create a `.env.local` file under `deckora_frontend`:
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8080
 ```
 
-#### 6. Verify installation
+#### 3. Run the frontend
 ```bash
-# Test the pipeline
-python main.py
-
-# Start the frontend
-cd deckora_frontend
 npm run dev
 # Open http://localhost:3003 to see the landing page
 ```
+
+### ADK Setup & Run (Interactive Development)
+
+#### 1. Install Google ADK
+```bash
+# Make sure venv is activated
+python -m pip install google-genai[adk]
+```
+
+#### 2. Start ADK API Server
+In one terminal:
+```bash
+adk api_server --allow_origins=http://localhost:4200 --host=0.0.0.0
+```
+
+#### 3. Start ADK-web
+In another terminal:
+```bash
+cd .project_internal/adk-web
+npm run serve --backend=http://localhost:8000
+```
+
+#### 4. Open ADK-web interface
+Open your browser and go to `http://localhost:4200`, then select `presentation_agent` from the dropdown.
 
 ---
 
@@ -312,20 +349,7 @@ Generated files are saved in `presentation_agent/output/`:
 
 ### Interactive Development (ADK-web)
 
-For interactive development and debugging:
-
-1. **Start ADK API Server** (in one terminal):
-```bash
-adk api_server --allow_origins=http://localhost:4200 --host=0.0.0.0
-```
-
-2. **Start ADK-web** (in another terminal):
-```bash
-cd .project_internal/adk-web
-npm run serve --backend=http://localhost:8000
-```
-
-3. **Open browser**: Go to `http://localhost:4200` and select `presentation_agent` from the dropdown
+For interactive development and debugging, see the [ADK Setup & Run](#adk-setup--run-interactive-development) section in the setup instructions.
 
 ---
 
