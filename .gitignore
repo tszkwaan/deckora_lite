@@ -11,6 +11,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!deckora_frontend/lib/
 lib64/
 parts/
 sdist/
@@ -47,12 +48,16 @@ token.json
 *.json
 !package.json
 !package-lock.json
+!tsconfig.json
+!**/tsconfig.json
 
 # Output files
 output/
 *.json
 !package.json
 !package-lock.json
+!tsconfig.json
+!**/tsconfig.json
 
 # Jupyter Notebook
 .ipynb_checkpoints
