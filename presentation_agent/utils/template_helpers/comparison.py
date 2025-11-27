@@ -4,9 +4,9 @@ Comparison section and grid rendering functions.
 
 import logging
 from typing import Dict, List, Optional
-from presentation_agent.utils.template_loader import render_component, render_template
+from presentation_agent.utils.template_loader import render_component, render_page_layout
 from presentation_agent.utils.image_helper import get_image_url
-from .utils import _get_loader
+from .constants import LayoutType
 
 logger = logging.getLogger(__name__)
 
@@ -111,10 +111,6 @@ def render_comparison_grid_html(
         'title_align': title_align
     }
     
-    layout = _get_loader().get_page_layout('comparison-grid')
-    if not layout:
-        logger.error("comparison-grid layout not found")
-        return f'<div class="slide-content"><h1>{title}</h1><div>Error: comparison-grid layout not found</div></div>'
-    
-    return render_template(layout, variables, theme_colors)
+    # Use render_page_layout for consistency and proper error handling
+    return render_page_layout(LayoutType.COMPARISON_GRID, variables, theme_colors)
 

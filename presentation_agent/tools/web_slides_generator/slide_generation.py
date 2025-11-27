@@ -17,6 +17,7 @@ from presentation_agent.utils.template_helpers import (
     render_process_flow_html,
     markdown_to_html
 )
+from presentation_agent.utils.template_helpers.constants import LayoutType
 from .utils import _parse_json_safely, _ensure_dict
 
 logger = logging.getLogger(__name__)
@@ -24,27 +25,11 @@ logger = logging.getLogger(__name__)
 # Constants
 MAX_FALLBACK_POINTS = 3  # Maximum number of script points to use as fallback content
 
-# Layout type constants (to avoid magic strings)
-class LayoutType:
-    """Layout type constants to avoid magic strings."""
-    COVER_SLIDE = "cover-slide"
-    CONTENT_TEXT = "content-text"
-    CONTENT_WITH_CHART = "content-with-chart"
-    COMPARISON_GRID = "comparison-grid"
-    DATA_TABLE = "data-table"
-    FLOWCHART = "flowchart"
-    ICON_ROW = "icon-row"
-    ICON_SEQUENCE = "icon-sequence"
-    LINEAR_PROCESS = "linear-process"
-    WORKFLOW_DIAGRAM = "workflow-diagram"
-    PROCESS_FLOW = "process-flow"
-
 
 def _generate_content_from_script(script_section: Optional[Dict], max_points: int = MAX_FALLBACK_POINTS) -> Tuple[str, list]:
     """
     Generate HTML content and bullet points from script section as a fallback when slide content is missing.
     
-    This follows Single Responsibility Principle by extracting content generation logic.
     
     Args:
         script_section: Optional script section dict with main_content or opening_line
@@ -541,7 +526,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 "title_align": title_align,
                 "additional_content_html": content_html if content_html else ""
             }
-            return render_page_layout("data-table", variables, theme_colors)
+            return render_page_layout(LayoutType.DATA_TABLE, variables, theme_colors)
         else:
             # Fallback: if table_data is missing, render as normal text content
             logger.info(f"ℹ️  layout_type is 'data-table' but no table_data available for slide {slide_number}, falling back to normal text content")
@@ -716,7 +701,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     # Fallback for content-with-chart when chart_spec is missing
     if layout_type == LayoutType.CONTENT_WITH_CHART and not chart_html:
         # If chart is missing, fall back to content-text layout
-        layout_type = "content-text"
+        layout_type = LayoutType.CONTENT_TEXT
     
     # Default layout (existing behavior)
     has_chart = chart_html != ""
