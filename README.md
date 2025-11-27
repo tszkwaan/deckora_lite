@@ -6,6 +6,48 @@ A multi-agent system that automatically generates professional presentations wit
 
 ---
 
+## Table of Contents
+
+- [Problem](#problem)
+- [Solution](#solution)
+  - [How It Works](#how-it-works)
+  - [Why Agents?](#why-agents)
+  - [Key Technical Approach](#key-technical-approach)
+- [Architecture](#architecture)
+  - [Pipeline Flow](#pipeline-flow)
+  - [Key Components](#key-components)
+  - [Technology Stack](#technology-stack)
+- [Instructions for Setup](#instructions-for-setup)
+  - [Prerequisites](#prerequisites)
+  - [Setup](#setup)
+- [Usage](#usage)
+  - [Basic Usage](#basic-usage)
+  - [Configuration Options](#configuration-options)
+  - [Output Files](#output-files)
+  - [Interactive Development (ADK-web)](#interactive-development-adk-web)
+- [Deployment](#deployment)
+  - [Deployment Architecture](#deployment-architecture)
+  - [API Endpoints](#api-endpoints)
+  - [Deployment Documentation](#deployment-documentation)
+- [Project Structure](#project-structure)
+- [Key Concepts Demonstrated](#key-concepts-demonstrated)
+  - [Multi-agent System](#multi-agent-system-)
+  - [Tools](#tools-)
+  - [Sessions & Memory](#sessions--memory-)
+  - [Context Engineering](#context-engineering-)
+  - [Observability](#observability-)
+  - [Agent Evaluation](#agent-evaluation-)
+  - [Agent Deployment](#agent-deployment-)
+- [Examples](#examples)
+  - [Student Use Case: Academic Presentation](#student-use-case-academic-presentation)
+  - [Enterprise Use Case: Business Pitch](#enterprise-use-case-business-pitch)
+  - [Enterprise Use Case: Internal Updates](#enterprise-use-case-internal-updates)
+- [Screenshots](#screenshots)
+  - [Generated Presentation Slides](#generated-presentation-slides)
+  - [Pipeline Execution](#pipeline-execution)
+
+---
+
 ## Problem
 
 Creating presentation materials is a time-consuming and repetitive task that prevents people from focusing on high-value work. Whether you're a student who spent weeks writing a research report and now needs to present it, or an enterprise team that needs to create dozens of presentations for internal meetings, client pitches, and external communications - the process is the same:
@@ -161,35 +203,59 @@ The system uses a sequential multi-agent architecture with quality gates, feedba
 ### Prerequisites
 
 - Python 3.9+
+- Node.js 18+ and npm (for frontend)
 - Google API Key (for Gemini models)
+- Google ADK (for agent development and ADK-web)
 - (Optional) Google Cloud credentials for deployment
 
 ### Setup
 
-1. **Clone the repository**
+#### 1. Clone the repository
 ```bash
 git clone https://github.com/tszkwaan/deckora_lite
 cd deckora-lite
 ```
 
-2. **Install dependencies**
+#### 2. Install Python dependencies
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-3. **Set API Key**
+#### 3. Install Google ADK
+```bash
+pip install google-genai[adk]
+```
+
+#### 4. Set API Key
 ```bash
 export GOOGLE_API_KEY='your-api-key-here'
 ```
 
-Or create a `.env` file:
+Or create a `.env` file in the project root:
 ```
 GOOGLE_API_KEY=your-api-key-here
 ```
 
-4. **Verify installation**
+#### 5. Setup Frontend (for viewing presentations)
 ```bash
+cd deckora_frontend
+npm install
+```
+
+Create a `.env.local` file under deckora_frontend:
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8080
+```
+
+#### 6. Verify installation
+```bash
+# Test the pipeline
 python main.py
+
+# Start the frontend
+cd deckora_frontend
+npm run dev
+# Open http://localhost:3003 to see the landing page
 ```
 
 ---
@@ -437,3 +503,33 @@ config = PresentationConfig(
 ```
 
 Deckora generates presentation materials for internal team meetings, saving hours of preparation time.
+
+---
+
+## Screenshots
+
+### Generated Presentation Slides
+
+Deckora generates professional, polished slides with various layouts and visual elements:
+
+**Cover Slide**
+![Cover Slide](docs/screenshots/slide_cover.png)
+
+**Content Slide with Bullet Points**
+![Content Slide](docs/screenshots/slide_bullet.png)
+
+**Data Visualization with Charts**
+![Chart Slide](docs/screenshots/slide_chart.png)
+
+**Structured Data Tables**
+![Table Slide](docs/screenshots/slide_table.png)
+
+### Pipeline Execution
+
+The system provides full observability with detailed logging and execution traces:
+
+**Console Output with Metrics**
+![Pipeline Logs](docs/screenshots/log.png)
+
+**ADK-web Interactive Development Interface**
+![ADK-web Interface](docs/screenshots/adk.png)
