@@ -657,6 +657,11 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 subtitle=subtitle,
                 image_cache=image_cache,
             )
+        else:
+            # Fallback: if icon_items couldn't be generated, render as normal text content
+            logger.info(f"ℹ️  layout_type is 'icon-row' but no icon_items available for slide {slide_number}, falling back to normal text content")
+            layout_type = LayoutType.CONTENT_TEXT
+            # Continue to normal text rendering below (don't return early)
     
     elif layout_type == LayoutType.ICON_SEQUENCE:
         sequence_items = visual_elements.get("sequence_items", [])

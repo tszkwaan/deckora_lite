@@ -4,7 +4,7 @@ Icon-related rendering functions.
 
 import logging
 from typing import Dict, List, Optional
-from presentation_agent.utils.template_loader import render_component, render_template
+from presentation_agent.utils.template_loader import render_component, render_template, render_page_layout
 from presentation_agent.utils.image_helper import get_image_url
 from .utils import _get_loader
 
@@ -132,7 +132,7 @@ def render_icon_row_html(
         'icon_items_html': icon_items_html
     }
     
-    return render_template('icon-row', variables, theme_colors)
+    return render_page_layout('icon-row', variables, theme_colors)
 
 
 def render_icon_sequence_html(
@@ -201,7 +201,7 @@ def render_icon_sequence_html(
         'sequence_items_html': sequence_items_html
     }
     
-    return render_template('icon-sequence', variables, theme_colors)
+    return render_page_layout('icon-sequence', variables, theme_colors)
 
 
 def render_linear_process_html(
@@ -268,5 +268,5 @@ def render_linear_process_html(
         'process_steps_html': process_steps_html
     }
     
-    return render_template('linear-process', variables, theme_colors)
+    return render_page_layout('linear-process', variables, theme_colors)
 

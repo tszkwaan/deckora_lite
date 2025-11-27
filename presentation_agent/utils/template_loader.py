@@ -196,7 +196,8 @@ def render_page_layout(layout_name: str, variables: Dict[str, Any], theme_colors
     if not layout:
         logger.warning(f"Page layout '{layout_name}' not found, falling back to default")
         # Fallback to basic layout
-        return f'<div class="slide-content"><h1 class="slide-title">{variables.get("title", "")}</h1><div class="slide-body">{variables.get("content", "")}</div></div>'
+        body_content = variables.get("table_html", "") or variables.get("additional_content_html", "") or variables.get("content", "")
+        return f'<div class="slide-content"><h1 class="slide-title">{variables.get("title", "")}</h1><div class="slide-body">{body_content}</div></div>'
     
     return render_template(layout, variables, theme_colors)
 

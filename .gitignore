@@ -58,6 +58,7 @@ output/
 !package-lock.json
 !tsconfig.json
 !**/tsconfig.json
+!**/templates/**/*.json
 
 # Jupyter Notebook
 .ipynb_checkpoints

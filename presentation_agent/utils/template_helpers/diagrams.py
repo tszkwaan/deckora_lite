@@ -5,7 +5,7 @@ Diagram rendering functions (flowcharts, workflows, process flows).
 import logging
 import uuid
 from typing import Dict, List, Optional
-from presentation_agent.utils.template_loader import render_component, render_template
+from presentation_agent.utils.template_loader import render_component, render_template, render_page_layout
 from presentation_agent.utils.image_helper import get_image_url
 from .utils import _get_loader
 
@@ -191,7 +191,7 @@ def render_workflow_diagram_html(
         'evaluation_criteria_html': evaluation_criteria_html
     }
     
-    return render_template('workflow-diagram', variables, theme_colors)
+    return render_page_layout('workflow-diagram', variables, theme_colors)
 
 
 def render_process_flow_html(
@@ -298,5 +298,5 @@ def render_process_flow_html(
         'flow_stages_html': flow_stages_html
     }
     
-    return render_template('process-flow', variables, theme_colors)
+    return render_page_layout('process-flow', variables, theme_colors)
 

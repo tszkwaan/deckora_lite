@@ -1,0 +1,6 @@
+{
+  "name": "data-table",
+  "html": "<div class=\"slide-content slide-data-table\">\n  <h1 class=\"slide-title\" style=\"font-size: {title_font_size}pt; text-align: {title_align};\">{title}</h1>\n  <div class=\"slide-body\">\n    {table_html}\n    {additional_content_html}\n  </div>\n</div>",
+  "css": ".slide-data-table {\n  width: 100%;\n  height: 100%;\n  padding: 48px 64px;\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n}\n\n.slide-data-table .slide-title {\n  margin-bottom: 32px;\n  color: {theme_primary};\n}\n\n.slide-data-table .slide-body {\n  flex: 1;\n  display: flex;\n  flex-direction: column;\n  gap: 24px;\n  overflow-y: auto;\n}\n\n.slide-data-table .slide-body table {\n  width: 100%;\n  border-collapse: collapse;\n  margin: 0;\n}\n\n.slide-data-table .slide-body .table-caption {\n  font-size: 14px;\n  color: #64748b;\n  margin-top: 8px;\n  text-align: center;\n}"
+}
+
