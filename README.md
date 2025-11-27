@@ -2,6 +2,8 @@
 
 A multi-agent system that automatically generates professional presentations with slides and scripts from documents, reports, and research papers using Google's Agent Development Kit (ADK).
 
+**📹 [Watch the Demo Video](https://www.youtube.com/watch?v=Hy-L9RBUvO4)**
+
 ---
 
 ## Problem
