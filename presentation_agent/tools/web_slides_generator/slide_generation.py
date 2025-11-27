@@ -724,7 +724,7 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
     # Check for fancy content-text template BEFORE other layouts
     # This should be checked early, but after all custom layouts
     # Use fancy template for content-text slides with bullet points (even if they have image_keywords)
-    if layout_type == LayoutType.CONTENT_TEXT and bullet_points and len(bullet_points) >= 2 and not (charts_needed and has_chart):
+    if layout_type == LayoutType.CONTENT_TEXT and bullet_points and len(bullet_points) >= 1 and not (charts_needed and has_chart):
         try:
             from presentation_agent.utils.template_helpers import render_fancy_content_text_html
             
@@ -828,9 +828,25 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         if not bullet_points:
             bullet_points = content.get("bullet_points", [])
         
-        logger.debug(f"Slide {slide_number}: layout_type={layout_type}, bullet_points={bullet_points}, len={len(bullet_points) if bullet_points else 0}")
+        # CRITICAL: If content_html is empty, try to generate from script FIRST before fancy template check
+        # This ensures we have content even if the fancy template doesn't match
+        if not content_html:
+            logger.debug(f"   Generating content from script for slide {slide_number} (before fancy template check)")
+            content_html, script_bullet_points = _generate_content_from_script(script_section)
+            # Update bullet_points from script so fancy template can use them
+            if script_bullet_points:
+                if not bullet_points:
+                    bullet_points = script_bullet_points
+                else:
+                    # Merge script bullet points with existing ones (script takes priority)
+                    bullet_points = script_bullet_points
+                logger.debug(f"   Extracted {len(bullet_points)} bullet points from script for slide {slide_number}")
+            if content_html:
+                logger.info(f"✅ Generated content from script for slide {slide_number} ({len(content_html)} chars)")
         
-        if layout_type == LayoutType.CONTENT_TEXT and bullet_points and len(bullet_points) >= 2:
+        logger.debug(f"Slide {slide_number}: layout_type={layout_type}, bullet_points={bullet_points}, len={len(bullet_points) if bullet_points else 0}, content_html_len={len(content_html) if content_html else 0}")
+        
+        if layout_type == LayoutType.CONTENT_TEXT and bullet_points:
             logger.info(f"🎨 Using fancy template for slide {slide_number} (content-text with {len(bullet_points)} bullet points)")
             try:
                 from presentation_agent.utils.template_helpers import render_fancy_content_text_html
@@ -872,23 +888,13 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
                 logger.error(f"❌ Error rendering fancy template for slide {slide_number}: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
-        else:
-            # Standard text-only slide (or fallback from data-table/other layouts)
-            # If content_html is still empty, try to populate from script or use placeholder
-            if not content_html:
-                logger.debug(f"   Generating content from script for slide {slide_number} (standard text-only path)")
-                content_html, script_bullet_points = _generate_content_from_script(script_section)
-                # Update bullet_points from script so fancy template can use them
-                if script_bullet_points and not bullet_points:
-                    bullet_points = script_bullet_points
-                    logger.debug(f"   Extracted {len(bullet_points)} bullet points from script for slide {slide_number}")
-                if content_html:
-                    logger.info(f"✅ Generated content from script for slide {slide_number} ({len(content_html)} chars)")
-                else:
-                    logger.warning(f"⚠️  Slide {slide_number} has no content. Using placeholder.")
-                    content_html = _get_placeholder_content()
-            
-            slide_html = f"""
+        # Standard text-only slide (or fallback from fancy template or other layouts)
+        # If content_html is still empty, use placeholder
+        if not content_html:
+            logger.warning(f"⚠️  Slide {slide_number} has no content after all attempts. Using placeholder.")
+            content_html = _get_placeholder_content()
+        
+        slide_html = f"""
     <div class="slide-content {layout_class}">
         <h1 class="slide-title" style="font-size: {title_font_size}pt; text-align: {title_align};">{slide_title}</h1>
         <div class="slide-body" style="font-size: {body_font_size}pt; text-align: {body_align};">
@@ -898,4 +904,4 @@ def _generate_slide_html_fragment(slide: Dict, script_section: Optional[Dict], s
         {icons_html}
     </div>
 """
-            return slide_html.strip()
+        return slide_html.strip()
