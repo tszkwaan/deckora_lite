@@ -39,6 +39,17 @@ Deckora is a multi-agent system that automates the entire presentation generatio
 
 Deckora transforms research documents into presentation-ready materials through a **specialized multi-agent pipeline**. Each agent focuses on a specific task—from understanding the document structure to generating polished slides—with built-in quality evaluation that automatically improves outputs when needed. The system intelligently extracts only relevant content per slide to optimize efficiency, while parallel processing handles visual assets simultaneously for faster generation. The final output is a web-ready HTML presentation that can be viewed in a Next.js frontend application or integrated into existing workflows.
 
+### Why Agents?
+
+Generating a good presentation isn't one task—it's many different steps: understanding the document, structuring a story, designing slides, and writing a script. Agents are a natural fit because:
+
+- **Break a complex workflow into expert subtasks**: Each step can be handled by a specialized agent that focuses on one job
+- **Improve quality with specialized reasoning**: Specialized agents produce better results than a single general-purpose model
+- **Enable automatic checking and self-correction**: Agents evaluate each other's outputs, so the system can catch mistakes and improve quality automatically
+- **Scale reliably from one document to hundreds**: The multi-agent workflow makes Deckora more accurate, more consistent, and capable of scaling to many documents
+
+This multi-agent approach directly addresses the core challenges of presentation generation: formatting, structuring, consistency, and scale—delivering expert-level results automatically.
+
 ### Key Technical Approach
 
 **Specialized Multi-Agent Architecture**: Five specialized agents, each optimized for a specific task (knowledge extraction, outline generation, quality evaluation, content creation, visualization), work together in a coordinated pipeline. This specialization enables better results than a single general-purpose model.
